@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OneDesk CRM
+#
+# Two things must never reach this repository: the keys and passwords that let
+# somebody in, and the customers' own data. Both live in folders the server
+# creates at runtime, listed below. If you add a new one, add it here first.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Dependencies and build output
+node_modules/
+dist/
+dist-server/
+*.tsbuildinfo
+
+# Settings and keys. .env.local holds the AI key and the Excel path; it is
+# deliberately not VITE_-prefixed so it never reaches the browser bundle.
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+# .env.example is tracked on purpose: it documents the settings, with no values.
+
+# The accounts: password hashes, the session signing secret, and the list of
+# starting passwords. Real people's credentials — never committed.
+.crm-auth/
+
+# The CRM itself: every customer, invoice, ageing row and follow-up.
+.crm-data/
+
+# Weekly KPI saved days and scores, which are the same customer data.
+.crm-snapshots/
+
+# Alert settings, which carry the recipients' email addresses.
+.crm-alerts.json
+
+# Anything anyone marks as local, as a backstop for the two rules above.
+*.local.json
+!*.example.json
+
+# The workbook, if it is ever copied into the project folder.
+*.xlsx
+*.xlsm
+*.xls
+
+# Logs and coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+.cache/
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

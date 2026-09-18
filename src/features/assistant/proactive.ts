@@ -1,0 +1,334 @@
+/**
+ * What the robot says, unprompted, on the screen the person is looking at.
+ *
+ * Every line comes from the same records the rest of the app reads; the robot
+ * never invents an observation. It speaks only when there is something to act
+ * on, and each remark carries a key so it is said once - once per session for
+ * a record, once per day for the morning plan - rather than every time the
+ * page re-renders.
+ */
+
+import type { Company, Followup, OverduePayment, UserRole } from '@/lib/types'
+import { isNoFollowup } from '@/lib/no-followup'
+import { worthChasing } from '@/lib/status-rules'
+import { carriedOverLine } from './daily-plan'
+import { formatCurrency, formatRelativeDate } from '@/lib/utils'
+import type { OverdueCommitment } from '@/lib/followups-api'
+import type { ResolvedPlan } from './daily-plan'
+import type { TeamPlan } from './plan-store'
+import type { FocusedRecord, Screen } from './screen-context'
+import type { AssistantTask } from './types'
+
+export type NudgeAction =
+  /** Set a nudge aside until tomorrow. Nothing is ever logged from a bubble. */
+  | { kind: 'snooze_task'; taskId: string; label: string }
+  | { kind: 'open_plan'; label: string }
+  | { kind: 'open'; label: string }
+  | { kind: 'navigate'; to: string; label: string }
+  | { kind: 'remind'; toCoordinatorId: string; toName: string; subject: string | null; label: string }
+
+export interface Nudge {
+  /** Stable per remark, so it is said once. */
+  key: string
+  text: string
+  detail?: string
+  tone: 'info' | 'warn' | 'success'
+  actions: NudgeAction[]
+  /** Said once per calendar day rather than once per session. */
+  daily?: boolean
+}
+
+export interface NudgeInput {
+  role: UserRole
+  userId: string
+  firstName: string
+  today: string
+  /** Local clock, minutes since midnight. */
+  minutesNow: number
+  screen: Screen
+  focused: FocusedRecord | null
+  /** The coordinator's live nudges with snoozes applied. */
+  tasks: AssistantTask[]
+  plan: ResolvedPlan | null
+  /** Coordinator: their own follow-ups. Leader: the whole team's. */
+  followups: Followup[]
+  companies: Company[]
+  overduePayments: OverduePayment[]
+  /** Null when the person does not file a daily entry. */
+  dailyEntryLogged: boolean | null
+  /** Leader only. */
+  team?: TeamPlan[]
+  brokenPromises?: OverdueCommitment[]
+  coordinatorName?: (id: string | null) => string
+}
+
+/** Days without a call before the robot mentions it on an open record. */
+const QUIET_DAYS = 7
+/** When the daily-entry reminder starts, in minutes since midnight (4:30 pm). */
+const ENTRY_REMINDER_AT = 16 * 60 + 30
+
+function partOfDay(minutesNow: number): string {
+  const hour = Math.floor(minutesNow / 60)
+  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+}
+
+function daysSince(iso: string, today: string): number {
+  const then = new Date(iso)
+  const day = isNaN(then.getTime()) ? new Date(`${iso}T00:00:00`) : then
+  return Math.round((new Date(`${today}T00:00:00`).getTime() - day.getTime()) / 86400000)
+}
+
+function latestFollowupOn(followups: Followup[], record: FocusedRecord): Followup | null {
+  const hits = followups
+    .filter((f) => f.entity_type === record.type && f.entity_id === record.id)
+    .sort((a, b) => b.followup_date.localeCompare(a.followup_date))
+  return hits[0] ?? null
+}
+
+function recordIsOpen(input: NudgeInput, record: FocusedRecord): boolean {
+  if (record.type === 'company') {
+    const company = input.companies.find((c) => c.id === record.id)
+    return !!company && company.status !== 'paid'
+  }
+  const payment = input.overduePayments.find((p) => p.id === record.id)
+  return !!payment && payment.status !== 'settled' && payment.status !== 'bankrupt' && !isNoFollowup(payment) && worthChasing(payment.balance_due)
+}
+
+function deepLink(item: { entityType?: string; entityId?: string }): string | null {
+  if (!item.entityType || !item.entityId) return null
+  return item.entityType === 'overdue_payment'
+    ? `/overdue?payment=${item.entityId}`
+    : `/companies?company=${item.entityId}`
+}
+
+/* ===== Coordinator ===== */
+
+function coordinatorNudge(input: NudgeInput): Nudge | null {
+  const { focused, plan, tasks, today } = input
+
+  // 1. The record on screen has work waiting on it.
+  if (focused) {
+    const task = tasks
+      .filter((t) => t.entityType === focused.type && t.entityId === focused.id)
+      .sort((a, b) => a.priority - b.priority)[0]
+    if (task) {
+      return {
+        key: `focus:${focused.type}:${focused.id}:${task.id}`,
+        text: task.message,
+        detail: task.detail ?? 'Log what happened on the timeline here.',
+        tone: 'warn',
+        actions: [{ kind: 'snooze_task', taskId: task.id, label: 'Later' }],
+      }
+    }
+
+    // 2. Nothing is due on it, but it has gone quiet.
+    if (recordIsOpen(input, focused)) {
+      const last = latestFollowupOn(input.followups, focused)
+      if (last) {
+        const silent = daysSince(last.followup_date, today)
+        if (silent >= QUIET_DAYS) {
+          return {
+            key: `focus:${focused.type}:${focused.id}:quiet`,
+            text: `Last contact with ${focused.name} was ${formatRelativeDate(last.followup_date)}${
+              last.notes ? ` — "${last.notes}"` : ''
+            }.`,
+            detail: `${silent} days without a call. Worth a quick one while you are here?`,
+            tone: 'info',
+            actions: [{ kind: 'open', label: 'Ask Robi' }],
+          }
+        }
+      } else {
+        return {
+          key: `focus:${focused.type}:${focused.id}:never`,
+          text: `No call has been logged on ${focused.name} yet.`,
+          detail: 'Log the first one and I will keep the reminders coming.',
+          tone: 'info',
+          actions: [{ kind: 'open', label: 'Ask Robi' }],
+        }
+      }
+    }
+    return null
+  }
+
+  // 3. The plan is finished: say so once, then leave the person alone.
+  if (plan && plan.complete && plan.done > 0) {
+    return {
+      key: `plan-complete:${plan.date}`,
+      text: `That is all ${plan.total} on today's plan — good work, ${input.firstName}.`,
+      detail: 'I will have tomorrow\'s plan ready when you sign in.',
+      tone: 'success',
+      actions: [],
+      daily: true,
+    }
+  }
+
+  // 4. Daily entry not filed and the afternoon is getting on.
+  if (
+    input.dailyEntryLogged === false &&
+    input.minutesNow >= ENTRY_REMINDER_AT &&
+    input.screen !== 'daily-entry'
+  ) {
+    return {
+      key: `daily-entry:${today}`,
+      text: `It is past 4:30 and today's activity log is still empty.`,
+      detail: 'Two minutes now saves a chase from the team leader later.',
+      tone: 'warn',
+      actions: [{ kind: 'navigate', to: '/daily-entry', label: 'Log it now' }],
+      daily: true,
+    }
+  }
+
+  // 5. The dashboard: the plan for the day.
+  if (input.screen === 'dashboard' && plan && plan.total > 0) {
+    // Said first, and in the greeting itself: work that came forward is the
+    // work most likely to be forgotten, and a list that quietly reorders
+    // itself reads as new work rather than as a debt.
+    const carried = carriedOverLine(plan)
+
+    if (plan.done === 0 && plan.skipped === 0) {
+      return {
+        key: `plan-intro:${plan.date}`,
+        text: `${partOfDay(input.minutesNow)}, ${input.firstName}. I have lined up ${plan.total} follow-up${
+          plan.total === 1 ? '' : 's'
+        } for you today${carried ? `, including ${carried}` : ''}.`,
+        detail: plan.items[0]?.entityName ? `First up: ${plan.items[0].entityName}.` : undefined,
+        tone: carried ? 'warn' : 'info',
+        actions: [{ kind: 'open_plan', label: 'Show my plan' }],
+        daily: true,
+      }
+    }
+    return {
+      key: `plan-progress:${plan.date}:${plan.done}:${plan.skipped}`,
+      text: `${plan.done} of ${plan.total} on today's plan done — ${plan.open} to go${
+        carried ? `, ${carried}` : ''
+      }.`,
+      tone: carried ? 'warn' : 'info',
+      actions: [{ kind: 'open_plan', label: 'Show my plan' }],
+    }
+  }
+
+  // 6. On a book screen: the next planned item that lives on this screen.
+  if ((input.screen === 'companies' || input.screen === 'overdue') && plan) {
+    const wanted = input.screen === 'companies' ? 'company' : 'overdue_payment'
+    const next = plan.items.find((item) => item.status === 'open' && item.entityType === wanted)
+    if (next) {
+      const link = deepLink(next)
+      return {
+        key: `plan-next:${next.taskId}`,
+        text: `Next on today's plan: ${next.message}`,
+        tone: 'info',
+        actions: [
+          ...(link ? [{ kind: 'navigate' as const, to: link, label: 'Open it' }] : []),
+          { kind: 'snooze_task', taskId: next.taskId, label: 'Later' },
+        ],
+      }
+    }
+  }
+
+  return null
+}
+
+/* ===== Team leader / admin ===== */
+
+function leaderNudge(input: NudgeInput): Nudge | null {
+  const { focused, team = [], today } = input
+  const nameOf = input.coordinatorName ?? ((id) => id ?? 'nobody')
+
+  // 1. An account is open: who has it, and whether it is on their plan.
+  if (focused) {
+    const ownerId =
+      focused.type === 'company'
+        ? input.companies.find((c) => c.id === focused.id)?.assigned_coordinator_id ?? null
+        : input.overduePayments.find((p) => p.id === focused.id)?.assigned_coordinator_id ?? null
+    if (!ownerId || !recordIsOpen(input, focused)) return null
+
+    const owner = nameOf(ownerId)
+    const ownerFirst = owner.split(' ')[0]
+    const last = latestFollowupOn(input.followups, focused)
+    const planned = team
+      .find((t) => t.coordinatorId === ownerId)
+      ?.plan.items.find((item) => item.entityType === focused.type && item.entityId === focused.id)
+
+    const contact = last
+      ? `Last contact ${formatRelativeDate(last.followup_date)} by ${nameOf(last.coordinator_id)}.`
+      : 'No call has been logged on it.'
+    const planLine = planned
+      ? planned.status === 'done'
+        ? ` ${ownerFirst} dealt with it today.`
+        : ` It is on ${ownerFirst}'s plan for today and still open.`
+      : ''
+
+    const silent = last ? daysSince(last.followup_date, today) : Infinity
+    return {
+      key: `lead-focus:${focused.type}:${focused.id}`,
+      text: `${focused.name} is with ${owner}. ${contact}${planLine}`,
+      tone: silent >= QUIET_DAYS && planned?.status !== 'done' ? 'warn' : 'info',
+      actions:
+        planned?.status === 'done'
+          ? []
+          : [
+              {
+                kind: 'remind',
+                toCoordinatorId: ownerId,
+                toName: owner,
+                subject: focused.name,
+                label: `Remind ${ownerFirst}`,
+              },
+            ],
+    }
+  }
+
+  // 2. The Overview: how the team's day is going.
+  if (input.screen === 'overview' && team.length > 0) {
+    const withPlans = team.filter((t) => t.plan.total > 0)
+    if (withPlans.length === 0) return null
+    const done = withPlans.reduce((sum, t) => sum + t.plan.done, 0)
+    const total = withPlans.reduce((sum, t) => sum + t.plan.total, 0)
+    const idle = withPlans.filter((t) => t.plan.done === 0 && t.plan.skipped === 0).map((t) => t.name.split(' ')[0])
+    return {
+      key: `team-progress:${today}:${done}`,
+      text: `Today's plans: ${done} of ${total} follow-ups done across ${withPlans.length} coordinator${
+        withPlans.length === 1 ? '' : 's'
+      }.`,
+      detail:
+        idle.length > 0
+          ? `${idle.slice(0, 4).join(', ')}${idle.length > 4 ? ` and ${idle.length - 4} more` : ''} ${
+              idle.length === 1 ? 'has' : 'have'
+            } not started yet.`
+          : 'Everyone has started on theirs.',
+      tone: idle.length > 0 && input.minutesNow >= 12 * 60 ? 'warn' : 'info',
+      actions: [{ kind: 'open', label: 'See the team' }],
+    }
+  }
+
+  // 3. The dashboard: promises the customers broke, oldest first.
+  if (input.screen === 'dashboard' && input.brokenPromises && input.brokenPromises.length > 0) {
+    const oldest = input.brokenPromises[0]
+    return {
+      key: `lead-broken:${today}:${input.brokenPromises.length}`,
+      text: `${input.brokenPromises.length} promise${input.brokenPromises.length === 1 ? ' is' : 's are'} broken across the team.`,
+      detail: `${oldest.entity_name} is the oldest — ${oldest.days_overdue} day${
+        oldest.days_overdue === 1 ? '' : 's'
+      } past ${oldest.committed_amount ? formatCurrency(oldest.committed_amount) : 'the promised date'}, with ${
+        oldest.coordinator_name
+      }.`,
+      tone: 'warn',
+      actions: [{ kind: 'navigate', to: '/admin/overview', label: 'Open Overview' }],
+    }
+  }
+
+  return null
+}
+
+/** The one thing worth saying right now, or nothing. */
+export function composeNudge(input: NudgeInput): Nudge | null {
+  switch (input.role) {
+    case 'coordinator':
+      return coordinatorNudge(input)
+    case 'team_leader':
+    case 'admin':
+      return leaderNudge(input)
+    default:
+      return null
+  }
+}
