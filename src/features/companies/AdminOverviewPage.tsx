@@ -5,6 +5,7 @@ import { ProofReview, useProofsToReview } from '@/features/assistant/ProofReview
 import { WeeklyScores } from '@/features/assistant/ScoresView';
 import { DecisionApprovals, usePendingDecisions } from './DecisionApprovals';
 import { AttendanceView } from './AttendanceView';
+import { OverviewReportButton } from './OverviewReportButton';
 import { motion } from 'motion/react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { KpiCard } from '@/components/shared/KpiCard';
@@ -204,7 +205,9 @@ export function AdminOverviewPage() {
       <PageHeader
         title="Coordinator Overview"
         subtitle="Cross-coordinator payment follow-up tracking"
-      />
+      >
+        <OverviewReportButton coordinators={coordinators} />
+      </PageHeader>
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList className="h-auto flex-wrap">
