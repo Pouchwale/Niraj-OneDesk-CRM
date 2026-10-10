@@ -150,7 +150,9 @@ export function customerLookup(
 export function waitingCustomers(
   followups: Pick<Followup, 'entity_type' | 'entity_id' | 'followup_date' | 'created_at' | 'next_reminder_date' | 'committed_date'>[],
   today: string,
-  customerOf?: CustomerOf
+  customerOf?: CustomerOf,
+  /** The daily plan also rests a customer five days after a follow-up with no next date. */
+  rest = false
 ): Set<string> {
   const latest = new Map<string, (typeof followups)[number]>()
   for (const f of followups) {
@@ -162,11 +164,27 @@ export function waitingCustomers(
     }
   }
   const waiting = new Set<string>()
+  const restUntil = addDays(today, -REST_DAYS)
   for (const [key, f] of latest) {
     const next = [f.next_reminder_date, f.committed_date].filter(Boolean).map((d) => String(d).slice(0, 10))
     if (next.some((d) => d > today)) waiting.add(key)
+    // No date given: the customer rests five days after the last contact, so
+    // Robi does not hand out the same call day after day (since 10 Oct 2026).
+    else if (rest && next.length === 0) {
+      const contacted = [f.followup_date, f.created_at].filter(Boolean).map((d) => String(d).slice(0, 10)).sort().at(-1) ?? ''
+      if (contacted > restUntil) waiting.add(key)
+    }
   }
   return waiting
+}
+
+/** Days a customer rests after a follow-up that set no next date. */
+export const REST_DAYS = 5
+
+const addDays = (date: string, days: number) => {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
 }
 
 /**
@@ -204,7 +222,7 @@ export function dueDateLookup(companies: { id: string; due_date: string | null }
  * ageing, then untouched accounts, at most two of a kind, which put a ₹1,298
  * reminder ahead of a ₹3 lakh invoice months older.
  */
-export function oldestBiggestFirst(dueDateOf?: DueDateOf, balanceOf?: BalanceOf) {
+export function biggestOldestFirst(dueDateOf?: DueDateOf, balanceOf?: BalanceOf) {
   const due = (t: { entityType?: string; entityId?: string }) => {
     const key = entityKeyOf(t)
     return (key && dueDateOf ? dueDateOf(key) : null) ?? '9999-12-31'
@@ -216,7 +234,7 @@ export function oldestBiggestFirst(dueDateOf?: DueDateOf, balanceOf?: BalanceOf)
   return (
     a: { entityType?: string; entityId?: string; amount?: number | null; kind: AssistantTaskKind },
     b: { entityType?: string; entityId?: string; amount?: number | null; kind: AssistantTaskKind }
-  ) => due(a).localeCompare(due(b)) || owed(b) - owed(a) || TASK_PRIORITY[a.kind] - TASK_PRIORITY[b.kind]
+  ) => owed(b) - owed(a) || due(a).localeCompare(due(b)) || TASK_PRIORITY[a.kind] - TASK_PRIORITY[b.kind]
 }
 
 /**
@@ -292,7 +310,7 @@ export function pickPlanTasks(
   balanceOf?: BalanceOf,
   /**
    * When each record fell due. Given, the oldest and biggest money goes first
-   * (see oldestBiggestFirst) with no limit per kind; without it, the older
+   * (see biggestOldestFirst) with no limit per kind; without it, the older
    * order by kind of nudge.
    */
   dueDateOf?: DueDateOf
@@ -308,7 +326,7 @@ export function pickPlanTasks(
      * the reading that once ticked a whole day's work off by itself.
      */
     .filter((task) => entityKeyOf(task) !== null)
-    .sort(dueDateOf ? oldestBiggestFirst(dueDateOf, balanceOf) : (a, b) => a.priority - b.priority)
+    .sort(dueDateOf ? biggestOldestFirst(dueDateOf, balanceOf) : (a, b) => a.priority - b.priority)
   const kindLimit = dueDateOf ? Infinity : MAX_PER_KIND
 
   const carried = new Set(carryOverEntities)
@@ -393,12 +411,12 @@ export function makePlan(
   now: string = new Date().toISOString(),
   customerOf?: CustomerOf,
   balanceOf?: BalanceOf,
-  /** Given, the plan is the oldest and biggest money first (oldestBiggestFirst). */
+  /** Given, the plan is the oldest and biggest money first (biggestOldestFirst). */
   dueDateOf?: DueDateOf,
   /** Fresh Active Payments tasks: four, or two on a half day. */
   size: number = PLAN_SIZE
 ): DailyPlan {
-  const rank = oldestBiggestFirst(dueDateOf, balanceOf)
+  const rank = biggestOldestFirst(dueDateOf, balanceOf)
   const customerKey = (item: { entityType?: string; entityId?: string }) => {
     const key = entityKeyOf(item)
     return key ? workKey(key, customerOf) : null

@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import type { AttendanceEntry } from '@/lib/types'
-import { cn, formatDate, todayISO } from '@/lib/utils'
+import { addDaysISO, cn, formatDate, todayISO } from '@/lib/utils'
 
 type Choice = 'present' | AttendanceEntry['status']
 
@@ -38,7 +38,7 @@ export function AttendanceView({ coordinators }: { coordinators: { id: string; f
 
   const statusOf = (userId: string): Choice => entries.find((a) => a.userId === userId && a.date === date)?.status ?? 'present'
   const upcoming = entries
-    .filter((a) => a.date >= today)
+    .filter((a) => a.date >= addDaysISO(today, -7))
     .sort((a, b) => a.date.localeCompare(b.date) || a.userId.localeCompare(b.userId))
 
   const choose = async (userId: string, choice: Choice) => {
@@ -65,7 +65,7 @@ export function AttendanceView({ coordinators }: { coordinators: { id: string; f
           <div>
             <h3 className="font-semibold leading-tight">Attendance</h3>
             <p className="text-xs text-muted-foreground">
-              Mark who is on leave or on a half day, today or ahead. Robi gives no tasks on leave and 4 instead of 8 on a
+              Mark who is on leave or on a half day, ahead of time or for a day already gone. Robi gives no tasks on leave and 4 instead of 8 on a
               half day. A leave or half day doesn't count against the score.
             </p>
           </div>
@@ -76,7 +76,6 @@ export function AttendanceView({ coordinators }: { coordinators: { id: string; f
             id="attendance-date"
             type="date"
             value={date}
-            min={today}
             onChange={(e) => e.target.value && setDate(e.target.value)}
             className="rounded-md border border-border bg-background px-2 py-1 text-sm"
           />
@@ -125,7 +124,7 @@ export function AttendanceView({ coordinators }: { coordinators: { id: string; f
 
       {upcoming.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs font-medium uppercase text-muted-foreground">Marked from today on</p>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Marked, last 7 days and ahead</p>
           <ul className="space-y-1 text-sm">
             {upcoming.map((a) => (
               <li key={`${a.userId}-${a.date}`}>

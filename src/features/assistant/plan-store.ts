@@ -151,13 +151,21 @@ export function ensurePlan(
 
   // A customer given a next follow-up date later than today waits for it, carried or not.
   if (evidence) {
-    const waiting = waitingCustomers(evidence.followups, date, evidence.customerOf)
+    const waiting = waitingCustomers(evidence.followups, date, evidence.customerOf, true)
     carried = carried.filter((item) => {
       const key = entityKeyOf(item)
       return !key || !waiting.has(evidence.customerOf?.(key) ?? key)
     })
   }
 
+  // Nobody waiting for a later date, or resting after a recent call, is planned.
+  if (evidence) {
+    const resting = waitingCustomers(evidence.followups, date, evidence.customerOf, true)
+    tasks = tasks.filter((task) => {
+      const key = entityKeyOf(task)
+      return !key || !resting.has(evidence!.customerOf?.(key) ?? key)
+    })
+  }
   const active = makePlan(userId, date, tasks, carried, undefined, evidence?.customerOf, evidence?.balanceOf, evidence?.dueDateOf, evidence?.perHalf ?? PLAN_SIZE)
   // Four Active Payments tasks, then four Overdue Payments tasks: eight a day.
   if (evidence?.companies) active.items = [...active.items, ...activeFill(date, active.items, evidence)]
@@ -226,7 +234,7 @@ function activeFill(
 ): PlanItem[] {
   if (room <= 0) return []
   const customer = (entityKey: string) => evidence.customerOf?.(entityKey) ?? entityKey
-  const waiting = waitingCustomers(evidence.followups, date, evidence.customerOf)
+  const waiting = waitingCustomers(evidence.followups, date, evidence.customerOf, true)
   const taken = new Set(planItems.map(entityKeyOf).filter((k): k is string => k !== null).map(customer))
   const startOfToday = new Date(`${date}T00:00:00`).toISOString()
   const lastContact = new Map<string, string>()
@@ -241,7 +249,8 @@ function activeFill(
     .filter((c) => (c.total_amount ?? 0) >= PLAN_MIN_AMOUNT)
     .sort(
       (a, b) =>
-        (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999') || (b.total_amount ?? 0) - (a.total_amount ?? 0)
+        // Highest amount first, then the oldest due date (since 10 Oct 2026).
+        (b.total_amount ?? 0) - (a.total_amount ?? 0) || (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999')
     )
 
   const picked: PlanItem[] = []
@@ -314,7 +323,7 @@ function overduePart(
   now: Date = new Date()
 ): PlanItem[] {
   const customer = (entityKey: string) => evidence.customerOf?.(entityKey) ?? entityKey
-  const waiting = waitingCustomers(evidence.followups, date, evidence.customerOf)
+  const waiting = waitingCustomers(evidence.followups, date, evidence.customerOf, true)
   const taken = new Set(planItems.map(entityKeyOf).filter((k): k is string => k !== null).map(customer))
 
   const brought: PlanItem[] = []

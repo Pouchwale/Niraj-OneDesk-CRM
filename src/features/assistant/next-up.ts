@@ -42,7 +42,7 @@ export function nextToFollowUp(input: {
 }): NextUp[] {
   const { userId, overduePayments, followups, planItems, startOfToday, customerOf } = input
   const customer = (entityKey: string) => customerOf?.(entityKey) ?? entityKey
-  const waiting = input.today ? waitingCustomers(followups, input.today, customerOf) : new Set<string>()
+  const waiting = input.today ? waitingCustomers(followups, input.today, customerOf, true) : new Set<string>()
 
   const planned = new Set(
     planItems.map((item) => entityKeyOf(item)).filter((key): key is string => key !== null).map(customer)
@@ -79,12 +79,12 @@ export function nextToFollowUp(input: {
     })
   }
 
-  // The oldest money first (121+ days, then 91-120, ...), then the biggest
-  // balance, then whoever has gone longest without a call.
+  // The biggest balance first, then the oldest money (121+ days, then
+  // 91-120, ...), then whoever has gone longest without a call.
   candidates.sort(
     (a, b) =>
-      b.oldestBucket - a.oldestBucket ||
       b.balance - a.balance ||
+      b.oldestBucket - a.oldestBucket ||
       (a.lastContact ?? '').localeCompare(b.lastContact ?? '')
   )
   return candidates.slice(0, input.limit ?? NEXT_UP_SIZE).map(({ key: _key, ...rest }) => rest)

@@ -54,11 +54,11 @@ SET ASIDE: NO FOLLOW-UP AND BANKRUPT
 - The sync never changes a set-aside customer; a bankruptcy survives every sync.
 
 ROBI'S DAILY PLAN
-- Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. Only balances of Rs 1,000 or more, one per customer, the oldest money first and then the biggest amount. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date.
+- Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.
 - A task is done when the coordinator logs any follow-up on that customer that day - on any of its invoices or its overdue row (not the follow-up that created the task, such as the customer's own promise).
 - "Later" sets a task aside for the day. Anything not done comes back at the top of the next day's plan, on top of that day's 8 new tasks, reworded with that day's facts.
 - There is no extra work after the plan: once the day's tasks are done, Robi adds nothing more that day.
-- Attendance: the team leader or administrator marks a coordinator on leave or on a half day in Overview > Attendance (today or ahead). On leave Robi gives no tasks and the day is left out of the score; anything open comes back on the next working day. On a half day Robi gives 4 new tasks instead of 8 (leftovers still on top) and 1 proof check instead of 2; if the half day is marked after the plan was made, the undone new tasks beyond 4 move to the next working day.
+- Attendance: the team leader or administrator marks a coordinator on leave or on a half day in Overview > Attendance (today or ahead). On leave Robi gives no tasks and the day shows "Leave" in the scores, never 0% or -100% (a past day can be marked too); anything open comes back on the next working day. On a half day Robi gives 4 new tasks instead of 8 (leftovers still on top) and 1 proof check instead of 2; if the half day is marked after the plan was made, the undone new tasks beyond 4 move to the next working day.
 - Overview > Robi task history shows every task, who did it and when, what was not done, completion % (done out of all tasks given) and an Excel download.
 
 MESSAGES THROUGH ROBI (team leader and administrator only)

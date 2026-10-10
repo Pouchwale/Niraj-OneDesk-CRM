@@ -45,7 +45,11 @@ function useScores(coordinatorIds: string[]): Map<string, DayScore> {
 
 const dayName = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short' })
 
-function Cell({ s, today }: { s?: DayScore; today: boolean }) {
+/** On leave that day: shown as such and never scored (marked in Overview → Attendance). */
+const onLeave = (userId: string, date: string) => demoCompanyStore.getAttendance(userId, date)?.status === 'leave'
+
+function Cell({ s, today, leave }: { s?: DayScore; today: boolean; leave?: boolean }) {
+  if (leave) return <span className="text-xs text-muted-foreground" title="On leave: not scored">Leave</span>
   if (!s) return <span className="text-muted-foreground">—</span>
   return (
     <span title={`${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}`}>
@@ -76,7 +80,7 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
     const header = ['Coordinator', ...days.map((d) => `${dayName(d)} ${d}`), 'Weekly average']
     const body = rows.map((r) => [
       r.name,
-      ...r.week.map((s) => (s ? `${s.score}% (${s.done}/${s.given})` : '—')),
+      ...r.week.map((s, i) => (onLeave(r.id, days[i]) ? 'Leave' : s ? `${s.score}% (${s.done}/${s.given})` : '—')),
       r.average === null ? '—' : `${r.average}%`,
     ])
     const raw = [
@@ -102,8 +106,8 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
             <h3 className="font-semibold leading-tight">Coordinator scores</h3>
             <p className="text-xs text-muted-foreground">
               Each day: tasks done ÷ tasks on Robi's list (8 fresh + any leftovers), shown as the gap from 100% —
-              0% is every task done, -20% is 80% done. Monday to Saturday; days with no plan are left out of the
-              average.
+              0% is every task done, -20% is 80% done. Monday to Saturday; days with no plan, and leave days
+              marked in Attendance, show — or Leave and are left out of the average.
             </p>
           </div>
         </div>
@@ -146,7 +150,7 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
                   <td className="whitespace-nowrap px-4 py-3 font-medium">{r.name}</td>
                   {r.week.map((s, i) => (
                     <td key={days[i]} className={cn('whitespace-nowrap px-3 py-3 text-center', days[i] === today && 'bg-primary/5')}>
-                      <Cell s={s} today={days[i] === today} />
+                      <Cell s={s} today={days[i] === today} leave={onLeave(r.id, days[i])} />
                     </td>
                   ))}
                   <td className={cn('px-4 py-3 text-center text-base font-bold tabular-nums', scoreTone(r.average))}>{scoreLabel(r.average)}</td>
@@ -186,7 +190,7 @@ export function MyScoreCard({ userId }: { userId: string }) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border border-border/60 p-3">
           <p className="text-xs text-muted-foreground">Today so far</p>
-          <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(todayScore?.score))}>{scoreLabel(todayScore?.score)}</p>
+          <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(todayScore?.score))}>{onLeave(userId, today) ? 'Leave' : scoreLabel(todayScore?.score)}</p>
           {todayScore && <p className="text-xs text-muted-foreground">{todayScore.done} of {todayScore.given} done</p>}
         </div>
         <div className="rounded-lg border border-border/60 p-3">
@@ -198,7 +202,7 @@ export function MyScoreCard({ userId }: { userId: string }) {
           {days.map((d, i) => (
             <div key={d} className={cn('flex-1 text-center', d === today && 'font-semibold')}>
               <p className="text-[11px] text-muted-foreground">{dayName(d)}</p>
-              <p className={cn('text-sm tabular-nums', scoreTone(week[i]?.score))}>{scoreLabel(week[i]?.score)}</p>
+              <p className={cn('text-sm tabular-nums', scoreTone(week[i]?.score))}>{onLeave(userId, d) ? 'Leave' : scoreLabel(week[i]?.score)}</p>
             </div>
           ))}
         </div>

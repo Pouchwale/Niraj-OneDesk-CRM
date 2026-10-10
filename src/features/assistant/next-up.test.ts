@@ -129,7 +129,7 @@ describe('once the plan is done, Robi hands over the overdue list', () => {
     ageing('g', 'Someone Else', 60_000, { assigned_coordinator_id: 'coord-2' }),
   ]
 
-  it('lists overdue companies of ₹1,000+, money past 90 days first, skipping what is done or not theirs', () => {
+  it('lists overdue companies of ₹1,000+, the biggest balance first, skipping what is done or not theirs', () => {
     const next = nextToFollowUp({
       userId: 'coord-1',
       overduePayments: book,
@@ -138,12 +138,12 @@ describe('once the plan is done, Robi hands over the overdue list', () => {
       startOfToday: START,
       customerOf: customerLookup([], book),
     })
-    expect(next.map((n) => n.name)).toEqual(['Aged Co', 'Big Co'])
-    expect(next[0]).toMatchObject({ critical: 15_000, lastContact: null })
-    expect(next[1].lastContact).toBe('2026-09-20T05:00:00.000Z')
+    expect(next.map((n) => n.name)).toEqual(['Big Co', 'Aged Co'])
+    expect(next[1]).toMatchObject({ critical: 15_000, lastContact: null })
+    expect(next[0].lastContact).toBe('2026-09-20T05:00:00.000Z')
   })
 
-  it('hands out the oldest money first, then the biggest balance', () => {
+  it('hands out the biggest balance first, then the oldest money (since 10 Oct 2026)', () => {
     const rows = [
       ageing('young-big', 'Young Big', 9_00_000), // all in 0-30 days
       ageing('old-small', 'Old Small', 5_000, { due_0_30: 0, due_121_plus: 5_000 }),
@@ -158,7 +158,7 @@ describe('once the plan is done, Robi hands over the overdue list', () => {
       startOfToday: START,
       customerOf: customerLookup([], rows),
     })
-    expect(next.map((n) => n.name)).toEqual(['Old Big', 'Old Small', 'Mid', 'Young Big'])
+    expect(next.map((n) => n.name)).toEqual(['Young Big', 'Old Big', 'Mid', 'Old Small'])
   })
 
 })

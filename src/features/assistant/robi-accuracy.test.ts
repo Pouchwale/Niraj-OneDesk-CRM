@@ -199,7 +199,7 @@ describe('a carried task says what is true today', () => {
   })
 })
 
-describe('the oldest and biggest money is given first', () => {
+describe('the biggest money is given first, then the oldest', () => {
   const rank = (companies: Company[]) => ({
     customerOf: customerLookup(companies, []),
     balanceOf: balanceLookup(companies, []),
@@ -217,7 +217,7 @@ describe('the oldest and biggest money is given first', () => {
     actions: [],
   })
 
-  it('puts the earliest due date first and, for the same date, the bigger amount', () => {
+  it('puts the biggest amount first and, for the same amount, the earliest due date', () => {
     const books = [
       invoice('recent-promise', 'Recent Promise', 'C1', { due_date: '2026-09-20', total_amount: 1_298 }),
       invoice('june-small', 'June Small', 'C2', { due_date: '2026-06-10', total_amount: 25_000 }),
@@ -233,10 +233,10 @@ describe('the oldest and biggest money is given first', () => {
     const { customerOf, balanceOf, dueDateOf } = rank(books)
     const made = makePlan('coord-1', '2026-10-02', tasks, [], undefined, customerOf, balanceOf, dueDateOf)
     // Four of one kind is fine now: there is no longer a limit of two per kind.
-    expect(made.items.map((i) => i.entityName)).toEqual(['March', 'April', 'June Big', 'June Small'])
+    expect(made.items.map((i) => i.entityName)).toEqual(['June Big', 'April', 'March', 'June Small'])
   })
 
-  it('puts carried work first, then the fresh work oldest and biggest first', () => {
+  it('puts carried work first, then the fresh work biggest first', () => {
     const books = [
       invoice('carried', 'Carried', 'C1', { due_date: '2026-05-01', total_amount: 60_000 }),
       invoice('older', 'Older New', 'C2', { due_date: '2026-02-01', total_amount: 10_000 }),
@@ -252,7 +252,7 @@ describe('the oldest and biggest money is given first', () => {
       [task('overdue_untouched', books[1]), task('overdue_untouched', books[2])],
       [carried], undefined, customerOf, balanceOf, dueDateOf
     )
-    expect(made.items.map((i) => i.entityName)).toEqual(['Carried', 'Older New', 'Newer New'])
+    expect(made.items.map((i) => i.entityName)).toEqual(['Carried', 'Newer New', 'Older New'])
     expect(made.items[0].carriedFrom).toBe('2026-10-01')
   })
 })

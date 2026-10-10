@@ -132,8 +132,32 @@ describe('the Active Payments half is filled even when nobody has gone quiet', (
       followup('company', id, { followup_date: `${TODAY}T09:00:00`, created_at: id === 'rung' ? `${TODAY}T09:00:00.000Z` : '2026-10-05T09:00:00.000Z' })
     )
     const plan = planFor(TODAY, companies, [], followups, true)
-    // Past due first; the plan is short of eight, so the invoice not yet due comes last.
-    expect(plan.items.map((i) => i.entityId)).toEqual(['older', 'old', 'later'])
+    // Called two days ago with no next date, or today: resting. Only the invoice not yet due is left.
+    expect(plan.items.map((i) => i.entityId)).toEqual(['later'])
+  })
+})
+
+describe('no repeats: a customer rests after a call', () => {
+  const companies = ['a', 'b', 'c'].map((id) => invoice(id))
+  const calledOn = (id: string, date: string, extra: Partial<Followup> = {}) =>
+    followup('company', id, { followup_date: `${date}T10:00:00`, created_at: `${date}T10:00:00.000Z`, ...extra })
+
+  it('leaves out for five days a customer followed up with no next date', () => {
+    const followups = [calledOn('a', '2026-10-03'), calledOn('b', '2026-10-02')]
+    const planned = planFor(TODAY, companies, [], followups, true).items.map((i) => i.entityId)
+    // a: 4 days ago, still resting. b: 5 days ago, back. c: never called.
+    expect(planned).not.toContain('a')
+    expect(planned).toEqual(expect.arrayContaining(['b', 'c']))
+  })
+
+  it('brings a customer back on their next follow-up date, even inside the five days', () => {
+    const followups = [calledOn('a', '2026-10-05', { next_reminder_date: TODAY })]
+    expect(planFor(TODAY, companies, [], followups, true).items.map((i) => i.entityId)).toContain('a')
+  })
+
+  it('hands out the highest amount first', () => {
+    const sized = [invoice('small', 5_000), invoice('huge', 9_00_000), invoice('mid', 60_000)]
+    expect(planFor(TODAY, sized, [], [], true).items.map((i) => i.entityId)).toEqual(['huge', 'mid', 'small'])
   })
 })
 
