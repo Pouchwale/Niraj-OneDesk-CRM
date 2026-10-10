@@ -334,6 +334,16 @@ export interface DecisionRequest {
   reviewNote?: string | null
 }
 
+/** A coordinator out of the office for a day, marked by the team leader or the administrator. */
+export interface AttendanceEntry {
+  userId: string
+  /** Local calendar date. */
+  date: string
+  status: 'leave' | 'half_day'
+  by: string
+  at: string
+}
+
 export interface CoordinatorAlias {
   id: string
   coordinator_id: string

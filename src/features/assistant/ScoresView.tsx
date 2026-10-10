@@ -35,7 +35,9 @@ function useScores(coordinatorIds: string[]): Map<string, DayScore> {
       ])
     )
     const plans = demoCompanyStore.getDailyPlans().filter((p) => mine.has(p.userId))
-    const rows = planHistory(plans, demoCompanyStore.getAllFollowups(), todayISO(), owed, mine, customerLookup(companies, overdue))
+    const rows = planHistory(plans, demoCompanyStore.getAllFollowups(), todayISO(), owed, mine, customerLookup(companies, overdue), (u, d) =>
+      demoCompanyStore.getAttendance(u, d)?.status ?? null
+    )
     return dailyScores(rows)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, key])

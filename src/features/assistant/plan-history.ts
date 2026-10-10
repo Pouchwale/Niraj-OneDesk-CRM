@@ -8,6 +8,7 @@
  * day, how the plan was judged the moment the next day began.
  */
 
+import { keepForHalfDay, type AttendanceStatus } from './attendance'
 import type { Followup } from '@/lib/types'
 import {
   completingFollowup,
@@ -95,7 +96,9 @@ export function planHistory(
   owed?: Set<string>,
   mine?: Map<string, Set<string>>,
   /** Matches work by customer: a call on any of their records counts. */
-  customerOf?: CustomerOf
+  customerOf?: CustomerOf,
+  /** Leave days are left out; a half day keeps leftovers plus four fresh tasks. */
+  attendanceOf?: (userId: string, date: string) => AttendanceStatus | null
 ): HistoryRow[] {
   const logs = new Map<string, WorkLog>()
   const logFor = (userId: string) => {
@@ -121,6 +124,9 @@ export function planHistory(
 
   const rows: HistoryRow[] = []
   for (const plan of plans) {
+    const attendance = attendanceOf?.(plan.userId, plan.date) ?? null
+    if (attendance === 'leave') continue
+    const dayRows: HistoryRow[] = []
     const log = logFor(plan.userId)
     const isToday = plan.date >= today
     const until = isToday ? undefined : endOfDay(plan.date)
@@ -145,7 +151,7 @@ export function planHistory(
       // Extra work the day ran out on is not something anybody failed to do.
       if (isExtraItem(item) && (result === 'not_done' || result === 'later')) result = 'not_reached'
       const unfinished = result === 'not_done' || result === 'later'
-      rows.push({
+      dayRows.push({
         date: plan.date,
         coordinatorId: plan.userId,
         item,
@@ -155,6 +161,7 @@ export function planHistory(
         doneLater: unfinished && key && until ? completingFollowup(log, key, until, undefined, customerOf, raisedByFollowup(item)) : null,
       })
     }
+    rows.push(...(attendance === 'half_day' ? keepForHalfDay(dayRows, (r) => r.item, (r) => r.result === 'done') : dayRows))
   }
 
   return rows.sort(

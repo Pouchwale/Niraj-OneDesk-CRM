@@ -65,6 +65,9 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   reinstateCustomer: 'team',
   addDecisionRequest: 'own',
   reviewDecisionRequest: 'team',
+  // Who is in the office: the team leader and the administrator decide.
+  setAttendance: 'team',
+  clearAttendance: 'team',
   /*
    * The ageing-row-only forms of the two above, which a browser still open on
    * the previous version sends. Left with the team, since they carry no

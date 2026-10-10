@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { cn, todayISO } from '@/lib/utils'
+import { demoCompanyStore } from '@/lib/demo-companies'
 import { useAuth, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { useDailyEntries } from '@/features/daily-logs/hooks/useDailyEntries'
 import { sendReminder, sendReminders } from '@/lib/reminders'
@@ -335,9 +336,13 @@ export function AssistantWidget() {
     const hello = back ? `Back again, ${firstName}.` : `${partOfDay()}, ${firstName}.`
 
     if (isCoordinator) {
+      const away = demoCompanyStore.getAttendance(user.id, todayISO())?.status
+      if (away === 'leave') {
+        return assistantSays(`${hello} You're marked on leave today, so there's no plan.`, 'Anything still open comes back on your next working day.')
+      }
       if (plan && plan.total > 0) {
         return assistantSays(
-          `${hello} Today's plan: ${planProgressLine(plan)}.`,
+          `${hello} Today's plan${away === 'half_day' ? ' (half day)' : ''}: ${planProgressLine(plan)}.`,
           plan.complete
             ? 'Everything planned for today is dealt with. I am still watching the rest of your accounts.'
             : plan.round > 0

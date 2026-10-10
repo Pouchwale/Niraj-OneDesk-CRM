@@ -58,6 +58,7 @@ ROBI'S DAILY PLAN
 - A task is done when the coordinator logs any follow-up on that customer that day - on any of its invoices or its overdue row (not the follow-up that created the task, such as the customer's own promise).
 - "Later" sets a task aside for the day. Anything not done comes back at the top of the next day's plan, on top of that day's 8 new tasks, reworded with that day's facts.
 - There is no extra work after the plan: once the day's tasks are done, Robi adds nothing more that day.
+- Attendance: the team leader or administrator marks a coordinator on leave or on a half day in Overview > Attendance (today or ahead). On leave Robi gives no tasks and the day is left out of the score; anything open comes back on the next working day. On a half day Robi gives 4 new tasks instead of 8 (leftovers still on top) and 1 proof check instead of 2; if the half day is marked after the plan was made, the undone new tasks beyond 4 move to the next working day.
 - Overview > Robi task history shows every task, who did it and when, what was not done, completion % (done out of all tasks given) and an Excel download.
 
 MESSAGES THROUGH ROBI (team leader and administrator only)

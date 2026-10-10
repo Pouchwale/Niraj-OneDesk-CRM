@@ -1,4 +1,4 @@
-import type { Company, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { AttendanceEntry, Company, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
@@ -371,6 +371,8 @@ export interface PersistedStore {
   proofRequests?: ProofRequest[]
   /** Coordinators' requests to set a customer aside, awaiting approval. */
   decisionRequests?: DecisionRequest[]
+  /** Coordinators on leave or a half day. Optional for older files. */
+  attendance?: AttendanceEntry[]
 }
 
 /**
@@ -455,6 +457,7 @@ class DemoCompanyStore {
   messages: DirectedReminder[] = restored?.messages ?? []
   proofRequests: ProofRequest[] = restored?.proofRequests ?? []
   decisionRequests: DecisionRequest[] = restored?.decisionRequests ?? []
+  attendance: AttendanceEntry[] = restored?.attendance ?? []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
 
@@ -1275,6 +1278,7 @@ class DemoCompanyStore {
       messages: this.messages,
       proofRequests: this.proofRequests,
       decisionRequests: this.decisionRequests,
+      attendance: this.attendance,
     }
   }
 
@@ -1294,6 +1298,27 @@ class DemoCompanyStore {
     this.decisionRequests = this.decisionRequests.map((r) =>
       r.id === id && r.status === 'pending' ? { ...r, status, reviewedBy: by, reviewedAt: at, reviewNote: note ?? null } : r
     )
+  }
+
+  /* ===== Who is in the office ===== */
+
+  getAttendance(userId: string, date: string): AttendanceEntry | null {
+    return this.attendance.find((a) => a.userId === userId && a.date === date) ?? null
+  }
+
+  getAttendanceEntries(): AttendanceEntry[] {
+    return [...this.attendance]
+  }
+
+  /** On leave or a half day; replaces whatever that day said before. */
+  setAttendance(entry: AttendanceEntry): void {
+    if (!entry?.userId || !entry.date || (entry.status !== 'leave' && entry.status !== 'half_day')) return
+    this.attendance = [...this.attendance.filter((a) => !(a.userId === entry.userId && a.date === entry.date)), entry]
+  }
+
+  /** Back to a normal day in the office. */
+  clearAttendance(userId: string, date: string): void {
+    this.attendance = this.attendance.filter((a) => !(a.userId === userId && a.date === date))
   }
 
   /* ===== Robi's proof checks ===== */
@@ -1426,6 +1451,7 @@ class DemoCompanyStore {
     this.messages = snapshot.messages ?? []
     this.proofRequests = snapshot.proofRequests ?? []
     this.decisionRequests = snapshot.decisionRequests ?? []
+    this.attendance = snapshot.attendance ?? []
     this.refreshStatuses()
   }
 }

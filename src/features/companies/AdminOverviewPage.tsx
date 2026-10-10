@@ -4,6 +4,7 @@ import { PlanHistoryView } from '@/features/assistant/PlanHistoryView';
 import { ProofReview, useProofsToReview } from '@/features/assistant/ProofReview';
 import { WeeklyScores } from '@/features/assistant/ScoresView';
 import { DecisionApprovals, usePendingDecisions } from './DecisionApprovals';
+import { AttendanceView } from './AttendanceView';
 import { motion } from 'motion/react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { KpiCard } from '@/components/shared/KpiCard';
@@ -209,6 +210,7 @@ export function AdminOverviewPage() {
         <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="history">Follow-up history</TabsTrigger>
+          <TabsTrigger value="attendance" data-testid="tab-attendance">Attendance</TabsTrigger>
           <TabsTrigger value="approvals" data-testid="tab-approvals">
             Approvals
             {pendingDecisions > 0 && (
@@ -285,6 +287,10 @@ export function AdminOverviewPage() {
         <TabsContent value="history" className="outline-none">
           {/* Whole team by default; the filter narrows to one person. */}
           <FollowupHistoryView />
+        </TabsContent>
+
+        <TabsContent value="attendance" className="outline-none">
+          <AttendanceView coordinators={coordinators} />
         </TabsContent>
 
         <TabsContent value="approvals" className="outline-none">

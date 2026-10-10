@@ -394,7 +394,9 @@ export function makePlan(
   customerOf?: CustomerOf,
   balanceOf?: BalanceOf,
   /** Given, the plan is the oldest and biggest money first (oldestBiggestFirst). */
-  dueDateOf?: DueDateOf
+  dueDateOf?: DueDateOf,
+  /** Fresh Active Payments tasks: four, or two on a half day. */
+  size: number = PLAN_SIZE
 ): DailyPlan {
   const rank = oldestBiggestFirst(dueDateOf, balanceOf)
   const customerKey = (item: { entityType?: string; entityId?: string }) => {
@@ -475,7 +477,7 @@ export function makePlan(
    * something older or larger has turned up since.
    */
   // Leftovers from earlier days on top, then a full day of fresh work.
-  const items = [...(dueDateOf ? [...brought].sort(rank) : brought), ...freshFor(PLAN_SIZE)]
+  const items = [...(dueDateOf ? [...brought].sort(rank) : brought), ...freshFor(size)]
 
   return {
     userId,

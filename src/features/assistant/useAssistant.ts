@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
 import { getCompanies } from '@/lib/companies-api'
 import { getOverduePayments } from '@/lib/overdue-api'
@@ -11,7 +11,8 @@ import { todayISO } from '@/lib/utils'
 import { buildAssistantTasks } from './rules'
 import { isSuppressed, loadAssistantState, markDone, snooze } from './assistant-state'
 import { balanceLookup, customerLookup, dueDateLookup, openAccountKeys, resolvePlan, type ResolvedPlan } from './daily-plan'
-import { ensurePlan, skipPlanItem, unskipPlanItem } from './plan-store'
+import { ensurePlan, judgedOnAttendance, skipPlanItem, unskipPlanItem } from './plan-store'
+import { planForAttendance } from './attendance'
 import { proofRequestsDue } from './proof'
 import type { AssistantIntent, AssistantTask } from './types'
 
@@ -50,6 +51,8 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
   const [isLoading, setIsLoading] = useState(true)
   const [stateVersion, setStateVersion] = useState(0)
   const [planVersion, setPlanVersion] = useState(0)
+  // Who is in the office today: a leave or half day marked by the team leader changes the plan.
+  const attendance = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.attendance)
 
   const load = useCallback(
     async (quiet = false) => {
@@ -134,7 +137,9 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
     const dueDateOf = dueDateLookup(companies)
     const made = ensurePlan(coordinatorId, todayISO(), allTasks, { followups, open: owed, mine, customerOf, balanceOf, dueDateOf, overduePayments, companies })
     // The day's plan already holds its overdue tasks; no extra rounds since 7 Oct 2026.
-    return resolvePlan(made, allTasks, followups, coordinatorId, owed, mine, undefined, customerOf)
+    // On leave or a half day, judged on what the day allows.
+    void attendance
+    return judgedOnAttendance(made, (p) => resolvePlan(p, allTasks, followups, coordinatorId, owed, mine, undefined, customerOf))
   }, [
     coordinatorId,
     withPlan,
@@ -145,13 +150,17 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
     overduePayments,
     owedKeys,
     planVersion,
+    attendance,
   ])
 
   // A picked task just done: Robi asks for its proof (ProofGate shows the screen).
   useEffect(() => {
     if (!coordinatorId || !plan) return
-    const stored = demoCompanyStore.getDailyPlan(coordinatorId, plan.date)
-    if (!stored) return
+    const kept = demoCompanyStore.getDailyPlan(coordinatorId, plan.date)
+    if (!kept) return
+    // A half day asks for one proof, a leave for none.
+    const done = new Set(plan.items.filter((i) => i.status === 'done').map((i) => i.taskId))
+    const stored = planForAttendance(kept, demoCompanyStore.getAttendance(coordinatorId, plan.date)?.status, (id) => done.has(id))
     const due = proofRequestsDue(
       stored,
       plan,

@@ -7,7 +7,7 @@
  * and whether it was finally done.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Bot, CheckCircle2, Download, History } from 'lucide-react';
 
@@ -120,6 +120,7 @@ export function PlanHistoryView({ coordinators, companies, overduePayments, foll
 
   // Plans are made and updated as screens open around the office; follow them.
   const [plans, setPlans] = useState(() => demoCompanyStore.getDailyPlans());
+  const attendance = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.attendance);
   useEffect(() => subscribeToDemoStore(() => setPlans(demoCompanyStore.getDailyPlans())), []);
 
   const nameOf = useMemo(() => {
@@ -139,8 +140,10 @@ export function PlanHistoryView({ coordinators, companies, overduePayments, foll
         )
       );
     }
-    return planHistory(plans, followups, today, owed, mine, customerLookup(companies, overduePayments));
-  }, [plans, followups, companies, overduePayments, coordinators, today]);
+    return planHistory(plans, followups, today, owed, mine, customerLookup(companies, overduePayments), (u, d) =>
+      demoCompanyStore.getAttendance(u, d)?.status ?? null
+    );
+  }, [plans, followups, companies, overduePayments, coordinators, today, attendance]);
 
   const inWindow = useMemo(() => allRows.filter((r) => inRange(r.date, range, today)), [allRows, range, today]);
   const forPerson = useMemo(

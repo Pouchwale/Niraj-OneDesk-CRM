@@ -18,6 +18,7 @@ import { isSetAside } from '@/lib/no-followup'
 import { formatCurrency, formatDate, formatRelativeDate } from '@/lib/utils'
 import { nextToFollowUp, type NextUp } from './next-up'
 import { pickProofTasks } from './proof'
+import { planForAttendance } from './attendance'
 import { buildAssistantTasks } from './rules'
 import {
   balanceLookup,
@@ -85,6 +86,8 @@ export interface PlanEvidence {
   overduePayments?: OverduePayment[]
   /** This coordinator's invoices, to fill Active Payments slots the nudges leave empty. */
   companies?: Company[]
+  /** Fresh tasks per half: four, or two on a half day. */
+  perHalf?: number
 }
 
 /**
@@ -106,6 +109,12 @@ export function ensurePlan(
 ): DailyPlan {
   const existing = demoCompanyStore.getDailyPlan(userId, date)
   if (existing && existing.items.length > 0) return existing
+
+  // On leave: no plan. Nothing is recorded, so the next working day's plan
+  // brings forward whatever was still open before the leave.
+  const attendance = demoCompanyStore.getAttendance(userId, date)?.status ?? null
+  if (attendance === 'leave') return existing ?? { userId, date, items: [], skipped: [], createdAt: new Date().toISOString() }
+  if (attendance === 'half_day' && evidence) evidence = { ...evidence, perHalf: PLAN_SIZE / 2 }
 
   // A plan made in this browser before plans were shared, for today.
   const legacy = legacyPlan(userId)
@@ -149,7 +158,7 @@ export function ensurePlan(
     })
   }
 
-  const active = makePlan(userId, date, tasks, carried, undefined, evidence?.customerOf, evidence?.balanceOf, evidence?.dueDateOf)
+  const active = makePlan(userId, date, tasks, carried, undefined, evidence?.customerOf, evidence?.balanceOf, evidence?.dueDateOf, evidence?.perHalf ?? PLAN_SIZE)
   // Four Active Payments tasks, then four Overdue Payments tasks: eight a day.
   if (evidence?.companies) active.items = [...active.items, ...activeFill(date, active.items, evidence)]
   const plan = evidence?.overduePayments
@@ -159,7 +168,8 @@ export function ensurePlan(
   // Nothing to plan, and nothing was planned: already on record, say nothing
   // more. Writing it again would announce a change on every redraw.
   if (existing && plan.items.length === 0) return existing
-  return demoCompanyStore.recordDailyPlan({ ...plan, proofTaskIds: pickProofTasks(plan.items) })
+  // One proof check on a half day, two on a full one.
+  return demoCompanyStore.recordDailyPlan({ ...plan, proofTaskIds: pickProofTasks(plan.items, attendance === 'half_day' ? 1 : undefined) })
 }
 
 /** Sets an item aside for today; it comes back tomorrow if still open. */
@@ -211,7 +221,7 @@ function activeFill(
   evidence: PlanEvidence,
   now: Date = new Date(),
   // Fresh tasks only: leftovers from earlier days sit on top of the day's four.
-  room: number = PLAN_SIZE - planItems.filter((item) => item.entityType === 'company' && !item.carriedFrom).length,
+  room: number = (evidence.perHalf ?? PLAN_SIZE) - planItems.filter((item) => item.entityType === 'company' && !item.carriedFrom).length,
   statuses: string[] = ['overdue', 'critical']
 ): PlanItem[] {
   if (room <= 0) return []
@@ -268,7 +278,7 @@ function activeFill(
 export function topUp(userId: string, date: string, planItems: PlanItem[], evidence: PlanEvidence): PlanItem[] {
   const now = new Date()
   const added: PlanItem[] = []
-  const short = () => PLAN_SIZE * 2 - [...planItems, ...added].filter((item) => !item.carriedFrom).length
+  const short = () => (evidence.perHalf ?? PLAN_SIZE) * 2 - [...planItems, ...added].filter((item) => !item.carriedFrom).length
   if (short() <= 0) return []
   if (evidence.companies) added.push(...activeFill(date, [...planItems, ...added], evidence, now, short()))
   if (short() > 0 && evidence.overduePayments) {
@@ -330,8 +340,8 @@ function overduePart(
     planItems: [...planItems, ...brought],
     startOfToday: new Date(`${date}T00:00:00`).toISOString(),
     customerOf: evidence.customerOf,
-    // Four fresh ones; leftovers come on top of them.
-    limit: PLAN_SIZE,
+    // Four fresh ones (two on a half day); leftovers come on top of them.
+    limit: evidence.perHalf ?? PLAN_SIZE,
     today: date,
   })
   const plannedAt = now.toISOString()
@@ -428,9 +438,21 @@ export function teamPlans(
     )
     const made = ensurePlan(coordinator.id, today, tasks, { followups: mineFollowups, open: owed, mine, customerOf, balanceOf, dueDateOf, overduePayments: overduePayments.filter((p) => p.assigned_coordinator_id === coordinator.id), companies: companies.filter((c) => c.assigned_coordinator_id === coordinator.id) })
     // No extra overdue rounds since 7 Oct 2026: the plan itself holds the overdue work.
-    const plan = resolvePlan(made, tasks, followups, coordinator.id, owed, mine, undefined, customerOf)
+    const plan = judgedOnAttendance(made, (p) => resolvePlan(p, tasks, followups, coordinator.id, owed, mine, undefined, customerOf))
     return { coordinatorId: coordinator.id, name: coordinator.full_name, plan, tasks }
   })
+}
+
+/**
+ * The day's plan as the coordinator's attendance allows (see attendance.ts):
+ * resolved once to see what is done, then cut for a half day or a leave.
+ */
+export function judgedOnAttendance(stored: DailyPlan, resolve: (plan: DailyPlan) => ResolvedPlan): ResolvedPlan {
+  const first = resolve(stored)
+  const status = demoCompanyStore.getAttendance(stored.userId, stored.date)?.status ?? null
+  if (!status) return first
+  const done = new Set(first.items.filter((i) => i.status === 'done').map((i) => i.taskId))
+  return resolve(planForAttendance(stored, status, (id) => done.has(id)))
 }
 
 /** Test hook: forget every plan. */
