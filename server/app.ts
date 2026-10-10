@@ -15,7 +15,7 @@ import type { ServerConfig } from './config'
 import { errorHandler, notFoundHandler } from './http/errors'
 import { aiRateLimiter, cors, requestId, requestLogger } from './http/middleware'
 import type { Logger } from './logger'
-import { createAiService, type AiServiceDeps } from './modules/ai/service'
+import { createAiService, type AiService, type AiServiceDeps } from './modules/ai/service'
 import { aiRoutes } from './modules/ai/routes'
 import { createExcelService } from './modules/excel/service'
 import { excelRoutes } from './modules/excel/routes'
@@ -28,9 +28,13 @@ import { requireRole, requireSession } from './modules/auth/middleware'
 import { authRoutes } from './modules/auth/routes'
 import { createDataStore, type DataStore } from './modules/data/store'
 import { dataRoutes } from './modules/data/routes'
+import { proofRoutes } from './modules/proofs/routes'
+import { join } from 'node:path'
 
 export interface ApiDeps {
   ai?: AiServiceDeps
+  /** Made by the caller when it needs to reconfigure it later. */
+  aiService?: AiService
   version?: string
   /** Swapped in tests for a store in a temporary folder. */
   snapshots?: SnapshotStore
@@ -47,7 +51,7 @@ export interface ApiDeps {
  */
 export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiDeps = {}): Router {
   const router = express.Router()
-  const ai = createAiService(config.ai, logger, deps.ai)
+  const ai = deps.aiService ?? createAiService(config.ai, logger, deps.ai)
   const excel = createExcelService(config.excel)
 
   // An id first, so every line logged after this point can be correlated.
@@ -88,6 +92,9 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
     requireSession(accounts, sessions),
     dataRoutes(data, logger)
   )
+
+  // Proof screenshots read their own image bodies, so they sit before the JSON limit.
+  router.use('/proofs', requireSession(accounts, sessions), proofRoutes(join(config.dataDir, 'proofs')))
 
   router.use(express.json({ limit: '1mb' }))
 

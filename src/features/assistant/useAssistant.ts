@@ -10,8 +10,9 @@ import { todayISO } from '@/lib/utils'
 
 import { buildAssistantTasks } from './rules'
 import { isSuppressed, loadAssistantState, markDone, snooze } from './assistant-state'
-import { openAccountKeys, resolvePlan, type ResolvedPlan } from './daily-plan'
+import { balanceLookup, customerLookup, dueDateLookup, openAccountKeys, resolvePlan, type ResolvedPlan } from './daily-plan'
 import { ensurePlan, skipPlanItem, unskipPlanItem } from './plan-store'
+import { proofRequestsDue } from './proof'
 import type { AssistantIntent, AssistantTask } from './types'
 
 /** Fetches every follow-up belonging to one coordinator. */
@@ -127,8 +128,13 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
      */
     const mine = openAccountKeys(companies, overduePayments)
     const owed = owedKeys.size > 0 ? owedKeys : mine
-    const stored = ensurePlan(coordinatorId, todayISO(), allTasks, { followups, open: owed, mine })
-    return resolvePlan(stored, allTasks, followups, coordinatorId, owed, mine)
+    // A call logged on any of the customer's records completes their task.
+    const customerOf = customerLookup(companies, overduePayments)
+    const balanceOf = balanceLookup(companies, overduePayments)
+    const dueDateOf = dueDateLookup(companies)
+    const made = ensurePlan(coordinatorId, todayISO(), allTasks, { followups, open: owed, mine, customerOf, balanceOf, dueDateOf, overduePayments, companies })
+    // The day's plan already holds its overdue tasks; no extra rounds since 7 Oct 2026.
+    return resolvePlan(made, allTasks, followups, coordinatorId, owed, mine, undefined, customerOf)
   }, [
     coordinatorId,
     withPlan,
@@ -140,6 +146,21 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
     owedKeys,
     planVersion,
   ])
+
+  // A picked task just done: Robi asks for its proof (ProofGate shows the screen).
+  useEffect(() => {
+    if (!coordinatorId || !plan) return
+    const stored = demoCompanyStore.getDailyPlan(coordinatorId, plan.date)
+    if (!stored) return
+    const due = proofRequestsDue(
+      stored,
+      plan,
+      followups,
+      demoCompanyStore.getProofRequests(),
+      customerLookup(companies, overduePayments)
+    )
+    for (const request of due) demoCompanyStore.addProofRequest(request)
+  }, [coordinatorId, plan, followups, companies, overduePayments])
 
   const skipItem = useCallback(
     (taskId: string) => {

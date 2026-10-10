@@ -33,6 +33,11 @@ interface FollowUpTimelineProps {
   onFollowupSaved?: () => void
   /** Bumping this refetches the timeline, e.g. after a reminder is sent. */
   refreshKey?: number
+  /**
+   * The no-follow-up and bankrupt decisions for the account, shown under the
+   * history heading: they are made while logging the call that prompts them.
+   */
+  decisions?: React.ReactNode
 }
 
 
@@ -44,7 +49,7 @@ const modeIcons: Record<FollowupMode, React.ReactNode> = {
   other: <FileText className="w-4 h-4" />
 }
 
-export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityType = 'company', coordinatorId, isAdmin, companyTotalAmount, onFollowupSaved, refreshKey = 0 }: FollowUpTimelineProps) {
+export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityType = 'company', coordinatorId, isAdmin, companyTotalAmount, onFollowupSaved, refreshKey = 0, decisions }: FollowUpTimelineProps) {
   const [followups, setFollowups] = useState<Followup[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
@@ -73,13 +78,9 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
     onFollowupSaved?.()
   }
 
-  // Check if within 24h
-  const canEdit = (createdAt: string) => {
-    const created = new Date(createdAt)
-    const now = new Date()
-    const diffHours = (now.getTime() - created.getTime()) / (1000 * 60 * 60)
-    return diffHours < 24
-  }
+  // No time limit: a coordinator can correct their own follow-up whenever
+  // they need to. Every edit keeps the earlier version in the audit log.
+  const canEdit = (followup: Followup) => followup.coordinator_id === coordinatorId
 
   return (
     <div className="space-y-6">
@@ -109,6 +110,8 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
           </Button>
         )}
       </div>
+
+      {decisions}
 
       {isAdding && coordinatorId && (
         <motion.div
@@ -184,7 +187,7 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
                         </Tooltip>
                       </div>
                       
-                      {(isAdmin || (coordinatorId && canEdit(followup.created_at))) && (
+                      {(isAdmin || (coordinatorId && canEdit(followup))) && (
                         <Button 
                           variant="ghost" 
                           size="icon" 

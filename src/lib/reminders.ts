@@ -4,53 +4,25 @@
  * Every other notification in this app is *derived* - recomputed from invoices,
  * follow-ups and balances each time the bell is opened. A message from the team
  * leader to a coordinator is the one thing that cannot be derived from
- * anything: somebody decided to say it. So it is stored, and it survives a
- * reload, because a message the recipient never sees is worse than no message.
+ * anything: somebody decided to say it. So it is stored.
+ *
+ * Stored on the server, in the shared working dataset. It used to be kept in
+ * the sender's own browser, so Robi said "Sent to 11 coordinators" and not one
+ * of them - each on their own computer - ever saw it.
  *
  * One message to the whole team is stored as one row per person - each of them
  * has their own bell and their own read mark - tied together by a batch id so
  * the sender sees "sent to 11 coordinators" rather than eleven identical lines.
  */
 
+import type { DirectedReminder } from './types'
+import { demoCompanyStore } from './demo-companies'
+import { whenSaved } from './shared-data'
 
-export interface DirectedReminder {
-  id: string
-  /** Groups the copies of one message sent to several people at once. */
-  batchId?: string
-  fromUserId: string
-  /** Captured at send time so the message still reads correctly after a rename. */
-  fromName: string
-  toCoordinatorId: string
-  /** The customer or topic it concerns, when one was named. */
-  subject: string | null
-  message: string
-  /** Where the recipient lands when they open it, when it is about a record. */
-  link?: string | null
-  /** How the sender addressed them: "the team", "the GP3 team", or a name. */
-  audience?: string | null
-  createdAt: string
-}
-
-const STORAGE_KEY = 'crm.directed_reminders'
+export type { DirectedReminder }
 
 function load(): DirectedReminder[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? (parsed as DirectedReminder[]) : []
-  } catch {
-    // No storage (tests run in node) or corrupt JSON.
-    return []
-  }
-}
-
-function save(reminders: DirectedReminder[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(reminders))
-  } catch {
-    // Storage can be unavailable; the send is reported as failed by the caller
-    // rather than silently dropped.
-  }
+  return demoCompanyStore.getDirectedMessages()
 }
 
 function id(prefix: string): string {
@@ -115,7 +87,10 @@ export async function sendReminders(input: SendManyInput): Promise<DirectedRemin
     createdAt,
   }))
 
-  save([...load(), ...reminders])
+  demoCompanyStore.addDirectedMessages(reminders)
+  // "Sent" has to mean the server has it: a refusal or a dropped connection
+  // throws here, and the person is told instead of being assured.
+  await whenSaved()
   return reminders
 }
 

@@ -21,23 +21,31 @@ export interface AiReply {
   model?: string
 }
 
-const OFFLINE: AiStatus = { configured: false, provider: null, model: null }
+const OFFLINE: AiStatus = { configured: false, provider: null, model: null, keyError: null }
 
-let statusPromise: Promise<AiStatus> | null = null
+/**
+ * How long an answer is trusted. It used to be kept for the life of the tab,
+ * so a key fixed on the server stayed "off" until somebody reloaded the page.
+ */
+const STATUS_TTL_MS = 30_000
 
-/** Whether replies will come from a model. Asked once and remembered. */
+let statusCache: { at: number; promise: Promise<AiStatus> } | null = null
+
+/** Whether replies will come from a model. Asked again after a short while. */
 export function getAiStatus(): Promise<AiStatus> {
-  if (!statusPromise) {
-    statusPromise = apiGet<AiStatusResponse>(ROUTES.aiStatus)
+  if (!statusCache || Date.now() - statusCache.at > STATUS_TTL_MS) {
+    const promise = apiGet<AiStatusResponse>(ROUTES.aiStatus)
       .then((data) => ({
         configured: Boolean(data.configured),
         provider: data.provider ?? null,
         model: data.model ?? null,
+        keyError: data.keyError ?? null,
       }))
       // No key, or no server: Robi falls back to the rules, which always work.
       .catch(() => OFFLINE)
+    statusCache = { at: Date.now(), promise }
   }
-  return statusPromise
+  return statusCache.promise
 }
 
 /**

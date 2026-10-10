@@ -158,6 +158,11 @@ export interface ExcelSyncResult {
   upgraded?: number
   /** What moved against what was already here: new, changed, and by how much. */
   changes?: SyncDelta
+  /**
+   * Rows imported with no CRM owner because the file names someone with no
+   * login here. In every total; listed under "Not in CRM" in the filters.
+   */
+  withoutCoordinator?: number
   /** The file's timestamp at the moment it was read. */
   modifiedAt: string | null
   sheetName?: string
@@ -184,7 +189,9 @@ export function explainSkips(
   for (const row of invalid) {
     const messages = errors[row._originalIndex] ?? []
     if (messages.some((message) => SETTLED_MESSAGE.test(message))) breakdown.settled++
-    else if (unassignedRows.has(row._originalIndex)) breakdown.needsCoordinator++
+    // An unknown name alone no longer refuses a row (it imports with no CRM
+    // owner), so a refused row that also has one is refused for something else.
+    else if (unassignedRows.has(row._originalIndex) && messages.every((m) => m === 'Unassigned coordinator')) breakdown.needsCoordinator++
     else breakdown.malformed++
   }
 
@@ -278,6 +285,7 @@ export async function syncBookFromExcel(
         ...counts(outcome),
         settled: outcome.settled,
         changes: outcome.changes,
+        withoutCoordinator: importedWithoutOwner(validation),
         skippedBecause: explainSkips(validation.invalid, validation.unassigned, validation.errors),
         filteredOut: all.length - wanted.length,
         modifiedAt: workbook.modifiedAt,
@@ -335,6 +343,7 @@ export async function syncBookFromExcel(
       settled: outcome.settled,
       upgraded: outcome.upgraded,
       changes: outcome.changes,
+      withoutCoordinator: importedWithoutOwner(validation),
       skippedBecause: explainSkips(validation.invalid, validation.unassigned, validation.errors),
       filteredOut: all.length - wanted.length,
       modifiedAt: workbook.modifiedAt,
@@ -343,6 +352,15 @@ export async function syncBookFromExcel(
   } catch (err) {
     return FAILED(err instanceof Error ? err.message : 'Could not read that workbook.', workbook.modifiedAt)
   }
+}
+
+/** Rows that imported although the file names nobody with a login here. */
+function importedWithoutOwner(validation: {
+  valid: { _originalIndex: number }[]
+  unassigned: { _originalIndex: number }[]
+}): number {
+  const valid = new Set(validation.valid.map((row) => row._originalIndex))
+  return validation.unassigned.filter((row) => valid.has(row._originalIndex)).length
 }
 
 function counts(outcome: { created: number; updated: number; failed: number }) {
@@ -460,6 +478,12 @@ export function describeSync(result: ExcelSyncResult, book: ExcelBook): string {
   // themselves are not a problem with the file, and must never read like one.
   if (result.filteredOut) {
     notes.push(`${result.filteredOut.toLocaleString('en-IN')} outside your date filter`)
+  }
+
+  if (result.withoutCoordinator) {
+    notes.push(
+      `${result.withoutCoordinator.toLocaleString('en-IN')} imported under coordinator names not in the CRM`
+    )
   }
 
   const why = result.skippedBecause

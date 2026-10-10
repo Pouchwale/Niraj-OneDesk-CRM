@@ -146,7 +146,8 @@ export function blockedFromRemoval(id: string, actingUserId?: string): string | 
   const user = findUser(id)
   if (!user) return 'That account is not there.'
   if (user.id === actingUserId) return 'You cannot remove the account you are signed in with.'
-  if (user.builtIn) return 'Accounts the app ships with cannot be removed.'
+  // The same rule the server applies: only the owner account is kept.
+  if (user.id === 'admin-0') return 'The system administrator account cannot be removed.'
   return null
 }
 

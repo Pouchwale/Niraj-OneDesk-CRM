@@ -87,6 +87,15 @@ describe('workbooks with a dropdown list sheet', () => {
     ])
   })
 
+  it("leaves Vishva Vyas's customers with her now her desk is no longer split", async () => {
+    const parsed = await parseFile(loadWorkbook('dropdown_sample.xlsx'), { scoreSheet })
+    const hers = parsed.rows.map((row) => ({ ...row, 'Coordinator Name': 'Vishva Vyas' }))
+    const result = await validateOverdueRows(mapOverdueRows(hers, autoMapOverdueColumns(parsed.headers)))
+
+    expect(result.valid).toHaveLength(4)
+    expect(new Set(result.valid.map((r) => r.coordinator_id))).toEqual(new Set(['coord-9']))
+  })
+
   it('imports the rows and scopes them to their coordinator', async () => {
     const parsed = await parseFile(loadWorkbook('dropdown_sample.xlsx'), { scoreSheet })
     const validation = await validateOverdueRows(

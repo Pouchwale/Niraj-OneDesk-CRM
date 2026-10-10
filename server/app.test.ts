@@ -16,7 +16,6 @@ import { loadConfig, type RawEnv } from './config'
 import { createLogger } from './logger'
 import { EXCEL_HEADERS, ROUTES } from '../shared/api'
 import { AUTH_ROUTES } from '../shared/auth'
-import { INITIAL_PASSWORDS_FILE } from './modules/auth/seed'
 
 const dir = mkdtempSync(join(tmpdir(), 'app-test-'))
 const workbook = join(dir, 'active payment.xlsx')
@@ -41,20 +40,23 @@ function groqReply(chunks: string[]) {
 /**
  * Starts the app on an ephemeral port and returns a fetch bound to it.
  *
- * Its accounts go in a temporary folder of their own, so a test run never
- * writes to the deployment's roster, and `call` carries the session cookie once
- * `signIn` has been used — every route but health now asks for one.
+ * Its accounts and its records go in temporary folders of their own, so a test
+ * run never writes to the deployment's roster or its working dataset — without
+ * DATA_DIR it loaded the office's live store.json and saved it back a moment
+ * later, over whatever a coordinator had logged in between. The same goes for
+ * the saved KPI days: listing them prunes them. `call` carries the
+ * session cookie once `signIn` has been used — every route but health now asks
+ * for one.
  */
 async function start(env: RawEnv, deps = {}) {
   const authDir = mkdtempSync(join(dir, 'auth-'))
-  // The starting passwords live beside the accounts rather than in the
-  // repository, so a fresh auth folder needs the list a new machine would get.
-  writeFileSync(
-    join(authDir, INITIAL_PASSWORDS_FILE),
-    JSON.stringify({ 'admin-0': 'Owner@Test1', 'admin-1': 'Leader@Test1', 'coord-1': 'Coord@Test1' }),
-    'utf8'
+  const dataDir = mkdtempSync(join(dir, 'data-'))
+  const snapshotDir = mkdtempSync(join(dir, 'snapshots-'))
+  const app = createApp(
+    loadConfig({ AUTH_DIR: authDir, DATA_DIR: dataDir, SNAPSHOT_DIR: snapshotDir, ...env }),
+    quiet,
+    deps
   )
-  const app = createApp(loadConfig({ AUTH_DIR: authDir, ...env }), quiet, deps)
   const server = createServer(app)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address() as AddressInfo
@@ -71,7 +73,7 @@ async function start(env: RawEnv, deps = {}) {
         ...init,
         headers: { ...(init?.headers ?? {}), ...(cookie ? { cookie } : {}) },
       }),
-    async signIn(username = 'admin', password = 'Owner@Test1') {
+    async signIn(username = 'admin', password = 'Admin@123') {
       const res = await fetch(at(AUTH_ROUTES.login), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,7 +166,7 @@ describe('signing in', () => {
   it('takes the password the team already uses, and says who signed in', async () => {
     const fresh = await start({ EXCEL_ACTIVE_PAYMENTS_PATH: workbook })
 
-    const res = await fresh.signIn('niki', 'Leader@Test1')
+    const res = await fresh.signIn('niki', 'Niki@123')
     expect(res.status).toBe(200)
     const body = (await res.json()) as { user: { id: string; role: string }; roster: unknown[] }
     expect(body.user).toMatchObject({ id: 'admin-1', role: 'team_leader' })
@@ -181,7 +183,7 @@ describe('signing in', () => {
     const fresh = await start({ EXCEL_ACTIVE_PAYMENTS_PATH: workbook })
 
     const wrongPassword = await fresh.signIn('niki', 'not-her-password')
-    const noSuchUser = await fresh.signIn('nobody', 'Leader@Test1')
+    const noSuchUser = await fresh.signIn('nobody', 'Niki@123')
     expect(wrongPassword.status).toBe(401)
     expect(noSuchUser.status).toBe(401)
     const refusal = async (res: Response) => ((await res.json()) as { error: { message: string } }).error.message
@@ -205,12 +207,12 @@ describe('signing in', () => {
   it('keeps Weekly KPI to the team leader and the administrator', async () => {
     const fresh = await start({ EXCEL_ACTIVE_PAYMENTS_PATH: workbook })
 
-    await fresh.signIn('pragati', 'Coord@Test1')
+    await fresh.signIn('pragati', 'Pragati@123')
     const refused = await fresh.call('/api/snapshots')
     expect(refused.status).toBe(403)
     expect(await refused.json()).toMatchObject({ error: { code: 'forbidden' } })
 
-    await fresh.signIn('niki', 'Leader@Test1')
+    await fresh.signIn('niki', 'Niki@123')
     expect((await fresh.call('/api/snapshots')).status).toBe(200)
 
     await fresh.stop()
@@ -272,6 +274,7 @@ describe('the assistant routes', () => {
       configured: false,
       provider: null,
       model: null,
+      keyError: null,
     })
   })
 

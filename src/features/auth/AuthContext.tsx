@@ -4,6 +4,7 @@ import { currentSession, signIn as requestSignIn, signOut as requestSignOut } fr
 import { hydrateRoster, listUsers, subscribeToUsers, type ManagedUser } from '@/lib/users/store'
 import { stopSharedData, useSharedData } from '@/lib/shared-data'
 import { administersSystem, seesAllAccounts } from '@/lib/users/roles'
+import { ownerOf, type Owner, type OwnedRow } from '@/lib/owner'
 
 /**
  * Who is signed in.
@@ -25,6 +26,23 @@ export function getTeamCoordinators(module: TeamModule): ManagedUser[] {
 
 export function getCoordinatorDisplayName(id: string): string {
   return roster().find((p) => p.id === id)?.full_name ?? 'Unknown'
+}
+
+/** The user's name, or undefined when nobody on the roster has that id. */
+export function findUserName(id: string): string | undefined {
+  return roster().find((p) => p.id === id)?.full_name
+}
+
+/** Who a row belongs to, named the way every screen names it (see lib/owner). */
+export function rowOwner(row: OwnedRow): Owner {
+  return ownerOf(row, findUserName, findUserIdByName)
+}
+
+/** The user whose full name this is exactly (ignoring case and spacing), if any. */
+export function findUserIdByName(name: string): string | undefined {
+  const wanted = name.trim().replace(/\s+/g, ' ').toLowerCase()
+  if (!wanted) return undefined
+  return roster().find((p) => (p.full_name ?? '').trim().replace(/\s+/g, ' ').toLowerCase() === wanted)?.id
 }
 
 export function getAllCoordinators(): ManagedUser[] {

@@ -9,7 +9,8 @@ import { toast } from 'sonner'
 import { Building2, Phone, Mail, Calendar, IndianRupee, Clock, UserCheck, Shuffle, ChevronDown, ChevronUp } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { reassignCompany } from '@/lib/companies-api'
-import { getAssignableOwners, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
+import { getAssignableOwners, getCoordinatorDisplayName, rowOwner } from '@/features/auth/AuthContext'
+import { OwnerName, ownerNameProps } from '@/components/shared/OwnerFilter'
 import { FollowUpTimeline } from './FollowUpTimeline'
 import { cn } from '@/lib/utils'
 import type { Company } from '@/lib/types'
@@ -17,7 +18,8 @@ import { differenceInDays, parseISO } from 'date-fns'
 import { clearFocusedRecord, setFocusedRecord } from '@/features/assistant/screen-context'
 import { Send } from 'lucide-react'
 import { SendReminderDialog } from '@/features/messaging/SendReminderDialog'
-import { NoFollowupControl } from '@/components/shared/NoFollowupControl'
+import { AccountDecisions } from '@/components/shared/AccountDecisions'
+import { isBankrupt, isNoFollowup, isSetAside } from '@/lib/no-followup'
 
 interface CompanyDetailPanelProps {
   company: Company | null
@@ -119,10 +121,21 @@ export function CompanyDetailPanel({
                     {company.status}
                   </Badge>
                 )}
+                {isBankrupt(company) && (
+                  <Badge variant="outline" className="uppercase text-xs font-bold border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-400">
+                    Bankrupt
+                  </Badge>
+                )}
+                {isNoFollowup(company) && (
+                  <Badge variant="outline" className="uppercase text-xs font-bold border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                    No follow-up
+                  </Badge>
+                )}
               </div>
             </div>
 
-            {currentUserId && company.status !== 'paid' && (
+            {/* Nobody is chasing a customer set aside, so there is nobody to remind. */}
+            {currentUserId && company.status !== 'paid' && !isSetAside(company) && (
               <Button
                 size="sm"
                 className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700"
@@ -236,36 +249,6 @@ export function CompanyDetailPanel({
               </div>
             )}
 
-            {/*
-              The same decision as on the Overdue screen, because it is the same
-              customer: most of these have an ageing row too, and setting one
-              aside without the other would leave the balance being chased from
-              the other list. One control, both books.
-            */}
-            {currentUserId && company.status !== 'paid' && (
-              <>
-                <Separator className="bg-border/50" />
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Worth chasing?</p>
-                  <p className="text-xs text-muted-foreground">
-                    Setting this aside drops it from the lists and takes the balance out of what is
-                    owed, for you and for the team leader.
-                  </p>
-                  <NoFollowupControl
-                    entityType="company"
-                    entityId={company.id}
-                    bpCode={company.sap_bp_code}
-                    name={company.name}
-                    amount={company.total_amount || 0}
-                    record={company}
-                    currentUserId={currentUserId}
-                    isAdmin={isAdmin}
-                    onChanged={() => onChanged?.()}
-                  />
-                </div>
-              </>
-            )}
-
             {isAdmin && (
               <>
                 <Separator className="bg-border/50" />
@@ -277,9 +260,9 @@ export function CompanyDetailPanel({
                   <div className="flex items-center justify-between gap-4 flex-wrap">
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">Current Coordinator</p>
-                      <p className="font-medium">
-                        {company.assigned_coordinator_id ? getCoordinatorDisplayName(company.assigned_coordinator_id) : 'Unassigned'}
-                      </p>
+                      <div className="font-medium">
+                        <OwnerName {...ownerNameProps(rowOwner(company))} />
+                      </div>
                     </div>
                     
                     <div className="flex items-center gap-2">
@@ -325,6 +308,26 @@ export function CompanyDetailPanel({
                   companyTotalAmount={company.total_amount}
                   onFollowupSaved={onFollowupSaved}
                   refreshKey={timelineKey}
+                  /*
+                    The same decisions as on the Overdue screen, because it is
+                    the same customer: most of these have an ageing row too, and
+                    setting one aside without the other would leave the balance
+                    being chased from the other list. One control, both books.
+                  */
+                  decisions={
+                    <AccountDecisions
+                      entityType="company"
+                      entityId={company.id}
+                      bpCode={company.sap_bp_code}
+                      name={company.name}
+                      amount={company.total_amount || 0}
+                      record={company}
+                      currentUserId={currentUserId}
+                      canManageTeam={isAdmin}
+                      isSettled={company.status === 'paid'}
+                      onChanged={() => onChanged?.()}
+                    />
+                  }
                 />
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ageingRows, oldestAgeingBand, summariseAgeing } from './ageing'
+import { ageingBookTotals, ageingRows, oldestAgeingBand, summariseAgeing } from './ageing'
 
 /** The customer in the screenshot that prompted this: nothing collected. */
 const meridian = {
@@ -60,6 +60,55 @@ describe('summariseAgeing', () => {
     expect(none.total).toBe(0)
     // A balance with no split is not a mismatch to chase; the caption says so.
     expect(none.balance).toBe(50000)
+  })
+})
+
+describe('ageingBookTotals', () => {
+  it('adds every bucket across the list and counts the companies holding money in it', () => {
+    const book = ageingBookTotals([
+      meridian,
+      { due_0_30: 1000, due_91_120: 500, balance_due: 1500 },
+      { due_31_60: 2000, balance_due: 2000 },
+    ])
+    expect(book.buckets.map((b) => b.amount)).toEqual([177287, 137322, 3878, 500, 296387])
+    expect(book.buckets.map((b) => b.accounts)).toEqual([2, 2, 1, 1, 1])
+    expect(book.total).toBe(615374)
+    expect(book.balance).toBe(615374)
+    expect(book.tiesOut).toBe(true)
+    expect(book.accounts).toBe(3)
+    expect(book.criticalAccounts).toBe(2)
+    expect(book.criticalAmount).toBe(296887)
+    expect(book.buckets.reduce((sum, b) => sum + b.share, 0)).toBeCloseTo(100, 10)
+  })
+
+  it('totals paise exactly where adding rupee floats would drift', () => {
+    const rows = Array.from({ length: 1000 }, () => ({ due_0_30: 0.1, due_61_90: 0.2, balance_due: 0.3 }))
+    const book = ageingBookTotals(rows)
+    expect(book.buckets[0].amount).toBe(100)
+    expect(book.buckets[2].amount).toBe(200)
+    expect(book.total).toBe(300)
+    expect(book.balance).toBe(300)
+    expect(book.difference).toBe(0)
+  })
+
+  it('nets a credit off its bucket without counting it as money owed', () => {
+    const book = ageingBookTotals([
+      { due_0_30: 5000, balance_due: 5000 },
+      { due_0_30: -1200.5, balance_due: -1200.5 },
+    ])
+    expect(book.buckets[0].amount).toBe(3799.5)
+    expect(book.buckets[0].owed).toBe(5000)
+    expect(book.buckets[0].credit).toBe(-1200.5)
+    expect(book.buckets[0].accounts).toBe(1)
+    expect(book.total).toBe(3799.5)
+    expect(book.owed).toBe(5000)
+    expect(book.credit).toBe(-1200.5)
+  })
+
+  it('is all zeros for an empty list, with no share divided by nothing', () => {
+    const book = ageingBookTotals([])
+    expect(book.total).toBe(0)
+    expect(book.buckets.every((b) => b.amount === 0 && b.share === 0 && b.accounts === 0)).toBe(true)
   })
 })
 

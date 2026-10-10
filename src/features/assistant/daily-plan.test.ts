@@ -178,8 +178,8 @@ describe('makePlan', () => {
     expect(today.items.map((i) => i.entityId)).toEqual(['c9'])
   })
 
-  it('keeps the plan short even when the backlog is long', () => {
-    // A list nobody starts is the failure this module exists to avoid.
+  it('puts every leftover on top of a full day of fresh work', () => {
+    // The team's call (6 Oct 2026): fresh work every day, and nothing unfinished dropped.
     const carried = Array.from({ length: 9 }, (_, i) => ({
       taskId: `old-${i}`,
       kind: 'stale_contact' as const,
@@ -189,8 +189,10 @@ describe('makePlan', () => {
       carriedFrom: '2026-09-01',
     }))
     const today = makePlan('coord-1', '2026-09-06', [task('new-1', 'commitment_broken', { id: 'z1' })], carried)
-    expect(today.items).toHaveLength(PLAN_SIZE)
-    expect(today.items.every((i) => i.carriedFrom === '2026-09-01')).toBe(true)
+    expect(today.items).toHaveLength(10)
+    expect(today.items.slice(0, 9).every((i) => i.carriedFrom === '2026-09-01')).toBe(true)
+    expect(today.items[9].taskId).toBe('new-1')
+    expect(PLAN_SIZE).toBe(4)
   })
 })
 

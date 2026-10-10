@@ -94,14 +94,12 @@ export function createDataStore(dir: string): DataStore {
       const saved = JSON.parse(readFileSync(file, 'utf8')) as PersistedStore
       demoCompanyStore.replaceAll(saved)
       /*
-       * The store runs these on load, but its constructor ran before the file
-       * was read — against nothing. Run them here, over the real records: a
+       * The store runs this on load, but its constructor ran before the file
+       * was read — against nothing. Run it here, over the real records: a
        * bankruptcy declared against a customer still has to reach that
-       * customer's other invoices, and a handed-over desk still has to be
-       * handed over.
+       * customer's other invoices.
        */
       demoCompanyStore.carryBankruptcyToInvoices()
-      demoCompanyStore.applyHandovers()
     } catch (err) {
       /*
        * A corrupt file is not a reason to start an empty CRM on top of it —

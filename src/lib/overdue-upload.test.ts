@@ -12,7 +12,7 @@ import {
 } from './overdue-upload'
 import { demoCompanyStore } from './demo-companies'
 import { addFollowup } from './followups-api'
-import { getOverduePayments, getOverdueStats } from './overdue-api'
+import { getOverduePayments, getOverdueStats, settleOverduePayments } from './overdue-api'
 
 function loadWorkbook(name: string): File {
   const buffer = readFileSync(resolve(__dirname, '__fixtures__', name))
@@ -83,18 +83,23 @@ describe('overdue upload extraction', () => {
     expect(meridian.extra_fields).toHaveProperty('Region', 'West')
   })
 
-  it('resolves coordinators through aliases and quarantines the rest', async () => {
+  it('resolves coordinators through aliases and imports an unknown name unassigned', async () => {
     const parsed = await parseFile(loadWorkbook('overdue_sample.xlsx'))
     const rows = mapOverdueRows(parsed.rows, autoMapOverdueColumns(parsed.headers))
     const result = await validateOverdueRows(rows)
 
-    expect(result.valid).toHaveLength(3) // Diya, "Pragati Patel", KRUPA
+    // Diya, "Pragati Patel", KRUPA - and "Nobody Known", who has no login here.
+    expect(result.valid).toHaveLength(4)
     // Three spellings, one rule: the bare first name, the full name an export
     // writes out, and a shouted one. None of them needs a saved alias.
-    expect(result.valid.map((r) => r.coordinator_id)).toEqual(['coord-2', 'coord-1', 'coord-5'])
+    expect(result.valid.map((r) => r.coordinator_id)).toEqual(['coord-2', 'coord-1', 'coord-5', null])
 
-    // "Nobody Known" cannot be resolved; the blank BP code row is invalid.
+    // The unknown name is no longer refused: it imports with no CRM owner and
+    // keeps the name the file gave it, so its money is in the leader's totals.
     expect(result.unassigned.map((r) => r.customer_name)).toEqual(['Orbit Retail'])
+    expect(result.valid[3].coordinator_name).toBe('Nobody Known')
+    expect(result.errors[3]).toBeUndefined()
+    // The blank BP code row is still invalid.
     expect(result.errors[4]).toContain('BP Code is required')
   })
 
@@ -110,29 +115,49 @@ describe('overdue upload extraction', () => {
       })),
     })
 
-    expect(outcome.created).toBe(3)
+    expect(outcome.created).toBe(4)
     expect(outcome.updated).toBe(0)
-    expect(outcome.failed).toBe(2)
+    expect(outcome.failed).toBe(1)
 
     // coord-1 (Pragati) should only see the row assigned to her.
     const mine = await getOverduePayments('coord-1')
     expect(mine).toHaveLength(1)
     expect(mine[0].customer_name).toBe('Gokul Beverages')
 
+    // The leader's view counts the unknown name's money too.
     const stats = await getOverdueStats()
-    expect(stats.total).toBe(3)
+    expect(stats.total).toBe(4)
     expect(stats.critical).toBe(2)
-    expect(stats.totalBalance).toBe(420000 + 985000 + 110000)
+    expect(stats.totalBalance).toBe(420000 + 985000 + 110000 + 75000)
+
+    const orbit = (await getOverduePayments()).find((p) => p.customer_name === 'Orbit Retail')
+    expect(orbit?.assigned_coordinator_id).toBeNull()
+    expect(orbit?.coordinator_name).toBe('Nobody Known')
   })
 
-  it('re-importing updates rows without resurrecting a settled balance', async () => {
+  it('keeps an assignment made in the CRM when the file still names nobody known', async () => {
+    const parsed = await parseFile(loadWorkbook('overdue_sample.xlsx'))
+    const first = await validateOverdueRows(mapOverdueRows(parsed.rows, autoMapOverdueColumns(parsed.headers)))
+    await processOverdueUpload(first.valid)
+
+    const orbit = (await getOverduePayments()).find((p) => p.customer_name === 'Orbit Retail')!
+    demoCompanyStore.updateOverduePayment(orbit.id, { assigned_coordinator_id: 'coord-2' })
+
+    const again = await validateOverdueRows(mapOverdueRows(parsed.rows, autoMapOverdueColumns(parsed.headers)))
+    await processOverdueUpload(again.valid)
+    expect(demoCompanyStore.getOverduePaymentById(orbit.id)?.assigned_coordinator_id).toBe('coord-2')
+  })
+
+  it('trusts the file: a balance it still lists is overdue again, even if marked settled', async () => {
     const parsed = await parseFile(loadWorkbook('overdue_sample.xlsx'))
     const rows = mapOverdueRows(parsed.rows, autoMapOverdueColumns(parsed.headers))
     const validation = await validateOverdueRows(rows)
 
     await processOverdueUpload(validation.valid)
     const settledId = (await getOverduePayments())[0].id
-    demoCompanyStore.updateOverduePayment(settledId, { status: 'settled' })
+    // What a sync does when the row goes missing from one day's file.
+    await settleOverduePayments([settledId])
+    expect(demoCompanyStore.getOverduePaymentById(settledId)?.status).toBe('settled')
 
     const second = await processOverdueUpload(
       mapOverdueRows(parsed.rows, autoMapOverdueColumns(parsed.headers)).filter((r) => r.bp_code)
@@ -142,7 +167,22 @@ describe('overdue upload extraction', () => {
 
     expect(second.created).toBe(0)
     expect(second.updated).toBe(3)
-    expect(demoCompanyStore.getOverduePaymentById(settledId)?.status).toBe('settled')
+    const back = demoCompanyStore.getOverduePaymentById(settledId)
+    // Gokul Beverages: ₹9,85,000 with money past 90 days.
+    expect(back?.status).toBe('critical')
+    expect(back?.balance_due).toBe(985000)
+  })
+
+  it('still keeps a bankruptcy through a re-import', async () => {
+    const parsed = await parseFile(loadWorkbook('overdue_sample.xlsx'))
+    const valid = (await validateOverdueRows(mapOverdueRows(parsed.rows, autoMapOverdueColumns(parsed.headers)))).valid
+
+    await processOverdueUpload(valid)
+    const id = (await getOverduePayments())[0].id
+    demoCompanyStore.updateOverduePayment(id, { status: 'bankrupt' })
+
+    await processOverdueUpload(valid)
+    expect(demoCompanyStore.getOverduePaymentById(id)?.status).toBe('bankrupt')
   })
 })
 

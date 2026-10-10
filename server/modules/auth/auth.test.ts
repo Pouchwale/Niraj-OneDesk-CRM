@@ -7,28 +7,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SEED_PROFILES } from '../../../shared/roster'
 import { AccountError, createAccountStore } from './accounts'
-import { FALLBACK_PASSWORD, INITIAL_PASSWORDS_FILE } from './seed'
 import { hashPassword, verifyPassword } from './hash'
 import { createSessionSigner, loadSessionSecret, readCookie } from './sessions'
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'crm-auth-'))
-  /*
-   * The starting passwords are not in the repository - they are read from the
-   * auth folder on the very first start - so a test that expects somebody to
-   * sign in has to provide them, exactly as a new machine would.
-   */
-  writeFileSync(
-    join(dir, INITIAL_PASSWORDS_FILE),
-    JSON.stringify({ 'admin-1': 'Leader@Test1', 'coord-1': 'Coord@Test1' }),
-    'utf8'
-  )
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
@@ -36,17 +25,17 @@ afterEach(() => {
 
 describe('storing a password', () => {
   it('never keeps the password itself', () => {
-    const stored = hashPassword('Coord@Test1')
-    expect(stored).not.toContain('Coord@Test1')
+    const stored = hashPassword('Pragati@123')
+    expect(stored).not.toContain('Pragati@123')
     expect(stored.startsWith('scrypt$')).toBe(true)
   })
 
   it('accepts the right password and refuses the rest', () => {
-    const stored = hashPassword('Coord@Test1')
-    expect(verifyPassword('Coord@Test1', stored)).toBe(true)
-    expect(verifyPassword('coord@test1', stored)).toBe(false)
+    const stored = hashPassword('Pragati@123')
+    expect(verifyPassword('Pragati@123', stored)).toBe(true)
+    expect(verifyPassword('pragati@123', stored)).toBe(false)
     expect(verifyPassword('', stored)).toBe(false)
-    expect(verifyPassword('Coord@Test14', stored)).toBe(false)
+    expect(verifyPassword('Pragati@1234', stored)).toBe(false)
   })
 
   it('gives two people with the same password different stored values', () => {
@@ -115,61 +104,28 @@ describe('the session token', () => {
 })
 
 describe('the accounts', () => {
-  it('starts from the roster the app ships with, taking the passwords from the auth folder', () => {
+  it('starts from the roster the app ships with, with the passwords the team already uses', () => {
     const accounts = createAccountStore(dir)
     expect(accounts.roster()).toHaveLength(SEED_PROFILES.length)
-    expect(accounts.verify('niki', 'Leader@Test1')?.role).toBe('team_leader')
-    expect(accounts.verify('pragati', 'Coord@Test1')?.id).toBe('coord-1')
-  })
-
-  /*
-   * Nobody's password is in this repository. The list is read from the auth
-   * folder, which is git-ignored, and what matters when it is missing is that
-   * every account still gets *a* password: an account with none would be an
-   * open door, and this ran on a machine the whole office can reach.
-   */
-  it('gives every account the fallback when no list has been provided', () => {
-    const bare = mkdtempSync(join(tmpdir(), 'crm-auth-bare-'))
-    try {
-      const accounts = createAccountStore(bare)
-      expect(accounts.roster()).toHaveLength(SEED_PROFILES.length)
-      expect(accounts.verify('niki', FALLBACK_PASSWORD)?.role).toBe('team_leader')
-      // And emphatically not open, nor still on the password it used to ship with.
-      expect(accounts.verify('niki', '')).toBeNull()
-      expect(accounts.verify('niki', 'Leader@Test1')).toBeNull()
-    } finally {
-      rmSync(bare, { recursive: true, force: true })
-    }
-  })
-
-  it('carries nobody’s password in the source that gets committed', () => {
-    /*
-     * The guard on the mistake this replaces: the starting passwords for the
-     * whole team used to sit in seed.ts, a tracked file, and would have gone
-     * to the remote with the first push.
-     *
-     * Checked by shape rather than by listing the real ones, because naming
-     * them here would put them back in the repository it is guarding.
-     */
-    const source = readFileSync(join(import.meta.dirname, 'seed.ts'), 'utf8')
-    expect(source).not.toMatch(/['"](?:admin|coord|acct)-\d+['"]\s*:/)
+    expect(accounts.verify('niki', 'Niki@123')?.role).toBe('team_leader')
+    expect(accounts.verify('pragati', 'Pragati@123')?.id).toBe('coord-1')
   })
 
   it('lets somebody sign in with their email as well as their username', () => {
     const accounts = createAccountStore(dir)
-    expect(accounts.verify('pragati@gp3.com', 'Coord@Test1')?.id).toBe('coord-1')
+    expect(accounts.verify('pragati@gp3.com', 'Pragati@123')?.id).toBe('coord-1')
   })
 
   it('refuses the wrong password, and an account that does not exist', () => {
     const accounts = createAccountStore(dir)
     expect(accounts.verify('niki', 'wrong')).toBeNull()
-    expect(accounts.verify('nobody', 'Leader@Test1')).toBeNull()
+    expect(accounts.verify('nobody', 'Niki@123')).toBeNull()
   })
 
   it('writes no password to the file, and hands none out', () => {
     const accounts = createAccountStore(dir)
     const file = readFileSync(join(dir, 'users.json'), 'utf8')
-    expect(file).not.toContain('Leader@Test1')
+    expect(file).not.toContain('Niki@123')
     expect(JSON.stringify(accounts.roster())).not.toContain('passwordHash')
   })
 
@@ -178,7 +134,7 @@ describe('the accounts', () => {
     first.setPassword('coord-1', 'Changed@123')
     const second = createAccountStore(dir)
     expect(second.verify('pragati', 'Changed@123')?.id).toBe('coord-1')
-    expect(second.verify('pragati', 'Coord@Test1')).toBeNull()
+    expect(second.verify('pragati', 'Pragati@123')).toBeNull()
   })
 
   it('adds an account that can then sign in', () => {
@@ -227,13 +183,21 @@ describe('the accounts', () => {
     expect(moved.desk).toBeUndefined()
   })
 
-  it('will not remove a shipped account or the one being used', () => {
+  it('will not remove the system administrator or the account being used', () => {
     const accounts = createAccountStore(dir)
-    expect(() => accounts.remove('coord-1', 'admin-0')).toThrow(AccountError)
+    expect(() => accounts.remove('admin-0', 'admin-1')).toThrow(AccountError)
     const added = accounts.create({ username: 'temp', email: 't@gp3.com', full_name: 'Temp', role: 'coordinator', module: 'GP3', password: 'Temp@1234' })
     expect(() => accounts.remove(added.id, added.id)).toThrow(AccountError)
     accounts.remove(added.id, 'admin-0')
     expect(accounts.find(added.id)).toBeNull()
+  })
+
+  it('removes a shipped account for good, even after a restart', () => {
+    createAccountStore(dir).remove('coord-9', 'admin-0')
+    const reopened = createAccountStore(dir)
+    expect(reopened.find('coord-9')).toBeNull()
+    expect(reopened.verify('vishva', 'Vishva@123')).toBeNull()
+    expect(reopened.roster()).toHaveLength(SEED_PROFILES.length - 1)
   })
 
   it('keeps the owner account an administrator', () => {
@@ -247,7 +211,7 @@ describe('the accounts', () => {
   it('asks for the current password when somebody changes their own', () => {
     const accounts = createAccountStore(dir)
     expect(() => accounts.setPassword('coord-1', 'Brand@New1', { currentPassword: 'wrong' })).toThrow(AccountError)
-    accounts.setPassword('coord-1', 'Brand@New1', { currentPassword: 'Coord@Test1' })
+    accounts.setPassword('coord-1', 'Brand@New1', { currentPassword: 'Pragati@123' })
     expect(accounts.verify('pragati', 'Brand@New1')?.id).toBe('coord-1')
   })
 })

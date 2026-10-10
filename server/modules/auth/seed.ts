@@ -1,47 +1,30 @@
 /**
- * The passwords the accounts start with, on the very first run.
+ * The passwords the accounts start with.
  *
- * These are real people's passwords, so they are NOT in this repository. They
- * are read from `<AUTH_DIR>/initial-passwords.json` — the same folder the
- * hashed accounts live in, which is git-ignored — and an account the file does
- * not mention starts on FALLBACK_PASSWORD rather than being left open.
+ * The ones the team already uses, so nobody has to be told a new password on
+ * the day this goes in. They are hashed the first time the server starts and
+ * this list is never read again — changing a password here does nothing once
+ * the account file exists; change it in the Admin Panel.
  *
- * The list is read once. After the first start the accounts file exists and
- * this is never consulted again, so editing it does nothing to a running
- * deployment; change a password in the Admin Panel instead.
- *
- * See `initial-passwords.example.json` for the shape, and DEPLOYMENT.md for
- * how to set it up on a new machine.
+ * Deliberately on the server only. Anything in shared/ or src/ is also in the
+ * browser bundle, where a password list has no business being.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
-/** Used for an account the list does not mention, so it is never left open. */
-export const FALLBACK_PASSWORD = 'Welcome@123'
-
-/** What the file is called, inside the auth directory. */
-export const INITIAL_PASSWORDS_FILE = 'initial-passwords.json'
-
-/**
- * The starting passwords, or an empty list when none have been provided.
- *
- * A missing or unreadable file is not an error: every account simply starts on
- * the fallback, which is the safe way to be wrong — nobody is locked out, and
- * nobody gets an account with no password at all.
- */
-export function loadInitialPasswords(dir: string): Record<string, string> {
-  const file = join(dir, INITIAL_PASSWORDS_FILE)
-  if (!existsSync(file)) return {}
-  try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    const out: Record<string, string> = {}
-    for (const [id, password] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof password === 'string' && password.length > 0) out[id] = password
-    }
-    return out
-  } catch {
-    return {}
-  }
+export const INITIAL_PASSWORDS: Record<string, string> = {
+  'admin-0': 'Admin@123',
+  'admin-1': 'Niki@123',
+  'coord-1': 'Pragati@123',
+  'coord-3': 'Devyani@123',
+  'coord-2': 'Diya@123',
+  'coord-8': 'Disha@123',
+  'coord-4': 'Foram@123',
+  'coord-5': 'Krupa@123',
+  'coord-9': 'Vishva@123',
+  'coord-7': 'Krina@123',
+  'coord-6': 'Aniketa@123',
+  'coord-10': 'Disha@123',
+  'coord-11': 'Avani@123',
 }
+
+/** Used for an account added later without one, so it is never left open. */
+export const FALLBACK_PASSWORD = 'Welcome@123'

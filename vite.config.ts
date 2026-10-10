@@ -5,6 +5,10 @@ import path from 'path'
 import { apiPlugin } from './server/api-plugin'
 
 export default defineConfig({
+  server: {
+    host: true,
+    port: 5173,
+  },
   plugins: [
     react(),
     tailwindcss(),

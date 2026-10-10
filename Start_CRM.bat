@@ -8,7 +8,9 @@ echo.
 
 cd /d "%~dp0"
 
-:: Build once, and again whenever the code has changed.
+:: Build once, and again whenever the code has changed or --build is specified.
+if "%1"=="--build" goto build
+if "%1"=="-b" goto build
 if not exist "dist\index.html" goto build
 if not exist "dist-server\index.js" goto build
 goto run
@@ -25,7 +27,8 @@ if errorlevel 1 (
 
 :run
 echo.
-echo Starting the server on http://localhost:8080
+echo Starting OneDesk CRM on port 8080...
+echo Keep this window open. When ready, other PCs on your LAN can access the CRM.
 set NODE_ENV=production
 set PORT=8080
 start "" http://localhost:8080

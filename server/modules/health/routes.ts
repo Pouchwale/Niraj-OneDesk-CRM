@@ -32,8 +32,10 @@ export function healthRoutes(config: ServerConfig, ai: AiService, excel: ExcelSe
     const checks: ReadyResponse['checks'] = [
       {
         name: 'assistant',
-        ok: aiStatus.configured,
-        detail: aiStatus.configured ? `${aiStatus.provider} · ${aiStatus.model}` : 'no key configured',
+        ok: aiStatus.configured && !aiStatus.keyError,
+        detail: !aiStatus.configured
+          ? 'no key configured'
+          : aiStatus.keyError ?? `${aiStatus.provider} · ${aiStatus.model}`,
       },
       ...EXCEL_BOOKS.map((book) => {
         const status = excel.status(book)

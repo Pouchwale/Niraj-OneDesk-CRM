@@ -25,18 +25,25 @@ import {
   type CompanyFollowupSummary,
 } from '@/lib/followups-api';
 import { useAuth } from '@/features/auth/AuthContext';
+import { SetAsideMatches } from '@/components/shared/SetAsideMatches';
 import { CompanyDetailPanel } from './CompanyDetailPanel';
 import { FollowupHistoryView } from './FollowupHistoryView';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
-import type { Company } from '@/lib/types';
+import type { Company, OverduePayment } from '@/lib/types';
 import { demoCompanyStore } from '@/lib/demo-companies';
 import { isSetAside } from '@/lib/no-followup';
+import { normalizeBpCode } from '@/lib/bp-code';
+import { getOverduePayments } from '@/lib/overdue-api';
+import { NoFollowupRegister } from './NoFollowupRegister';
+import { BankruptRegister } from '@/features/overdue/components/BankruptRegister';
 
 export function CoordinatorCompaniesPage() {
   const { user } = useAuth();
   
   const [companies, setCompanies] = useState<Company[]>([]);
+  /** Only for the Set aside tab: a decision reaches the customer's ageing row too. */
+  const [overduePayments, setOverduePayments] = useState<OverduePayment[]>([]);
   const [companyStats, setCompanyStats] = useState<CompanyStats | null>(null);
   const [overdueCommitments, setOverdueCommitments] = useState<any[]>([]);
   const [followupSummary, setFollowupSummary] = useState<Map<string, CompanyFollowupSummary>>(new Map());
@@ -96,15 +103,17 @@ export function CoordinatorCompaniesPage() {
     setIsLoading(true);
     try {
       // Scope the query to this coordinator rather than fetching every company.
-      const [myCompanies, myStats, myOverdueCommitments, mySummary] = await Promise.all([
+      const [myCompanies, myStats, myOverdueCommitments, mySummary, myOverdue] = await Promise.all([
         getCompanies(user.id),
         // The same figures the leader's Active Payments cards use, scoped to
         // this coordinator, so the two screens never disagree about a number.
         getCompanyStats(user.id),
         getOverdueCommitments(user.id),
         getFollowupSummaryByCompany(user.id),
+        getOverduePayments(user.id),
       ]);
       setCompanies(myCompanies);
+      setOverduePayments(myOverdue);
       setCompanyStats(myStats);
       setOverdueCommitments(myOverdueCommitments);
       setFollowupSummary(mySummary);
@@ -144,16 +153,14 @@ export function CoordinatorCompaniesPage() {
         Boolean(company.invoice_no && company.invoice_no.toLowerCase().includes(q)) ||
         Boolean(company.contact_person && company.contact_person.toLowerCase().includes(q));
       /*
-       * Paid and set-aside invoices are out of the working list by default -
-       * this module is what is still to be collected - and reachable by asking
-       * for them in the status filter.
+       * Paid invoices - the Excel file no longer carries them, and the file is
+       * the truth - and set-aside ones never appear here: this module is what
+       * is still to be collected.
        */
-      // Set aside (no follow-up or bankrupt) never appears here at all.
       const matchesStatus =
         !isSetAside(company) &&
-        (statusFilter === 'paid'
-          ? company.status === 'paid'
-          : company.status !== 'paid' && (statusFilter === 'all' || company.status === statusFilter));
+        company.status !== 'paid' &&
+        (statusFilter === 'all' || company.status === statusFilter);
       // Payment-due window: days from today to the due date.
       const matchesDue = !dueFilter || matchesDueRange(company.due_date, dueFilter);
       // The second window: critical, turning critical, or due this week.
@@ -200,6 +207,14 @@ export function CoordinatorCompaniesPage() {
 
   const hasOverdueCommitments = overdueCommitments.length > 0;
 
+  // Customers, not records, as on the leader's registers.
+  const setAsideCount = useMemo(() => {
+    const seen = new Set<string>();
+    for (const c of companies) if (isSetAside(c)) seen.add(normalizeBpCode(c.sap_bp_code) ?? `company:${c.id}`);
+    for (const p of overduePayments) if (isSetAside(p)) seen.add(normalizeBpCode(p.bp_code) ?? `ageing:${p.id}`);
+    return seen.size;
+  }, [companies, overduePayments]);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -211,11 +226,41 @@ export function CoordinatorCompaniesPage() {
         <TabsList>
           <TabsTrigger value="accounts">My Accounts</TabsTrigger>
           <TabsTrigger value="history">My Follow-ups</TabsTrigger>
+          <TabsTrigger value="set-aside" data-testid="tab-set-aside">
+            Set aside
+            {setAsideCount > 0 && (
+              <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400">
+                {setAsideCount}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="history" className="outline-none">
           {/* Pinned to this coordinator: her own trail, across every account. */}
           {user && <FollowupHistoryView coordinatorId={user.id} refreshKey={historyKey} hideSetAside />}
+        </TabsContent>
+
+        {/*
+          Accounts set aside leave every list, so without this a coordinator who
+          marked one by mistake could not find it again to undo it. Their own
+          accounts only; they undo only what they decided, and delete nothing.
+        */}
+        <TabsContent value="set-aside" className="space-y-6 outline-none">
+          <NoFollowupRegister
+            companies={companies}
+            overduePayments={overduePayments}
+            currentUserId={user?.id}
+            canManageTeam={false}
+            onChanged={loadData}
+          />
+          <BankruptRegister
+            payments={overduePayments}
+            companies={companies}
+            currentUserId={user?.id}
+            canManageTeam={false}
+            onChanged={loadData}
+          />
         </TabsContent>
 
         <TabsContent value="accounts" className="space-y-6 outline-none">
@@ -300,12 +345,14 @@ export function CoordinatorCompaniesPage() {
                 <SelectItem value="overdue">Overdue</SelectItem>
                 <SelectItem value="upcoming">Upcoming</SelectItem>
                 <SelectItem value="current">Current</SelectItem>
-                <SelectItem value="paid">Paid</SelectItem>
               </SelectContent>
             </Select>
             <DueDaysFilter value={dueFilter} onChange={setDueFilter} userId={user?.id} />
           </div>
         </div>
+
+        {/* A search for one of their customers that is set aside says who did it and why. */}
+        <SetAsideMatches query={searchQuery} companies={companies} canResume={false} />
 
         <div className="overflow-x-auto rounded-md border border-border/50">
           <table className="w-full text-sm text-left">

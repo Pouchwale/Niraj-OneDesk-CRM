@@ -10,7 +10,7 @@ import { todayISO } from '@/lib/utils'
 import { waitingFor } from './daily-plan'
 import { askAssistant, buildAiContext, type AssistantAnswer, type SystemSnapshot } from './knowledge'
 import { teamPlans } from './plan-store'
-import { getAiStatus, streamAiReply } from './ai-client'
+import { getAiStatus, streamAiReply, type AiStatus } from './ai-client'
 import { buildAiRequest, type AiTurn } from './ai-prompt'
 import type { AssistantTask } from './types'
 
@@ -44,21 +44,26 @@ export function useKnowledge(tasks: AssistantTask[]) {
   const [isThinking, setIsThinking] = useState(false)
   const [aiReady, setAiReady] = useState(false)
   const [aiModel, setAiModel] = useState<string | null>(null)
+  const [aiKeyError, setAiKeyError] = useState<string | null>(null)
 
   const cache = useRef<Knowledge | null>(null)
   const inflight = useRef<Promise<Knowledge> | null>(null)
 
+  const applyStatus = useCallback((status: AiStatus) => {
+    setAiReady(status.configured)
+    setAiModel(status.model)
+    setAiKeyError(status.keyError)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     getAiStatus().then((status) => {
-      if (cancelled) return
-      setAiReady(status.configured)
-      setAiModel(status.model)
+      if (!cancelled) applyStatus(status)
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applyStatus])
 
   const load = useCallback(async (): Promise<Knowledge> => {
     const [companies, overduePayments, followups, commitments] = await Promise.all([
@@ -112,6 +117,13 @@ export function useKnowledge(tasks: AssistantTask[]) {
                   carriedOver: t.plan.carriedOver,
                   oldestCarried: t.plan.oldestCarried,
                   date: t.plan.date,
+                  // The tasks themselves, so "what should Diya do first" is
+                  // answered from her real plan rather than imagined.
+                  items: t.plan.items.map((item) => ({
+                    account: item.entityName ?? 'Account',
+                    status: item.status,
+                    nudge: item.message,
+                  })),
                 },
               ])
             ),
@@ -162,8 +174,16 @@ export function useKnowledge(tasks: AssistantTask[]) {
         }
         const snapshot: SystemSnapshot = { ...knowledge, tasks }
         const rule = askAssistant(question, snapshot)
+        if (RULES_ONLY_INTENTS.has(rule.intent)) return rule
 
-        if (!aiReady || RULES_ONLY_INTENTS.has(rule.intent)) return rule
+        // Asked again rather than trusted from page load, so a key replaced
+        // or refused since then is noticed without anybody reloading.
+        const status = await getAiStatus()
+        applyStatus(status)
+        if (!status.configured) return rule
+        // The server already knows the key is refused: say so at once rather
+        // than wait on a call that cannot succeed.
+        if (status.keyError) return { ...rule, aiError: status.keyError }
 
         try {
           const request = buildAiRequest({
@@ -184,8 +204,8 @@ export function useKnowledge(tasks: AssistantTask[]) {
         } catch (err) {
           // Claude was unavailable: the rules still answer, and the person is
           // told why the reply is the terse one.
-          console.error('Claude reply failed:', err)
-          return { ...rule, aiError: err instanceof Error ? err.message : 'Claude did not answer.' }
+          console.error('AI reply failed:', err)
+          return { ...rule, aiError: err instanceof Error ? err.message : 'The AI did not answer.' }
         }
       } catch {
         return {
@@ -196,8 +216,8 @@ export function useKnowledge(tasks: AssistantTask[]) {
         setIsThinking(false)
       }
     },
-    [load, tasks, aiReady]
+    [load, tasks, applyStatus]
   )
 
-  return { ask, isThinking, aiReady, aiModel }
+  return { ask, isThinking, aiReady, aiModel, aiKeyError }
 }

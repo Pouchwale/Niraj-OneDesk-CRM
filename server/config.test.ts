@@ -5,6 +5,7 @@ import {
   ConfigError,
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_GROQ_MODEL,
+  DEFAULT_OPENAI_MODEL,
   loadConfig,
   preferredPathEnv,
   resolveAi,
@@ -53,6 +54,24 @@ describe('resolveAi', () => {
     expect(resolveAi({ ANTHROPIC_API_KEY: 'gsk_in_the_wrong_slot' })).toMatchObject({
       provider: 'groq',
       model: DEFAULT_GROQ_MODEL,
+    })
+  })
+
+  it('picks OpenAI from its own key, or from an OpenAI key in the other slots', () => {
+    expect(resolveAi({ OPENAI_API_KEY: ' sk-proj-12345 ' })).toMatchObject({
+      provider: 'openai',
+      apiKey: 'sk-proj-12345',
+      model: DEFAULT_OPENAI_MODEL,
+    })
+    expect(resolveAi({ ANTHROPIC_API_KEY: 'sk-proj-in-anthropic-slot' })).toMatchObject({
+      provider: 'openai',
+      apiKey: 'sk-proj-in-anthropic-slot',
+      model: DEFAULT_OPENAI_MODEL,
+    })
+    expect(resolveAi({ GROQ_API_KEY: 'sk-proj-in-groq-slot' })).toMatchObject({
+      provider: 'openai',
+      apiKey: 'sk-proj-in-groq-slot',
+      model: DEFAULT_OPENAI_MODEL,
     })
   })
 })

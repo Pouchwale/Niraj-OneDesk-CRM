@@ -6,19 +6,19 @@ import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { IndianRupee, User, Building2, Layers, CreditCard, ChevronDown, ChevronUp, Send, AlertTriangle, RotateCcw } from 'lucide-react'
+import { IndianRupee, User, Building2, Layers, CreditCard, ChevronDown, ChevronUp, Send } from 'lucide-react'
 import { FollowUpTimeline } from '@/features/companies/FollowUpTimeline'
-import { getAllCoordinators, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
-import { reassignOverduePayment, reinstateOverduePayment } from '@/lib/overdue-api'
+import { getAllCoordinators, getCoordinatorDisplayName, rowOwner } from '@/features/auth/AuthContext'
+import { OwnerName, ownerNameProps } from '@/components/shared/OwnerFilter'
+import { reassignOverduePayment } from '@/lib/overdue-api'
 import { getCompanies } from '@/lib/companies-api'
 import { sameBpCode } from '@/lib/bp-code'
-import { isNoFollowup } from '@/lib/no-followup'
+import { isNoFollowup, isSetAside } from '@/lib/no-followup'
 import { oldestAgeingBand, summariseAgeing } from '@/lib/ageing'
 import { clearFocusedRecord, setFocusedRecord } from '@/features/assistant/screen-context'
 import { SendReminderDialog } from '@/features/messaging/SendReminderDialog'
-import { DeclareBankruptDialog } from './DeclareBankruptDialog'
-import { NoFollowupControl } from '@/components/shared/NoFollowupControl'
-import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { AccountDecisions } from '@/components/shared/AccountDecisions'
+import { formatCurrency, cn } from '@/lib/utils'
 import type { OverduePayment, OverdueStatus } from '@/lib/types'
 
 interface OverdueDetailPanelProps {
@@ -123,7 +123,6 @@ export function OverdueDetailPanel({
   const [isReassigning, setIsReassigning] = useState(false)
   const [showExtra, setShowExtra] = useState(false)
   const [isReminderOpen, setIsReminderOpen] = useState(false)
-  const [isBankruptOpen, setIsBankruptOpen] = useState(false)
   const [timelineKey, setTimelineKey] = useState(0)
   /** Contact details borrowed from the company with the same BP code. */
   const [fallbackContact, setFallbackContact] = useState<{
@@ -205,7 +204,13 @@ export function OverdueDetailPanel({
                 <Badge variant="outline" className={cn('uppercase text-xs', statusColor(payment.status))}>
                   {payment.status.replace('_', ' ')}
                 </Badge>
-                {currentUserId && payment.status !== 'settled' && payment.status !== 'bankrupt' && (
+                {isNoFollowup(payment) && (
+                  <Badge variant="outline" className="uppercase text-xs border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                    No follow-up
+                  </Badge>
+                )}
+                {/* Nobody is chasing a customer set aside, so there is nobody to remind. */}
+                {currentUserId && payment.status !== 'settled' && !isSetAside(payment) && (
                   <Button
                     size="sm"
                     className="ml-auto bg-emerald-600 text-white hover:bg-emerald-700"
@@ -217,60 +222,6 @@ export function OverdueDetailPanel({
                 )}
               </div>
             </SheetHeader>
-
-            {payment.status === 'bankrupt' && (
-              /*
-               * Said on the record itself, not just as a badge: anyone opening
-               * this needs to know why nothing is being chased, and who decided
-               * that, without going to ask somebody.
-               */
-              <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 text-sm">
-                <p className="flex items-center gap-2 font-medium text-rose-600 dark:text-rose-400">
-                  <AlertTriangle className="h-4 w-4" />
-                  Declared bankrupt
-                </p>
-                <p className="mt-1 text-muted-foreground">
-                  {payment.bankrupt_declared_by
-                    ? `By ${getCoordinatorDisplayName(payment.bankrupt_declared_by)}`
-                    : 'Declared'}
-                  {payment.bankrupt_declared_at
-                    ? ` on ${formatDate(payment.bankrupt_declared_at.slice(0, 10))}`
-                    : ''}
-                  . The {formatCurrency(payment.balance_due)} balance, and this customer's invoices,
-                  are held out of every total and every list; they appear only in the Bankrupt
-                  register, and nobody is asked to chase them.
-                </p>
-                {payment.bankrupt_note && (
-                  <p className="mt-2 rounded bg-background/60 px-2 py-1 text-xs">
-                    {payment.bankrupt_note}
-                  </p>
-                )}
-                {/*
-                  Undoing is open to whoever declared it and to the team leader.
-                  Anyone can make the call; only the person who made it, or the
-                  person who answers for it, takes it back.
-                */}
-                {currentUserId && (isAdmin || payment.bankrupt_declared_by === currentUserId) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3"
-                    onClick={async () => {
-                      try {
-                        await reinstateOverduePayment(payment.id, currentUserId)
-                        toast.success('Back in the follow-up list.')
-                        onChanged?.()
-                      } catch {
-                        toast.error('That could not be undone. Try again in a moment.')
-                      }
-                    }}
-                  >
-                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
-                    Reinstate for follow-up
-                  </Button>
-                )}
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="space-y-1">
@@ -291,11 +242,7 @@ export function OverdueDetailPanel({
                 <div className="flex items-center gap-2 text-muted-foreground text-xs">
                   <User className="w-3.5 h-3.5" /> Coordinator
                 </div>
-                <div>
-                  {payment.assigned_coordinator_id
-                    ? getCoordinatorDisplayName(payment.assigned_coordinator_id)
-                    : payment.coordinator_name || 'Unassigned'}
-                </div>
+                <OwnerName {...ownerNameProps(rowOwner(payment))} />
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs">
@@ -351,66 +298,6 @@ export function OverdueDetailPanel({
               </div>
             )}
 
-            {/*
-              Not chasing it, and not counting it either. Sits beside the
-              bankruptcy option deliberately: they look alike and differ on the
-              only thing that matters here, which is whether the balance stays in
-              the total. The card explains which one this is.
-            */}
-            {currentUserId && payment.status !== 'settled' && (
-              <>
-                <Separator className="bg-border/50" />
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Worth chasing?</p>
-                  <p className="text-xs text-muted-foreground">
-                    Setting this aside drops it from the lists and takes the balance out of what is
-                    owed, for you and for the team leader.
-                  </p>
-                  <NoFollowupControl
-                    entityType="overdue_payment"
-                    entityId={payment.id}
-                    bpCode={payment.bp_code}
-                    name={payment.customer_name || payment.bp_code}
-                    amount={payment.balance_due || 0}
-                    record={payment}
-                    currentUserId={currentUserId}
-                    isAdmin={isAdmin}
-                    onChanged={() => onChanged?.()}
-                  />
-                </div>
-              </>
-            )}
-
-            {/*
-              Open to the coordinator who carries the account, not just to whoever
-              runs the team: they are the one who finds out the company has gone
-              under, and making them wait to be let off chasing it is how a dead
-              account stays on a list for months. It is audited and named, and the
-              team leader sees every declaration on the Bankrupt card.
-            */}
-            {currentUserId && payment.status !== 'bankrupt' && payment.status !== 'settled' && !isNoFollowup(payment) && (
-              <>
-                <Separator className="bg-border/50" />
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Company gone under?</p>
-                    <p className="text-xs text-muted-foreground">
-                      Stops the follow-ups without pretending the money was collected.
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
-                    onClick={() => setIsBankruptOpen(true)}
-                  >
-                    <AlertTriangle className="mr-2 h-3.5 w-3.5" />
-                    Declare bankrupt
-                  </Button>
-                </div>
-              </>
-            )}
-
             <Separator className="bg-border/50" />
 
             <div className="space-y-4">
@@ -424,22 +311,34 @@ export function OverdueDetailPanel({
                   companyTotalAmount={payment.balance_due}
                   onFollowupSaved={onChanged}
                   refreshKey={timelineKey}
+                  /*
+                    Open to the coordinator who carries the account, not just to
+                    whoever runs the team: they are the one who finds out the
+                    company has gone under or is not worth chasing, and making
+                    them wait is how a dead account stays on a list for months.
+                    It is audited and named, and the team leader sees every
+                    decision in the registers on the Overview.
+                  */
+                  decisions={
+                    <AccountDecisions
+                      entityType="overdue_payment"
+                      entityId={payment.id}
+                      bpCode={payment.bp_code}
+                      name={payment.customer_name || payment.bp_code}
+                      amount={payment.balance_due || 0}
+                      record={payment}
+                      currentUserId={currentUserId}
+                      canManageTeam={isAdmin}
+                      isSettled={payment.status === 'settled'}
+                      onChanged={() => onChanged?.()}
+                    />
+                  }
                 />
               </div>
             </div>
           </div>
         </ScrollArea>
       </SheetContent>
-
-      {currentUserId && (
-        <DeclareBankruptDialog
-          payment={payment}
-          open={isBankruptOpen}
-          onOpenChange={setIsBankruptOpen}
-          declaredBy={currentUserId}
-          onDeclared={() => onChanged?.()}
-        />
-      )}
 
       <SendReminderDialog
         open={isReminderOpen}

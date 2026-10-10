@@ -38,7 +38,16 @@ interface DataResponse {
   owedKeys: string[]
 }
 
+interface Waiter {
+  resolve: () => void
+  reject: (err: Error) => void
+}
+
 let queue: Operation[] = []
+/** Waiting on the operations still in the queue. */
+let waiting: Waiter[] = []
+/** Waiting on the batch on the wire right now. */
+let inFlight: Waiter[] | null = null
 let sending: Promise<void> | null = null
 let version = -1
 let owed = new Set<string>()
@@ -86,7 +95,10 @@ export async function loadSharedData(): Promise<void> {
 async function flush(): Promise<void> {
   if (queue.length === 0) return
   const ops = queue
+  const waiters = waiting
   queue = []
+  waiting = []
+  inFlight = waiters
 
   try {
     const result = await json<{ version: number }>(ROUTES.dataOps, {
@@ -94,9 +106,9 @@ async function flush(): Promise<void> {
       body: JSON.stringify({ ops }),
     })
     version = result.version
-    await loadSharedData()
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    inFlight = null
     try {
       // Put the screen back to what is actually true.
       await loadSharedData()
@@ -104,8 +116,44 @@ async function flush(): Promise<void> {
       // The server is unreachable; the watcher will catch up when it returns.
     }
     onTrouble?.(message)
+    for (const waiter of waiters) waiter.reject(new Error(message))
     throw new Error(message)
   }
+
+  /*
+   * The server has it. Whatever happens to the re-read below, the change is
+   * saved — and reporting a failed re-read as a failed save would have somebody
+   * type the same payment in a second time.
+   */
+  inFlight = null
+  for (const waiter of waiters) waiter.resolve()
+  try {
+    await loadSharedData()
+  } catch {
+    // Forget the revision so the watcher fetches it as soon as it can.
+    version = -1
+  }
+}
+
+/**
+ * Resolves once every change made so far has been accepted by the server, and
+ * rejects with its reason if it was refused.
+ *
+ * Changes are applied on screen at once and sent a moment later, so "the call
+ * returned" is not "it was saved". A screen recording money waits on this
+ * before it says so. With no server in play (tests, or before sign-in) there is
+ * nothing to wait for.
+ */
+export function whenSaved(): Promise<void> {
+  const pending: Promise<void>[] = []
+  if (inFlight) {
+    const batch = inFlight
+    pending.push(new Promise((resolve, reject) => batch.push({ resolve, reject })))
+  }
+  if (queue.length > 0) {
+    pending.push(new Promise((resolve, reject) => waiting.push({ resolve, reject })))
+  }
+  return Promise.all(pending).then(() => undefined)
 }
 
 /**

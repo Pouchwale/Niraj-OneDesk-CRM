@@ -66,13 +66,18 @@ export interface ReadyResponse {
 
 /* ===================== Assistant ===================== */
 
-export type AiProvider = 'anthropic' | 'groq'
+export type AiProvider = 'anthropic' | 'groq' | 'openai'
 
 export interface AiStatusResponse {
   /** A key is present, so replies come from the model rather than the rules. */
   configured: boolean
   provider: AiProvider | null
   model: string | null
+  /**
+   * Set when the provider has turned the key down, so the browser can say
+   * "AI off" instead of "AI on" and skip a call that cannot succeed.
+   */
+  keyError: string | null
 }
 
 export interface AiChatTurn {

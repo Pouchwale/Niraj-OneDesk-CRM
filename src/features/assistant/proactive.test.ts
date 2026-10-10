@@ -16,7 +16,8 @@ const TODAY = '2026-09-06'
  */
 function logged(entityId: string, coordinatorId = 'coord-1'): any {
   return {
-    id: `fu-${entityId}`,
+    // Not the promise that raised the task (fu-<id>): that never counts as the work.
+    id: `call-${entityId}`,
     entity_type: 'company',
     entity_id: entityId,
     coordinator_id: coordinatorId,
@@ -109,32 +110,19 @@ function input(overrides: Partial<NudgeInput> = {}): NudgeInput {
 }
 
 describe('the robot on a coordinator\'s screen', () => {
-  it('speaks to the record that is open when work is waiting on it', () => {
-    const task = brokenTask()
-    const nudge = composeNudge(
-      input({
-        screen: 'companies',
-        focused: { type: 'company', id: 'c1', name: 'Balaji Print Pack' },
-        tasks: [task],
-      })
-    )
-    expect(nudge?.text).toContain('promised ₹2,50,000')
-    // The record is already open; the robot offers nothing that would log for them.
-    expect(nudge?.actions).toEqual([{ kind: 'snooze_task', taskId: task.id, label: 'Later' }])
-    expect(nudge?.key).toContain('c1')
-  })
-
-  it('mentions a long silence on an open record with nothing due', () => {
-    const nudge = composeNudge(
-      input({
-        screen: 'companies',
-        focused: { type: 'company', id: 'c1', name: 'Balaji Print Pack' },
-        companies: [company({ id: 'c1' })],
-        followups: [followup({ id: 'f1' })],
-      })
-    )
-    expect(nudge?.text).toContain('Last contact with Balaji Print Pack')
-    expect(nudge?.detail).toContain('days without a call')
+  it('never pops up over an open follow-up panel, even with work waiting on it', () => {
+    // The person is already working on the account; a bubble over the panel
+    // every time one is opened only gets in the way.
+    const tasks = [brokenTask()]
+    const plan = resolvePlan(makePlan('coord-1', TODAY, tasks), tasks, [])
+    const open = { type: 'company' as const, id: 'c1', name: 'Balaji Print Pack' }
+    expect(composeNudge(input({ screen: 'companies', focused: open, tasks, plan }))).toBeNull()
+    // Nor over a long-silent one.
+    expect(
+      composeNudge(
+        input({ screen: 'companies', focused: open, companies: [company({ id: 'c1' })], followups: [followup({ id: 'f1' })] })
+      )
+    ).toBeNull()
   })
 
   it('stays quiet on a record that was contacted recently', () => {
@@ -240,23 +228,23 @@ describe('the robot on a leader\'s screen', () => {
     },
   ]
 
-  it('says who owns the open record and whether it is on their plan', () => {
-    const nudge = composeNudge(
-      input({
-        role: 'team_leader',
-        userId: 'admin-1',
-        firstName: 'Niki',
-        screen: 'companies',
-        focused: { type: 'company', id: 'c1', name: 'Balaji Print Pack' },
-        companies: [company({ id: 'c1' })],
-        followups: [followup({ id: 'f1' })],
-        team,
-        coordinatorName: (id) => (id === 'coord-1' ? 'Pragati Patel' : 'Someone'),
-      })
-    )
-    expect(nudge?.text).toContain('is with Pragati Patel')
-    expect(nudge?.text).toContain('on Pragati\'s plan for today and still open')
-    expect(nudge?.actions[0]).toMatchObject({ kind: 'remind', toCoordinatorId: 'coord-1', label: 'Remind Pragati' })
+  it('does not pop up over an open follow-up panel', () => {
+    for (const role of ['team_leader', 'admin'] as const) {
+      const nudge = composeNudge(
+        input({
+          role,
+          userId: 'admin-1',
+          firstName: 'Niki',
+          screen: 'companies',
+          focused: { type: 'company', id: 'c1', name: 'Balaji Print Pack' },
+          companies: [company({ id: 'c1' })],
+          followups: [followup({ id: 'f1' })],
+          team,
+          coordinatorName: (id) => (id === 'coord-1' ? 'Pragati Patel' : 'Someone'),
+        })
+      )
+      expect(nudge).toBeNull()
+    }
   })
 
   it('sums the team\'s day on the Overview and names who has not started', () => {

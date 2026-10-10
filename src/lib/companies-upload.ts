@@ -10,7 +10,6 @@ import {
   type CoordinatorMatch,
 } from './coordinator-aliases'
 import { getFallbackOwner } from '@/features/auth/AuthContext'
-import { applyHandoverToRows, coordinatorNameFor } from './handover'
 import { upsertCompany } from './companies-api'
 import { demoCompanyStore, inBulk } from './demo-companies'
 import { accountKeyOf, invoiceKeyOf } from './account-key'
@@ -263,39 +262,21 @@ export async function validateCompanyRows(
     row.coordinator_match = owner.match
     row.coordinator_id = owner.coordinatorId
     if (owner.routedToAdmin) row.coordinator_name = fallbackOwnerName ?? row.coordinator_name
-    if (owner.error) rowErrors.push(owner.error)
+    // A name nobody logs in as no longer holds the row back: it imports with
+    // no CRM owner, keeps the file's name, and is counted in every total the
+    // team leader and administrator see. It used to be refused, which left
+    // real money on no screen at all.
+    const unknownName = owner.error === 'Unassigned coordinator'
+    if (owner.error && !unknownName) rowErrors.push(owner.error)
+    if (unknownName) unassigned.push(row)
 
     if (rowErrors.length > 0) {
       errors[row._originalIndex] = rowErrors
       invalid.push(row)
-      if (rowErrors.includes('Unassigned coordinator')) unassigned.push(row)
     } else {
       valid.push(row)
     }
   }
-
-  /*
-   * A coordinator whose desk has been handed on keeps nothing. The file goes on
-   * naming them every morning, so their rows are re-owned on every sync rather
-   * than once - and by customer, so a customer's invoices never split across
-   * two people.
-   */
-  applyHandoverToRows(
-    rows,
-    (row) => row.coordinator_id,
-    (row) => row.sap_bp_code,
-    (row, coordinatorId, rule) => {
-      const name = coordinatorNameFor(coordinatorId)
-      row.coordinator_id = coordinatorId
-      if (name) row.coordinator_name = name
-      row.coordinator_match = {
-        coordinatorId,
-        confidence: 1,
-        method: 'handover',
-        reason: `${coordinatorNameFor(rule.fromCoordinatorId) ?? 'That coordinator'}'s customers were handed on; this one is ${name ?? 'theirs'}`,
-      }
-    }
-  )
 
   return { rows, valid, invalid, unassigned, errors }
 }
@@ -316,6 +297,7 @@ function toCompanyPayload(row: MappedCompanyRow): Omit<Company, 'id' | 'created_
     due_date: row.due_date,
     status: row.status,
     assigned_coordinator_id: row.coordinator_id,
+    coordinator_name: row.coordinator_input || null,
     module: row.module,
     remarks: row.remarks,
     extra_fields: row.extra_fields,

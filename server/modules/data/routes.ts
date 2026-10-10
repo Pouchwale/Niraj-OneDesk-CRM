@@ -14,7 +14,7 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
-import { isOperation, mayCall } from './operations'
+import { accountRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string) {
@@ -35,6 +35,12 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     companies: snapshot.companies.filter((c) => c.assigned_coordinator_id === userId),
     overduePayments: snapshot.overduePayments.filter((p) => p.assigned_coordinator_id === userId),
     followups: snapshot.followups.filter((f) => f.coordinator_id === userId),
+    // Their own plans only; the team's record is the leader's to read.
+    dailyPlans: (snapshot.dailyPlans ?? []).filter((p) => p.userId === userId),
+    // Messages addressed to them, and nobody else's.
+    messages: (snapshot.messages ?? []).filter((m) => m.toCoordinatorId === userId),
+    proofRequests: (snapshot.proofRequests ?? []).filter((r) => r.coordinatorId === userId),
+    decisionRequests: (snapshot.decisionRequests ?? []).filter((r) => r.requestedBy === userId),
     // The import's own paperwork is the leader's business, not theirs.
     uploads: [],
     uploadErrors: [],
@@ -96,6 +102,27 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       }
       if (args !== undefined && !Array.isArray(args)) {
         next(ApiError.badRequest('Arguments must be a list.'))
+        return
+      }
+      const book = { companies: store.snapshot().companies, overduePayments: store.snapshot().overduePayments }
+      const refusal =
+        accountRefusal(user.role, user.id, method, (args ?? []) as unknown[], book) ??
+        decisionRequestRefusal(user.role, user.id, method, (args ?? []) as unknown[], book)
+      if (refusal) {
+        logger.warn('data: account decision refused', { method, user: user.id, refusal })
+        next(ApiError.forbidden(refusal))
+        return
+      }
+      const planned = planRefusal(user.role, user.id, method, (args ?? []) as unknown[])
+      if (planned) {
+        logger.warn('data: plan change refused', { method, user: user.id, refusal: planned })
+        next(ApiError.forbidden(planned))
+        return
+      }
+      const proof = proofRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().proofRequests ?? [])
+      if (proof) {
+        logger.warn('data: proof change refused', { method, user: user.id, refusal: proof })
+        next(ApiError.forbidden(proof))
         return
       }
       checked.push({ method, args: (args ?? []) as unknown[] })

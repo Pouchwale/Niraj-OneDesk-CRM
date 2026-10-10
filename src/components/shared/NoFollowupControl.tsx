@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BellOff, RotateCcw } from 'lucide-react'
+import { BellOff, RotateCcw, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
-import { setNoFollowup, clearNoFollowup, type NoFollowupEntity } from '@/lib/no-followup-api'
+import { requestDecision, setNoFollowup, clearNoFollowup, type NoFollowupEntity } from '@/lib/no-followup-api'
 import { isNoFollowup, type NoFollowupFields } from '@/lib/no-followup'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
@@ -28,10 +28,14 @@ interface Props {
   /** The record in hand, for its no_followup_* fields. */
   record: NoFollowupFields
   currentUserId?: string
-  /** Team leaders and admins can lift anyone's; a coordinator lifts their own. */
+  /** Team leader or admin: the only people who set aside, dispute or resume. */
   isAdmin?: boolean
+  /** 'dispute': the same set-aside, recorded as a dispute with its own register. */
+  kind?: 'dispute'
   onChanged: () => void
 }
+
+const reasonOf = (err: unknown) => (err instanceof Error ? err.message : 'Try again in a moment.')
 
 /**
  * "No follow-up": the customer leaves the working lists, and the balance leaves
@@ -58,8 +62,11 @@ export function NoFollowupControl({
   record,
   currentUserId,
   isAdmin,
+  kind,
   onChanged,
 }: Props) {
+  const dispute = kind === 'dispute'
+  const label = dispute ? 'Dispute' : 'No follow-up'
   const [isOpen, setIsOpen] = useState(false)
   const [note, setNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -71,8 +78,19 @@ export function NoFollowupControl({
   const stop = async () => {
     setIsSaving(true)
     try {
-      const rows = await setNoFollowup(target, currentUserId, note)
-      toast.success(`${name} is set to no follow-up.`, {
+      // A coordinator asks; the team leader or the administrator approves.
+      if (!isAdmin) {
+        await requestDecision({ ...target, name, amount }, dispute ? 'dispute' : 'no_followup', currentUserId, note)
+        toast.success('Sent to your team leader for approval.', {
+          description: `${name} stays in your lists until it is approved.`,
+        })
+        setIsOpen(false)
+        setNote('')
+        onChanged()
+        return
+      }
+      const rows = await setNoFollowup(target, currentUserId, note, kind ?? null)
+      toast.success(dispute ? `${name} is marked as in dispute.` : `${name} is set to no follow-up.`, {
         description:
           `${formatCurrency(amount)} is now excluded from what is owed` +
           (rows > 1 ? ', in Active Payments and Overdue both.' : '.'),
@@ -80,8 +98,8 @@ export function NoFollowupControl({
       setIsOpen(false)
       setNote('')
       onChanged()
-    } catch {
-      toast.error('That could not be saved. Try again in a moment.')
+    } catch (err) {
+      toast.error('Not set to no follow-up.', { description: reasonOf(err) })
     } finally {
       setIsSaving(false)
     }
@@ -95,20 +113,21 @@ export function NoFollowupControl({
         description: `${formatCurrency(amount)} counts towards what is owed again.`,
       })
       onChanged()
-    } catch {
-      toast.error('That could not be undone. Try again in a moment.')
+    } catch (err) {
+      toast.error('Follow-up not resumed.', { description: reasonOf(err) })
     } finally {
       setIsSaving(false)
     }
   }
 
   if (isNoFollowup(record)) {
-    const canResume = isAdmin || record.no_followup_by === currentUserId
+    const canResume = isAdmin
+    const isDisputed = record.no_followup_kind === 'dispute'
     return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold text-amber-600 dark:text-amber-400">
-          <BellOff className="h-4 w-4" />
-          No follow-up
+      <div className={`rounded-lg border p-4 ${isDisputed ? 'border-orange-500/40 bg-orange-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
+        <div className={`flex items-center gap-2 text-sm font-semibold ${isDisputed ? 'text-orange-600 dark:text-orange-400' : 'text-amber-600 dark:text-amber-400'}`}>
+          {isDisputed ? <Scale className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+          {isDisputed ? 'In dispute' : 'No follow-up'}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {record.no_followup_by
@@ -129,7 +148,7 @@ export function NoFollowupControl({
           </Button>
         ) : (
           <p className="mt-3 text-xs text-muted-foreground">
-            Your team leader can put this back into the lists.
+            Only your team leader or the administrator can put this back into the lists.
           </p>
         )}
       </div>
@@ -141,23 +160,27 @@ export function NoFollowupControl({
       <Button
         variant="outline"
         size="sm"
-        className="w-full justify-start text-amber-600 hover:text-amber-700 dark:text-amber-400"
+        className={`w-full justify-start ${dispute ? 'text-orange-600 hover:text-orange-700 dark:text-orange-400' : 'text-amber-600 hover:text-amber-700 dark:text-amber-400'}`}
         onClick={() => setIsOpen(true)}
       >
-        <BellOff className="mr-2 h-4 w-4" />
-        No follow-up
+        {dispute ? <Scale className="mr-2 h-4 w-4" /> : <BellOff className="mr-2 h-4 w-4" />}
+        {label}
       </Button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <BellOff className="h-5 w-5 text-amber-500" />
-              Stop following up {name}?
+              {dispute ? <Scale className="h-5 w-5 text-orange-500" /> : <BellOff className="h-5 w-5 text-amber-500" />}
+              {dispute ? `Mark ${name} as in dispute?` : `Stop following up ${name}?`}
             </DialogTitle>
             <DialogDescription asChild>
               <div className="space-y-3 pt-2 text-sm">
-                <p>Use this when the balance is not worth chasing and should not be counted.</p>
+                <p>
+                  {dispute
+                    ? 'Use this when the customer disputes the amount and chasing stops until it is resolved.'
+                    : 'Use this when the balance is not worth chasing and should not be counted.'}
+                </p>
                 <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
                   <li>
                     The {formatCurrency(amount)} balance is{' '}
@@ -181,13 +204,13 @@ export function NoFollowupControl({
 
           <div className="space-y-2">
             <Label htmlFor="no-followup-note" className="text-xs">
-              Reason <span className="text-muted-foreground">(optional)</span>
+              Reason <span className="text-rose-600">(required)</span>
             </Label>
             <Input
               id="no-followup-note"
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              placeholder="Written off, dispute settled, customer closed…"
+              placeholder={dispute ? 'What is disputed: rate difference, damaged goods, short supply…' : 'Written off, customer closed, agreed hold…'}
               autoFocus
             />
           </div>
@@ -199,9 +222,9 @@ export function NoFollowupControl({
             <Button
               className="bg-amber-600 text-white hover:bg-amber-700"
               onClick={stop}
-              disabled={isSaving}
+              disabled={isSaving || note.trim().length < 5}
             >
-              {isSaving ? 'Saving…' : 'Stop follow-up'}
+              {isSaving ? 'Saving…' : !isAdmin ? 'Send for approval' : dispute ? 'Mark as dispute' : 'Stop follow-up'}
             </Button>
           </DialogFooter>
         </DialogContent>

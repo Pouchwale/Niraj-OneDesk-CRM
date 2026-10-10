@@ -115,11 +115,6 @@ export type CoordinatorMatchMethod =
   | 'fuzzy'
   /** No name in the file at all; routed to the admin by policy, not by guess. */
   | 'fallback'
-  /**
-   * The file names a coordinator whose desk has been handed on, so the customer
-   * went to whoever took their share. Also policy, not a guess.
-   */
-  | 'handover'
 
 /** The fields of a coordinator profile the matcher actually reads. */
 export interface CoordinatorProfile {

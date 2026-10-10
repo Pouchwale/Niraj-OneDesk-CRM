@@ -9,6 +9,7 @@ import { useDailyEntries } from '@/features/daily-logs/hooks/useDailyEntries';
 import { useAuth } from '@/features/auth/AuthContext';
 import { todayISO } from '@/lib/utils';
 import { useRoleKpis } from './hooks/useRoleKpis';
+import { MyScoreCard } from '@/features/assistant/ScoresView';
 
 // Cute doodle elements for the empty space
 const DOODLES = [
@@ -116,6 +117,9 @@ export function DashboardPage() {
             <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
           </motion.div>
         </div>
+
+        {/* A coordinator's own score against Robi's daily plan. */}
+        {user.role === 'coordinator' && <MyScoreCard userId={user.id} />}
 
         {/* 2. The four figures chosen for whoever is signed in */}
         <div className="space-y-4">

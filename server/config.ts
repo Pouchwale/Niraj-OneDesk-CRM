@@ -16,6 +16,7 @@ export type Effort = (typeof EFFORTS)[number]
 
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5'
 export const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b'
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
 
 /**
  * The names each setting answers to, best first.
@@ -52,6 +53,7 @@ const schema = z.object({
   AI_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().max(1_000).default(20),
   ANTHROPIC_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
   AI_EFFORT: z.string().optional(),
   AI_MAX_TOKENS: z.coerce.number().int().positive().max(200_000).optional(),
@@ -132,14 +134,48 @@ function isEffort(value: string | undefined): value is Effort {
 export function resolveAi(env: RawEnv, parsedMaxTokens?: number): AiConfig {
   const anthropicKey = trimmed(env.ANTHROPIC_API_KEY)
   const groqKey = trimmed(env.GROQ_API_KEY)
-  const useGroq = Boolean(groqKey || anthropicKey?.startsWith('gsk_'))
-  const apiKey = groqKey ?? anthropicKey
+  const openaiKey = trimmed(env.OPENAI_API_KEY)
+
+  let provider: AiProvider | null = null
+  let apiKey: string | undefined = undefined
+  let defaultModel = DEFAULT_ANTHROPIC_MODEL
+
+  if (openaiKey) {
+    provider = 'openai'
+    apiKey = openaiKey
+    defaultModel = DEFAULT_OPENAI_MODEL
+  } else if (groqKey) {
+    if (groqKey.startsWith('sk-proj-') || (!groqKey.startsWith('gsk_') && groqKey.startsWith('sk-'))) {
+      provider = 'openai'
+      apiKey = groqKey
+      defaultModel = DEFAULT_OPENAI_MODEL
+    } else {
+      provider = 'groq'
+      apiKey = groqKey
+      defaultModel = DEFAULT_GROQ_MODEL
+    }
+  } else if (anthropicKey) {
+    if (anthropicKey.startsWith('gsk_')) {
+      provider = 'groq'
+      apiKey = anthropicKey
+      defaultModel = DEFAULT_GROQ_MODEL
+    } else if (anthropicKey.startsWith('sk-proj-') || (!anthropicKey.startsWith('sk-ant-') && anthropicKey.startsWith('sk-'))) {
+      provider = 'openai'
+      apiKey = anthropicKey
+      defaultModel = DEFAULT_OPENAI_MODEL
+    } else {
+      provider = 'anthropic'
+      apiKey = anthropicKey
+      defaultModel = DEFAULT_ANTHROPIC_MODEL
+    }
+  }
+
   const effort = trimmed(env.AI_EFFORT)?.toLowerCase()
 
   return {
-    provider: apiKey ? (useGroq ? 'groq' : 'anthropic') : null,
+    provider,
     apiKey,
-    model: trimmed(env.AI_MODEL) ?? (useGroq ? DEFAULT_GROQ_MODEL : DEFAULT_ANTHROPIC_MODEL),
+    model: trimmed(env.AI_MODEL) ?? defaultModel,
     // Chat answers are short and latency matters more than depth here.
     effort: isEffort(effort) ? effort : 'medium',
     maxTokens: parsedMaxTokens ?? 4096,

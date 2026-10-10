@@ -5,8 +5,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { Phone, MessageCircle, Mail, Users, FileText, Save, X, Paperclip } from 'lucide-react'
-import { addFollowup, editFollowup } from '@/lib/followups-api'
+import { Phone, MessageCircle, Mail, Users, FileText, Save, X } from 'lucide-react'
+import { addFollowup, createFollowupId, editFollowup } from '@/lib/followups-api'
 import { formatCurrency, parseISODate, toLocalISODate } from '@/lib/utils'
 import type { FollowupMode, FollowupStatus, Followup, FollowupEntityType } from '@/lib/types'
 
@@ -47,7 +47,14 @@ export function AddFollowUpForm({
   const [committedDate, setCommittedDate] = useState(editingFollowup?.committed_date || '')
   const [committedAmount, setCommittedAmount] = useState<string>(editingFollowup?.committed_amount?.toString() || '')
   const [nextReminderDate, setNextReminderDate] = useState(editingFollowup?.next_reminder_date || '')
-  
+
+  /*
+   * Chosen once per form, not per press of Save: if a save fails after the
+   * server had in fact taken it, pressing Save again sends the same id, and
+   * the store recognises it instead of recording the follow-up a second time.
+   */
+  const [followupId] = useState(() => editingFollowup?.id ?? createFollowupId())
+
   // Date auto-suggestion logic
   useEffect(() => {
     if (editingFollowup) return // Don't auto-suggest if editing
@@ -109,19 +116,26 @@ export function AddFollowUpForm({
         proof_attachment_url: editingFollowup?.proof_attachment_url ?? null,
       }
 
+      // Both calls resolve only once the server has the change, so these
+      // messages are never ahead of what is actually stored.
       if (editingFollowup) {
         // The signed-in user is the actor on the audit entry; `editFollowup`
         // keeps the original author on the record itself.
         await editFollowup(editingFollowup.id, payload, coordinatorId)
-        toast.success('Follow-up updated successfully')
       } else {
-        await addFollowup(payload)
-        toast.success('Follow-up added successfully')
+        await addFollowup({ ...payload, id: followupId })
       }
+      toast.success(editingFollowup ? 'Follow-up updated successfully' : 'Follow-up added successfully')
       onSaved()
     } catch (err) {
       console.error(err)
-      toast.error('Failed to save follow-up')
+      const reason = err instanceof Error ? err.message : 'The server did not answer.'
+      toast.error(editingFollowup ? 'Follow-up not updated' : 'Follow-up not saved', {
+        description: editingFollowup
+          ? reason
+          : `${reason} Your entry is still here: press Save again. It will not be recorded twice.`,
+        duration: 10000,
+      })
     } finally {
       setLoading(false)
     }
@@ -220,7 +234,7 @@ export function AddFollowUpForm({
 
           <div className="space-y-2">
             <Label>Next Follow-Up Reminder</Label>
-            <Input 
+            <Input
               type="date"
               value={nextReminderDate}
               onChange={(e) => setNextReminderDate(e.target.value)}

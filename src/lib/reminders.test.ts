@@ -18,6 +18,8 @@ function memoryStorage() {
 vi.stubGlobal('localStorage', memoryStorage())
 
 const { readRemindersFor, sendReminder, sendReminders, sentMessages } = await import('./reminders')
+// Messages live in the shared store now, not in localStorage.
+const { demoCompanyStore } = await import('./demo-companies')
 
 const LEADER = { fromUserId: 'admin-1', fromName: 'Niki Patel' }
 const TEAM = [
@@ -28,6 +30,7 @@ const TEAM = [
 
 beforeEach(() => {
   localStorage.clear()
+  demoCompanyStore.replaceAll({ ...demoCompanyStore.getSnapshot(), messages: [] })
 })
 
 describe('sending to one person', () => {

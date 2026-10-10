@@ -21,6 +21,9 @@
  * with the record, and it can be undone.
  */
 
+import { normalizeBpCode } from './bp-code'
+import type { Company, OverduePayment } from './types'
+
 /** Carried on both an Active Payments account and an ageing balance. */
 export interface NoFollowupFields {
   /** When it was set aside. Its presence is what marks the account. */
@@ -28,6 +31,13 @@ export interface NoFollowupFields {
   no_followup_by?: string | null
   /** Why — a dispute reference, an agreed hold, whatever was decided. */
   no_followup_note?: string | null
+  /** 'dispute' for an account in dispute; otherwise a plain no follow-up. */
+  no_followup_kind?: 'dispute' | null
+}
+
+/** Set aside because the customer disputes the amount (listed in its own register). */
+export function isDispute(record: NoFollowupFields | null | undefined): boolean {
+  return isNoFollowup(record) && record?.no_followup_kind === 'dispute'
 }
 
 /** True when this account has been set aside from chasing and from the totals. */
@@ -36,11 +46,12 @@ export function isNoFollowup(record: NoFollowupFields | null | undefined): boole
 }
 
 /** The fields to write when somebody sets an account aside. */
-export function markNoFollowup(by: string, note?: string | null): Required<NoFollowupFields> {
+export function markNoFollowup(by: string, note?: string | null, kind?: 'dispute' | null): Required<NoFollowupFields> {
   return {
     no_followup_at: new Date().toISOString(),
     no_followup_by: by,
     no_followup_note: note?.trim() || null,
+    no_followup_kind: kind ?? null,
   }
 }
 
@@ -49,6 +60,7 @@ export const CLEAR_NO_FOLLOWUP: Required<NoFollowupFields> = {
   no_followup_at: null,
   no_followup_by: null,
   no_followup_note: null,
+  no_followup_kind: null,
 }
 
 /** What is set aside, and how much of the book it accounts for. */
@@ -100,6 +112,86 @@ export function isBankrupt(record: BankruptFields | null | undefined): boolean {
  */
 export function isSetAside(record: (NoFollowupFields & BankruptFields) | null | undefined): boolean {
   return isNoFollowup(record) || isBankrupt(record)
+}
+
+/** One customer declared bankrupt, with what each book holds for them. */
+export interface BankruptCustomer {
+  key: string
+  bpCode: string | null
+  name: string
+  /** A record of theirs to address a reinstatement at; the ageing row where there is one. */
+  entityType: 'company' | 'overdue_payment'
+  entityId: string
+  coordinatorId: string | null
+  /** Null when the ageing report does not list the customer. */
+  ageingBalance: number | null
+  /** Open invoices only; a paid one is not money held out. */
+  invoices: number
+  invoiceAmount: number
+  by: string | null
+  at: string | null
+  note: string | null
+}
+
+/**
+ * Every bankrupt customer, once each, whichever book it was declared in.
+ *
+ * Grouped by BP code. A declaration made on an Active Payments invoice for a
+ * customer the ageing report does not list has no ageing row to show it, and
+ * a register that read only the ageing rows would hold that money out of every
+ * total without listing it anywhere.
+ */
+export function listBankruptCustomers(
+  companies: Company[],
+  overduePayments: OverduePayment[]
+): BankruptCustomer[] {
+  const byCustomer = new Map<string, BankruptCustomer>()
+
+  const seat = (key: string, seed: Omit<BankruptCustomer, 'key' | 'ageingBalance' | 'invoices' | 'invoiceAmount'>) => {
+    const found = byCustomer.get(key)
+    if (found) return found
+    const made: BankruptCustomer = { key, ...seed, ageingBalance: null, invoices: 0, invoiceAmount: 0 }
+    byCustomer.set(key, made)
+    return made
+  }
+
+  // Ageing rows first, so a customer in both books is addressed at that row.
+  for (const row of overduePayments) {
+    if (row.status !== 'bankrupt') continue
+    const code = normalizeBpCode(row.bp_code)
+    const entry = seat(code ? `bp:${code}` : `ageing:${row.id}`, {
+      bpCode: code,
+      name: row.customer_name || row.bp_code,
+      entityType: 'overdue_payment',
+      entityId: row.id,
+      coordinatorId: row.assigned_coordinator_id,
+      by: row.bankrupt_declared_by ?? null,
+      at: row.bankrupt_declared_at ?? null,
+      note: row.bankrupt_note ?? null,
+    })
+    entry.ageingBalance = (entry.ageingBalance ?? 0) + (row.balance_due || 0)
+  }
+
+  for (const company of companies) {
+    if (!isBankrupt(company)) continue
+    const code = normalizeBpCode(company.sap_bp_code)
+    const entry = seat(code ? `bp:${code}` : `company:${company.id}`, {
+      bpCode: code,
+      name: company.name,
+      entityType: 'company',
+      entityId: company.id,
+      coordinatorId: company.assigned_coordinator_id,
+      by: company.bankrupt_declared_by ?? null,
+      at: company.bankrupt_declared_at ?? null,
+      note: company.bankrupt_note ?? null,
+    })
+    if (company.status === 'paid') continue
+    entry.invoices++
+    entry.invoiceAmount += company.total_amount || 0
+  }
+
+  // Most recently declared first: the ones still being talked about.
+  return [...byCustomer.values()].sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
 }
 
 /** The stamp a customer's invoices carry once the customer is declared bankrupt. */

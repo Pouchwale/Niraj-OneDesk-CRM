@@ -5,7 +5,7 @@ import type { AiChatEvent, AiChatRequest } from '../../../shared/api'
 import { resolveAi } from '../../config'
 import { createLogger } from '../../logger'
 import { ApiError } from '../../http/errors'
-import { createAiService, describeGroqError, readGroqChunk, toGroqMessages } from './service'
+import { createAiService, describeGroqError, describeOpenAiError, readGroqChunk, toGroqMessages } from './service'
 
 const quiet = createLogger({ level: 'error', write: () => undefined })
 const body: AiChatRequest = { system: 'Robi', context: '', messages: [{ role: 'user', content: 'Hi' }] }
@@ -48,14 +48,91 @@ function groqStream(chunks: string[], status = 200) {
 describe('status', () => {
   it('says nothing is configured when there is no key', () => {
     const service = createAiService(resolveAi({}), quiet)
-    expect(service.status()).toEqual({ configured: false, provider: null, model: null })
+    expect(service.status()).toEqual({ configured: false, provider: null, model: null, keyError: null })
   })
 
   it('names the provider and model in use, never the key', () => {
     const service = createAiService(resolveAi({ GROQ_API_KEY: 'gsk_secret' }), quiet)
     const status = service.status()
-    expect(status).toEqual({ configured: true, provider: 'groq', model: 'openai/gpt-oss-120b' })
+    expect(status).toEqual({ configured: true, provider: 'groq', model: 'openai/gpt-oss-120b', keyError: null })
     expect(JSON.stringify(status)).not.toContain('gsk_secret')
+  })
+})
+
+const rejected = async () =>
+  new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+describe('verify', () => {
+  const config = resolveAi({ OPENAI_API_KEY: 'sk-proj-test' })
+
+  it('marks a refused key, so the header can stop saying "AI on"', async () => {
+    const service = createAiService(config, quiet, { fetch: rejected as never })
+    expect(await service.verify()).toBe('rejected')
+    expect(service.status()).toMatchObject({ configured: true, keyError: expect.stringContaining('OPENAI_API_KEY') })
+  })
+
+  it('asks the free models listing with the key, and clears a mark once it is accepted', async () => {
+    const seen: { url: string; auth: string | null }[] = []
+    let ok = false
+    const service = createAiService(config, quiet, {
+      fetch: (async (url: string, init: RequestInit) => {
+        seen.push({ url, auth: new Headers(init.headers).get('authorization') })
+        return ok ? new Response('{"data":[]}', { status: 200 }) : rejected()
+      }) as never,
+    })
+
+    await service.verify()
+    ok = true
+    expect(await service.verify()).toBe('accepted')
+    expect(service.status().keyError).toBeNull()
+    expect(seen[0]).toEqual({ url: 'https://api.openai.com/v1/models', auth: 'Bearer sk-proj-test' })
+  })
+
+  it('does not blame the key when the provider cannot be reached', async () => {
+    const service = createAiService(config, quiet, {
+      fetch: (async () => {
+        throw new TypeError('fetch failed')
+      }) as never,
+    })
+    expect(await service.verify()).toBe('unknown')
+    expect(service.status().keyError).toBeNull()
+  })
+
+  it('has nothing to check without a key', async () => {
+    expect(await createAiService(resolveAi({}), quiet).verify()).toBe('unconfigured')
+  })
+})
+
+describe('reconfigure', () => {
+  it('uses the new key on the next call and forgets that the old one was refused', async () => {
+    const keys: (string | null)[] = []
+    const service = createAiService(resolveAi({ OPENAI_API_KEY: 'sk-proj-old' }), quiet, {
+      fetch: (async (_url: string, init: RequestInit) => {
+        const auth = new Headers(init.headers).get('authorization')
+        keys.push(auth)
+        return auth === 'Bearer sk-proj-new' ? groqStream(['data: [DONE]\n\n'])() : rejected()
+      }) as never,
+    })
+
+    await service.stream(body, () => undefined, new AbortController().signal)
+    expect(service.status().keyError).not.toBeNull()
+
+    service.reconfigure(resolveAi({ OPENAI_API_KEY: 'sk-proj-new' }))
+    expect(service.status().keyError).toBeNull()
+
+    const out = sink()
+    await service.stream(body, out.push, new AbortController().signal)
+    expect(keys).toEqual(['Bearer sk-proj-old', 'Bearer sk-proj-new'])
+    expect(out.events.at(-1)).toMatchObject({ type: 'done' })
+  })
+
+  it('lets go of the key entirely when it is removed', () => {
+    const service = createAiService(resolveAi({ OPENAI_API_KEY: 'sk-proj-old' }), quiet)
+    service.reconfigure(resolveAi({}))
+    expect(service.status()).toEqual({ configured: false, provider: null, model: null, keyError: null })
   })
 })
 
@@ -149,8 +226,13 @@ describe('stream, on Groq', () => {
 
     await service.stream(body, out.push, new AbortController().signal)
     expect(out.events).toEqual([
-      { type: 'error', message: 'The Groq API key was rejected. Check GROQ_API_KEY and restart the server.' },
+      {
+        type: 'error',
+        message:
+          'The Groq API key was rejected. Put a working key in GROQ_API_KEY in .env.local; the server picks it up without a restart.',
+      },
     ])
+    expect(service.status().keyError).toContain('GROQ_API_KEY')
   })
 
   it('moves to the next model when the configured one has been retired', async () => {
@@ -172,6 +254,58 @@ describe('stream, on Groq', () => {
 
     expect(seen).toEqual(['gone-away', 'openai/gpt-oss-120b'])
     expect(out.events.at(-1)).toMatchObject({ type: 'done', model: 'openai/gpt-oss-120b' })
+  })
+})
+
+describe('stream, on OpenAI', () => {
+  const config = resolveAi({ OPENAI_API_KEY: 'sk-proj-test' })
+
+  it('reads the OpenAI streaming response and emits done event', async () => {
+    const out = sink()
+    const service = createAiService(config, quiet, {
+      fetch: groqStream([
+        'data: {"choices":[{"delta":{"content":"Hello "},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"world!"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n',
+      ]) as never,
+    })
+
+    await service.stream(body, out.push, new AbortController().signal)
+    expect(out.events).toEqual([
+      { type: 'text', text: 'Hello ' },
+      { type: 'text', text: 'world!' },
+      { type: 'done', stop_reason: 'end_turn', model: 'gpt-4o-mini', refused: false },
+    ])
+  })
+
+  it('handles OpenAI authentication errors gracefully', async () => {
+    const out = sink()
+    const service = createAiService(config, quiet, {
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })) as never,
+    })
+
+    await service.stream(body, out.push, new AbortController().signal)
+    expect(out.events).toEqual([
+      {
+        type: 'error',
+        message:
+          'The OpenAI API key was rejected. Put a working key in OPENAI_API_KEY in .env.local; the server picks it up without a restart.',
+      },
+    ])
+    expect(service.status().keyError).toContain('OPENAI_API_KEY')
+  })
+
+  it('does not mark the key for a failure that is not about the key', async () => {
+    const service = createAiService(config, quiet, {
+      fetch: (async () => new Response('{"error":{"message":"quota"}}', { status: 429 })) as never,
+    })
+    await service.stream(body, () => undefined, new AbortController().signal)
+    expect(service.status().keyError).toBeNull()
   })
 })
 
@@ -204,5 +338,13 @@ describe('helpers', () => {
     expect(describeGroqError(429)).toContain('rate-limiting')
     expect(describeGroqError(500, 'upstream exploded')).toBe('upstream exploded')
     expect(describeGroqError(500)).toContain('(500)')
+  })
+
+  it('names each way an OpenAI call can fail', () => {
+    expect(describeOpenAiError(401)).toContain('OPENAI_API_KEY')
+    expect(describeOpenAiError(429)).toContain('rate-limiting')
+    expect(describeOpenAiError(404)).toContain('AI_MODEL')
+    expect(describeOpenAiError(500, 'upstream error')).toBe('upstream error')
+    expect(describeOpenAiError(500)).toContain('(500)')
   })
 })

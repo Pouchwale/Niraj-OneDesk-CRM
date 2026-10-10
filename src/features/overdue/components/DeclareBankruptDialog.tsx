@@ -14,14 +14,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { formatCurrency } from '@/lib/utils'
-import { declareBankrupt } from '@/lib/overdue-api'
-import type { OverduePayment } from '@/lib/types'
+import { declareCustomerBankrupt, requestDecision, type NoFollowupTarget } from '@/lib/no-followup-api'
 
 interface Props {
-  payment: OverduePayment
+  /** The record the call is made from — an invoice or an ageing row. */
+  target: NoFollowupTarget & { name: string; amount: number }
   open: boolean
   onOpenChange: (open: boolean) => void
   declaredBy: string
+  /** Where the person can find it afterwards differs for the team leader. */
+  canManageTeam?: boolean
   onDeclared: () => void
 }
 
@@ -33,27 +35,41 @@ interface Props {
  * customer leaves Active Payments, Overdue and every total, the way no
  * follow-up does, and is listed only in the Bankrupt register.
  *
- * The reason is asked for rather than required. Six months later, "which
- * insolvency was this?" is the first question anybody has, and a blank field
- * has no answer; but refusing the declaration over a missing note would just
- * teach people to type a full stop.
+ * The reason is required (at least 5 characters, checked on the server too):
+ * six months later, "which insolvency was this?" is the first question anybody
+ * has, and a blank field has no answer.
  */
-export function DeclareBankruptDialog({ payment, open, onOpenChange, declaredBy, onDeclared }: Props) {
+export function DeclareBankruptDialog({ target, open, onOpenChange, declaredBy, canManageTeam, onDeclared }: Props) {
   const [note, setNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
   const declare = async () => {
     setIsSaving(true)
     try {
-      await declareBankrupt(payment.id, declaredBy, note)
-      toast.success(`${payment.customer_name || payment.bp_code} is marked bankrupt.`, {
-        description: 'It has left Active Payments, Overdue and every total. It is listed in the Bankrupt register.',
+      // A coordinator asks; the team leader or the administrator approves.
+      if (!canManageTeam) {
+        await requestDecision(target, 'bankrupt', declaredBy, note)
+        toast.success('Sent to your team leader for approval.', {
+          description: `${target.name} stays in your lists until it is approved.`,
+        })
+        onOpenChange(false)
+        setNote('')
+        onDeclared()
+        return
+      }
+      await declareCustomerBankrupt(target, declaredBy, note)
+      toast.success(`${target.name} is marked bankrupt.`, {
+        description: canManageTeam
+          ? 'It has left Active Payments, Overdue and every total. It is listed in the Bankrupt register.'
+          : 'It has left your lists and every total. To undo it, open it from Set aside in My Active Payments.',
       })
       onOpenChange(false)
       setNote('')
       onDeclared()
-    } catch {
-      toast.error('That could not be saved. Try again in a moment.')
+    } catch (err) {
+      toast.error('Not marked bankrupt.', {
+        description: err instanceof Error ? err.message : 'Try again in a moment.',
+      })
     } finally {
       setIsSaving(false)
     }
@@ -65,7 +81,7 @@ export function DeclareBankruptDialog({ payment, open, onOpenChange, declaredBy,
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-rose-500" />
-            Declare {payment.customer_name || payment.bp_code} bankrupt?
+            Declare {target.name} bankrupt?
           </DialogTitle>
           <DialogDescription asChild>
             <div className="space-y-3 pt-2 text-sm">
@@ -74,14 +90,15 @@ export function DeclareBankruptDialog({ payment, open, onOpenChange, declaredBy,
               </p>
               <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
                 <li>
-                  The {formatCurrency(payment.balance_due)} balance, and this customer's invoices in
-                  Active Payments, <strong>leave every total</strong> — the same as no follow-up.
+                  The {formatCurrency(target.amount)} on this record, and everything else this customer
+                  owes in Active Payments and Overdue, <strong>leaves every total</strong>, the same as
+                  no follow-up.
                 </li>
                 <li>
-                  It leaves Active Payments and Overdue entirely: no reminders, no daily plan, no
-                  Critical &amp; closing in. It is listed only in the Bankrupt register.
+                  It leaves both lists entirely: no reminders, no daily plan, no Critical &amp; closing
+                  in. It is listed only in the Bankrupt register.
                 </li>
-                <li>A re-import of the Excel file will not undo it, and you can reverse it here.</li>
+                <li>A re-import of the Excel file will not undo it, and you can reverse it.</li>
               </ul>
             </div>
           </DialogDescription>
@@ -89,7 +106,7 @@ export function DeclareBankruptDialog({ payment, open, onOpenChange, declaredBy,
 
         <div className="space-y-2">
           <Label htmlFor="bankrupt-note" className="text-xs">
-            Reason or reference <span className="text-muted-foreground">(optional)</span>
+            Reason or reference <span className="text-rose-600">(required)</span>
           </Label>
           <Input
             id="bankrupt-note"
@@ -107,9 +124,9 @@ export function DeclareBankruptDialog({ payment, open, onOpenChange, declaredBy,
           <Button
             className="bg-rose-600 text-white hover:bg-rose-700"
             onClick={declare}
-            disabled={isSaving}
+            disabled={isSaving || note.trim().length < 5}
           >
-            {isSaving ? 'Saving…' : 'Declare bankrupt'}
+            {isSaving ? 'Saving…' : canManageTeam ? 'Declare bankrupt' : 'Send for approval'}
           </Button>
         </DialogFooter>
       </DialogContent>

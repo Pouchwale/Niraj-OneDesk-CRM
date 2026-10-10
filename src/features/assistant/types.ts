@@ -15,6 +15,11 @@ export type AssistantTaskKind =
   | 'overdue_untouched'
   | 'payment_due_soon'
   | 'stale_contact'
+  /**
+   * An overdue account handed out once the day's Active Payments tasks are
+   * done. Never raised as a nudge; only the plan adds these.
+   */
+  | 'overdue_followup'
 
 /**
  * What the coordinator can do with a nudge. Deliberately nothing that writes a
@@ -62,6 +67,7 @@ export const TASK_PRIORITY: Record<AssistantTaskKind, number> = {
   overdue_untouched: 6,
   payment_due_soon: 7,
   stale_contact: 8,
+  overdue_followup: 9,
 }
 
 /** A single turn in the on-screen conversation. */
@@ -73,4 +79,18 @@ export interface AssistantMessage {
   /** Present when the assistant is waiting on an answer for this task. */
   task?: AssistantTask
   at: string
+  /** Things to ask or do next, shown as buttons under the reply. */
+  suggestions?: string[]
+  /**
+   * A message to the team waiting for the sender to press Send. Nothing goes
+   * out until they do; `sendState` records what happened to it.
+   */
+  draft?: {
+    recipients: { id: string; name: string }[]
+    audience: string
+    subject: string | null
+    message: string
+    link?: string | null
+  }
+  sendState?: 'sending' | 'sent' | 'cancelled' | 'failed'
 }

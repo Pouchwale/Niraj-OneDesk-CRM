@@ -99,6 +99,22 @@ export function formatCurrency(value: number, shorthand = false): string {
 }
 
 /**
+ * Rupees and paise, always two decimals: ₹12,34,567.80.
+ *
+ * For the ageing columns, where an accountant ties each bucket to the ledger
+ * and the columns must add up to the total on screen to the paisa. Whole-rupee
+ * rounding would let five rounded buckets disagree with their rounded sum.
+ */
+export function formatCurrencyExact(value: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+/**
  * Formats a date for display.
  */
 export function formatDate(date: Date | string, format: 'short' | 'long' | 'iso' = 'short'): string {

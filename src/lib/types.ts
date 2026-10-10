@@ -174,6 +174,8 @@ export interface OverduePayment {
   no_followup_at?: string | null
   no_followup_by?: string | null
   no_followup_note?: string | null
+  /** 'dispute' when set aside because the customer disputes the amount. */
+  no_followup_kind?: 'dispute' | null
   extra_fields: Record<string, unknown>
   imported_at: string
   created_at: string
@@ -219,6 +221,8 @@ export interface Company {
   no_followup_at?: string | null
   no_followup_by?: string | null
   no_followup_note?: string | null
+  /** 'dispute' when set aside because the customer disputes the amount. */
+  no_followup_kind?: 'dispute' | null
   /**
    * Declared bankrupt. Stamped on every invoice of a customer whose ageing row
    * was declared bankrupt, so Active Payments holds them out too.
@@ -227,6 +231,11 @@ export interface Company {
   bankrupt_declared_by?: string | null
   bankrupt_note?: string | null
   assigned_coordinator_id: string | null
+  /**
+   * The coordinator exactly as the Excel file spelled it. What names the row
+   * when that person has no login here and the row is booked to nobody.
+   */
+  coordinator_name?: string | null
   module: string | null
   remarks: string | null
   extra_fields: Record<string, unknown>
@@ -251,6 +260,78 @@ export interface Followup {
   next_reminder_date: string | null
   created_at: string
   edited_at: string | null
+}
+
+/**
+ * A message one person sends another through Robi ("tell the team ...").
+ * Stored on the server with everything else, so it reaches the recipient's own
+ * computer - it used to sit in the sender's browser and reach nobody.
+ */
+export interface DirectedReminder {
+  id: string
+  /** Groups the copies of one message sent to several people at once. */
+  batchId?: string
+  fromUserId: string
+  /** Captured at send time so the message still reads correctly after a rename. */
+  fromName: string
+  toCoordinatorId: string
+  /** The customer or topic it concerns, when one was named. */
+  subject: string | null
+  message: string
+  /** Where the recipient lands when they open it, when it is about a record. */
+  link?: string | null
+  /** How the sender addressed them: "the team", "the GP3 team", or a name. */
+  audience?: string | null
+  createdAt: string
+}
+
+/**
+ * Robi asking a coordinator to prove a task: a screenshot of the call, email or
+ * meeting, within ten minutes of logging it. Reviewed by the team leader or
+ * the administrator.
+ */
+export interface ProofRequest {
+  /** `proof:<date>:<taskId>` - one request per task per day. */
+  id: string
+  coordinatorId: string
+  date: string
+  taskId: string
+  entityType: FollowupEntityType
+  entityId: string
+  entityName: string
+  /** The follow-up that completed the task. */
+  followupId: string | null
+  requestedAt: string
+  /** requestedAt + 10 minutes. */
+  dueAt: string
+  status: 'pending' | 'submitted' | 'missed' | 'approved' | 'rejected'
+  fileUrl?: string | null
+  submittedAt?: string | null
+  reviewedBy?: string | null
+  reviewedAt?: string | null
+  reviewNote?: string | null
+}
+
+/**
+ * A coordinator asking for a customer to be set aside - no follow-up, dispute
+ * or bankrupt. Nothing changes until the team leader or the administrator
+ * approves it; approving applies it in the coordinator's name, with their reason.
+ */
+export interface DecisionRequest {
+  id: string
+  kind: 'no_followup' | 'dispute' | 'bankrupt'
+  entityType: FollowupEntityType
+  entityId: string
+  bpCode: string | null
+  name: string
+  amount: number
+  reason: string
+  requestedBy: string
+  requestedAt: string
+  status: 'pending' | 'approved' | 'rejected'
+  reviewedBy?: string | null
+  reviewedAt?: string | null
+  reviewNote?: string | null
 }
 
 export interface CoordinatorAlias {

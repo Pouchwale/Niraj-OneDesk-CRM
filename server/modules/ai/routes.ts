@@ -9,7 +9,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import type { AiChatEvent } from '../../../shared/api'
 import { ApiError } from '../../http/errors'
-import type { AiService } from './service'
+import { NO_KEY_MESSAGE, type AiService } from './service'
 
 /**
  * What the browser is allowed to send.
@@ -57,11 +57,7 @@ export function aiRoutes(service: AiService): Router {
     // Anything that could fail before the stream opens must fail now: once
     // headers are out, the only way to report a problem is inside the stream.
     if (!service.status().configured) {
-      next(
-        ApiError.notConfigured(
-          'No assistant key is configured. Set GROQ_API_KEY or ANTHROPIC_API_KEY and restart the server.'
-        )
-      )
+      next(ApiError.notConfigured(NO_KEY_MESSAGE))
       return
     }
 

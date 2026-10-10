@@ -40,18 +40,6 @@ Real environment variables always win over the file.
 The server starts with none of it configured and says on the way up what is
 and is not connected. `GET /api/ready` reports the same thing at any time.
 
-### The starting passwords
-
-Nobody's password is in this repository. Before the **first** start on a new
-machine, copy `server/modules/auth/initial-passwords.example.json` to
-`.crm-auth/initial-passwords.json` and put the real ones in it, keyed by
-account id (`admin-0`, `coord-1`, ...). That folder is git-ignored.
-
-It is read **once**. After the first start the accounts file exists and the list
-is never consulted again, so editing it later changes nothing — change a
-password in the Admin Panel instead. Any account the list leaves out starts on
-`Welcome@123`, so a forgotten one is never left open.
-
 ### The two Excel books
 
 Each book is a file plus a tab. They are configured separately, so they can be
@@ -131,11 +119,6 @@ If the front end is ever hosted somewhere else, list its origin in
   printed in the response.
 - **The cost.** Model calls are rate limited per client, prompts are capped by
   size and turn count, and a closed tab aborts the call in flight.
-- **The credentials and the customers.** Neither is in version control. The
-  password hashes, the session secret and the starting-password list live in
-  `.crm-auth/`, the whole CRM lives in `.crm-data/store.json`, and every one of
-  those paths is in `.gitignore`. Back them up by copying the folders; do not
-  commit them.
 
 ## Still to do before real users
 

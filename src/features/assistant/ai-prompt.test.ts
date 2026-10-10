@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { HISTORY_TURNS, ROBI_SYSTEM_PROMPT, buildAiRequest, type AiTurn } from './ai-prompt'
+import { CRM_GUIDE } from './crm-guide'
 import type { AiContext } from './knowledge'
 
 const context: AiContext = {
@@ -17,7 +18,8 @@ const context: AiContext = {
 describe('buildAiRequest', () => {
   it('sends the persona, the data as JSON, and the question last', () => {
     const request = buildAiRequest({ question: 'Why is Balaji late?', context, ruleAnswer: null, history: [] })
-    expect(request.system).toBe(ROBI_SYSTEM_PROMPT)
+    // The persona and the system guide, the same for every question.
+    expect(request.system).toBe(`${ROBI_SYSTEM_PROMPT}\n\n${CRM_GUIDE}`)
     expect(request.context).toContain('DATA CONTEXT (JSON; the only facts you may use)')
     expect(request.context).toContain('"outstanding":"₹5,50,000"')
     expect(request.context).not.toContain('SYSTEM-COMPUTED ANSWER')
@@ -61,9 +63,18 @@ describe('buildAiRequest', () => {
     expect(request.messages[request.messages.length - 1]).toEqual({ role: 'user', content: 'next?' })
   })
 
-  it('tells the model it is read-only and must stay inside the data', () => {
-    expect(ROBI_SYSTEM_PROMPT).toContain('You are read-only')
+  it('keeps the model inside the data and stops it claiming what it cannot do', () => {
     expect(ROBI_SYSTEM_PROMPT).toContain('Never invent')
-    expect(ROBI_SYSTEM_PROMPT).toContain('open the record and log it there themselves')
+    expect(ROBI_SYSTEM_PROMPT).toContain('Never say or imply that you did')
+    expect(ROBI_SYSTEM_PROMPT).toContain('never say a message was sent')
+  })
+
+  it('asks for suggested next steps on a line of their own', () => {
+    expect(ROBI_SYSTEM_PROMPT).toContain('Finish EVERY reply with one last line that starts with >>>')
+  })
+
+  it('gives the model the guide to how the CRM works', () => {
+    expect(CRM_GUIDE).toContain('WHEN SOMETHING IS "MISSING"')
+    expect(CRM_GUIDE).toContain('Sync now')
   })
 })

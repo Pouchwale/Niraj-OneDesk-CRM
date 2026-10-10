@@ -311,12 +311,92 @@ describe('follow-up history by coordinator', () => {
     await addFollowup(followupPayload(a.id, { status: 'paid', committed_date: '2026-09-10', committed_amount: 25000 }))
     await addFollowup(followupPayload(b.id))
 
+    // The payment was logged after the promise, so the promise counts as kept too.
+    demoCompanyStore.followups[0].created_at = '2026-09-01T10:00:00.000Z'
+    demoCompanyStore.followups[1].created_at = '2026-09-11T10:00:00.000Z'
+
     const summary = summariseHistory(await getFollowupHistory({ coordinatorId: COORD }))
     expect(summary.total).toBe(3)
     expect(summary.accountsTouched).toBe(2)
     expect(summary.commitmentsMade).toBe(2)
-    expect(summary.commitmentsKept).toBe(1)
+    expect(summary.commitmentsKept).toBe(2)
     expect(summary.amountCommitted).toBe(75000)
+  })
+})
+
+describe('commitments: every promise, and whether it was kept', () => {
+  /** A follow-up stored as it was entered, at a known moment. */
+  function logged(companyId: string, at: string, overrides: Partial<Followup> = {}): Followup {
+    return {
+      id: `fu-${Math.random().toString(36).slice(2, 9)}`,
+      ...followupPayload(companyId, overrides),
+      created_at: at,
+      edited_at: null,
+    } as Followup
+  }
+
+  it('the Committed filter shows every promise, whatever outcome was picked', async () => {
+    const a = demoCompanyStore.upsertCompany(makeCompany({ name: 'Logged Pending' }))
+    const b = demoCompanyStore.upsertCompany(makeCompany({ name: 'Logged Committed' }))
+    const c = demoCompanyStore.upsertCompany(makeCompany({ name: 'No Promise' }))
+    demoCompanyStore.followups = [
+      // The usual case on the live book: payment pending, with a date promised.
+      logged(a.id, '2026-09-20T10:00:00.000Z', { status: 'pending', committed_date: '2026-09-25', committed_amount: 40000 }),
+      logged(b.id, '2026-09-20T11:00:00.000Z', { status: 'committed', committed_date: '2026-09-26', committed_amount: 60000 }),
+      logged(c.id, '2026-09-20T12:00:00.000Z', { status: 'committed' }),
+    ]
+    const all = (await getFollowupHistory({})).map((e) => ({ ...e, touches: 1 }))
+    const promised = filterHistoryRows(all, { status: 'committed' })
+    expect(promised.map((r) => r.entity_name).sort()).toEqual(['Logged Committed', 'Logged Pending'])
+    expect(summariseHistory(promised)).toMatchObject({ commitmentsMade: 2, amountCommitted: 100000 })
+  })
+
+  it('counts a promise as kept when the customer paid afterwards, on any of their records', async () => {
+    const invoice = demoCompanyStore.upsertCompany(makeCompany({ sap_bp_code: 'BP-9001', invoice_no: '1' }))
+    const other = demoCompanyStore.upsertCompany(makeCompany({ sap_bp_code: 'BP-9001', invoice_no: '2', name: 'Same Customer' }))
+    demoCompanyStore.followups = [
+      logged(invoice.id, '2026-09-20T10:00:00.000Z', { status: 'pending', committed_date: '2026-09-25', committed_amount: 40000 }),
+      logged(other.id, '2026-09-26T10:00:00.000Z', { status: 'paid' }),
+    ]
+    const summary = summariseHistory(await getFollowupHistory({}))
+    expect(summary).toMatchObject({ commitmentsMade: 1, commitmentsKept: 1 })
+  })
+
+  it('does not count a payment logged before the promise', async () => {
+    const a = demoCompanyStore.upsertCompany(makeCompany({ sap_bp_code: 'BP-9002' }))
+    demoCompanyStore.followups = [
+      logged(a.id, '2026-09-10T10:00:00.000Z', { status: 'paid' }),
+      logged(a.id, '2026-09-20T10:00:00.000Z', { status: 'pending', committed_date: '2026-09-25', committed_amount: 40000 }),
+    ]
+    expect(summariseHistory(await getFollowupHistory({}))).toMatchObject({ commitmentsMade: 1, commitmentsKept: 0 })
+  })
+
+  it('counts it as kept when the Excel file no longer shows them owing anything', async () => {
+    const a = demoCompanyStore.upsertCompany(makeCompany({ sap_bp_code: 'BP-9003', total_amount: 0, status: 'paid' }))
+    demoCompanyStore.followups = [
+      logged(a.id, '2026-09-20T10:00:00.000Z', { status: 'pending', committed_date: '2026-09-25', committed_amount: 40000 }),
+    ]
+    expect(summariseHistory(await getFollowupHistory({}))).toMatchObject({ commitmentsKept: 1 })
+  })
+
+  it('never counts a set-aside customer as having paid', async () => {
+    const a = demoCompanyStore.upsertCompany(
+      makeCompany({ sap_bp_code: 'BP-9004', no_followup_at: '2026-09-21T10:00:00.000Z', no_followup_by: COORD })
+    )
+    demoCompanyStore.followups = [
+      logged(a.id, '2026-09-20T10:00:00.000Z', { status: 'pending', committed_date: '2026-09-25', committed_amount: 40000 }),
+    ]
+    expect(summariseHistory(await getFollowupHistory({}))).toMatchObject({ commitmentsMade: 1, commitmentsKept: 0 })
+  })
+
+  it('leaves the other outcomes filtering by the outcome itself', async () => {
+    const a = demoCompanyStore.upsertCompany(makeCompany({ name: 'Promised But Pending' }))
+    demoCompanyStore.followups = [
+      logged(a.id, '2026-09-20T10:00:00.000Z', { status: 'pending', committed_date: '2026-09-25' }),
+    ]
+    const all = (await getFollowupHistory({})).map((e) => ({ ...e, touches: 1 }))
+    expect(filterHistoryRows(all, { status: 'pending' })).toHaveLength(1)
+    expect(filterHistoryRows(all, { status: 'paid' })).toHaveLength(0)
   })
 })
 

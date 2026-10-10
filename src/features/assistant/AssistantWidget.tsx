@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import {
-  X, Send, Loader2, CheckCircle2, ChevronDown, ChevronUp, Circle, MinusCircle, ListChecks, Users, MessageSquare, ArrowRightLeft,
+  X, Send, Loader2, CheckCircle2, ChevronDown, ChevronUp, Circle, MinusCircle, ListChecks, Users, MessageSquare, ArrowRightLeft, History,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -17,6 +17,7 @@ import { seesAllAccounts } from '@/lib/users/roles'
 
 import { useAssistant } from './useAssistant'
 import { useKnowledge } from './useKnowledge'
+import { splitSuggestions } from './ai-prompt'
 import { useTeamPlans } from './useTeamPlans'
 import { greetedToday, markGreeted } from './assistant-state'
 import { composeNudge, type Nudge, type NudgeAction } from './proactive'
@@ -46,6 +47,72 @@ function assistantSays(text: string, detail?: string, task?: AssistantTask): Ass
 
 function coordinatorSays(text: string): AssistantMessage {
   return { id: nextId('c'), from: 'coordinator', text, at: new Date().toISOString() }
+}
+
+/** A message to the team, shown before it goes: who gets it, the words, Send / Cancel. */
+function DraftCard({
+  draft,
+  state,
+  onSend,
+  onCancel,
+}: {
+  draft: NonNullable<AssistantMessage['draft']>
+  state?: AssistantMessage['sendState']
+  onSend: (wording: string) => void
+  onCancel: () => void
+}) {
+  const [wording, setWording] = useState(draft.message)
+  const to =
+    draft.recipients.length === 1
+      ? draft.recipients[0].name
+      : `${draft.audience} — ${draft.recipients.length} coordinators`
+  const settled = state === 'sent' || state === 'cancelled'
+
+  return (
+    <div className="mt-2.5 space-y-2 rounded-xl border border-border bg-background p-2.5 text-foreground" data-testid="robi-draft">
+      <div className="text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">To:</span> {to}
+        {draft.recipients.length > 1 && (
+          <div className="mt-0.5 line-clamp-2">{draft.recipients.map((r) => r.name).join(', ')}</div>
+        )}
+        {draft.subject && (
+          <div className="mt-0.5">
+            <span className="font-medium text-foreground">About:</span> {draft.subject}
+          </div>
+        )}
+      </div>
+      {settled ? (
+        <p className="whitespace-pre-wrap rounded-lg bg-muted/50 p-2 text-sm">{draft.message}</p>
+      ) : (
+        <textarea
+          value={wording}
+          onChange={(e) => setWording(e.target.value)}
+          rows={Math.min(6, Math.max(2, Math.ceil(wording.length / 42)))}
+          className="w-full resize-none rounded-lg border border-input bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          aria-label="Message"
+          data-testid="robi-draft-text"
+        />
+      )}
+      {state === 'sent' ? (
+        <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Sent — it is in their notifications.
+        </p>
+      ) : state === 'cancelled' ? (
+        <p className="text-xs text-muted-foreground">Not sent.</p>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Button size="sm" className="h-7 px-3 text-xs" disabled={state === 'sending' || !wording.trim()} onClick={() => onSend(wording)} data-testid="robi-draft-send">
+            <Send className="mr-1.5 h-3.5 w-3.5" />
+            {state === 'sending' ? 'Sending…' : state === 'failed' ? 'Try again' : 'Send'}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 px-2.5 text-xs" disabled={state === 'sending'} onClick={onCancel}>
+            Cancel
+          </Button>
+          {state === 'failed' && <span className="text-xs text-destructive">Not sent — check the connection.</span>}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function partOfDay(): string {
@@ -150,7 +217,7 @@ export function AssistantWidget() {
   const lastSpokeRef = useRef(0)
 
   const pending = tasks.length
-  const { ask, isThinking, aiReady } = useKnowledge(tasks)
+  const { ask, isThinking, aiReady, aiKeyError } = useKnowledge(tasks)
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(Date.now()), 60_000)
@@ -232,9 +299,8 @@ export function AssistantWidget() {
     })
     if (!candidate || wasSaid(user.id, candidate, today)) return
 
-    // A record just opened is worth interrupting for; anything else waits.
-    const aboutRecord = candidate.key.startsWith('focus:') || candidate.key.startsWith('lead-focus:')
-    if (!aboutRecord && Date.now() - lastSpokeRef.current < COOLDOWN_MS) return
+    // One remark, then a pause before the next.
+    if (Date.now() - lastSpokeRef.current < COOLDOWN_MS) return
 
     noteSaid(user.id, candidate, today)
     lastSpokeRef.current = Date.now()
@@ -254,6 +320,11 @@ export function AssistantWidget() {
   useEffect(() => {
     if (open) setNudge(null)
   }, [open])
+  // Opening an account's follow-up panel clears any bubble already showing, so
+  // nothing sits over the panel while the person works on it.
+  useEffect(() => {
+    if (focused) setNudge(null)
+  }, [focused])
 
   /* ===== The conversation ===== */
 
@@ -268,8 +339,12 @@ export function AssistantWidget() {
         return assistantSays(
           `${hello} Today's plan: ${planProgressLine(plan)}.`,
           plan.complete
-            ? 'Everything planned is dealt with. I am still watching the rest of your accounts.'
-            : pending > 0
+            ? 'Everything planned for today is dealt with. I am still watching the rest of your accounts.'
+            : plan.round > 0
+              ? `Your Active Payments tasks are done — I have added ${
+                  plan.items.filter((i) => (i.round ?? 0) === plan.round).length
+                } overdue accounts to follow up. They are in the plan above.`
+              : pending > 0
               ? `${pending} item${pending === 1 ? '' : 's'} need your attention in all. I will point you at each record; log what happened there.`
               : undefined
         )
@@ -401,19 +476,22 @@ export function AssistantWidget() {
    * Answers a typed question without disturbing the nudge in progress: the
    * conversation carries both, and the active task stays put underneath.
    */
-  const handleAsk = async () => {
-    const asked = question.trim()
+  const handleAsk = async (typed?: string) => {
+    const asked = (typed ?? question).trim()
     if (!asked || isThinking) return
 
-    // Earlier turns go with the question so Claude can follow "and why?".
+    // Earlier turns go with the question so Robi can follow "and why?".
     const history = messages
       .filter((m) => m.text.trim())
-      .map((m) => ({ role: m.from === 'coordinator' ? ('user' as const) : ('assistant' as const), text: m.text }))
+      .map((m) => ({
+        role: m.from === 'coordinator' ? ('user' as const) : ('assistant' as const),
+        text: splitSuggestions(m.text).text,
+      }))
 
-    setQuestion('')
+    if (typed === undefined) setQuestion('')
     setMessages((m) => [...m, coordinatorSays(asked)])
 
-    // Claude's words land as they are written: one message grows in place.
+    // Robi's words land as they are written: one message grows in place.
     const draftId = nextId('a')
     const appendDelta = (delta: string) =>
       setMessages((m) => {
@@ -428,47 +506,75 @@ export function AssistantWidget() {
 
     const reply = await ask(asked, history, appendDelta)
 
-    // Answering is read-only; anything that writes comes back as an action for
-    // the widget to carry out, so a failed send is reported rather than assumed.
-    if (reply.action?.kind === 'remind' && user) {
-      const action = reply.action
-      try {
-        await sendReminders({
-          fromUserId: user.id,
-          fromName: user.full_name,
-          to: action.recipients,
-          subject: action.subject,
-          message: action.message,
-          link: action.link,
-          audience: action.audience,
-        })
-        toast.success(
-          action.recipients.length === 1
-            ? `Message sent to ${action.recipients[0].name}.`
-            : `Message sent to ${action.recipients.length} coordinators.`
-        )
-      } catch {
-        setMessages((m) => [
-          ...m,
-          assistantSays(`I could not send that to ${action.audience}. Try again in a moment.`),
-        ])
-        return
-      }
-    }
+    // A message to the team is never sent from here: it comes back as a draft
+    // with Send and Cancel, and only Send puts it in anybody's notifications.
+    const draft =
+      reply.action?.kind === 'remind'
+        ? {
+            recipients: reply.action.recipients,
+            audience: reply.action.audience,
+            subject: reply.action.subject,
+            message: reply.action.message,
+            link: reply.action.link,
+          }
+        : undefined
 
-    // A rule answer carries its facts underneath; Claude's answer already
-    // has them in the text. If Claude was asked and failed, say so.
-    const facts = reply.ai ? undefined : reply.facts?.map((f) => `${f.label}: ${f.value}`).join('\n')
-    const detail = reply.aiError ? `Answered from the rules — Claude did not reply: ${reply.aiError}` : facts
+    // A rule answer carries its facts underneath; the AI's answer already
+    // has them in the text. If the AI was asked and failed, say so.
+    const facts = reply.ai || draft ? undefined : reply.facts?.map((f) => `${f.label}: ${f.value}`).join('\n')
+    const detail = reply.aiError ? `Answered from the rules — the AI did not reply: ${reply.aiError}` : facts
+    const { text, suggestions } = splitSuggestions(reply.text)
+    const offered = [...suggestions, ...(reply.followUps ?? [])]
+      .filter((s, i, all) => s.trim() && all.findIndex((t) => t.toLowerCase() === s.toLowerCase()) === i)
+      .slice(0, 3)
 
     setMessages((m) => {
       const index = m.findIndex((x) => x.id === draftId)
-      const final: AssistantMessage = { id: draftId, from: 'assistant', text: reply.text, detail, at: new Date().toISOString() }
+      const final: AssistantMessage = {
+        id: draftId,
+        from: 'assistant',
+        text,
+        detail,
+        at: new Date().toISOString(),
+        suggestions: draft ? undefined : offered,
+        draft,
+      }
       if (index === -1) return [...m, final]
       const copy = [...m]
       copy[index] = final
       return copy
     })
+  }
+
+  /** Sends a drafted message to the team, with whatever wording the sender settled on. */
+  const sendDraft = async (messageId: string, wording: string) => {
+    const target = messages.find((m) => m.id === messageId)
+    const draft = target?.draft
+    if (!draft || !user || !wording.trim()) return
+    const mark = (patch: Partial<AssistantMessage>) =>
+      setMessages((m) => m.map((x) => (x.id === messageId ? { ...x, ...patch } : x)))
+
+    mark({ sendState: 'sending' })
+    try {
+      await sendReminders({
+        fromUserId: user.id,
+        fromName: user.full_name,
+        to: draft.recipients,
+        subject: draft.subject,
+        message: wording.trim(),
+        link: draft.link,
+        audience: draft.audience,
+      })
+      mark({ sendState: 'sent', draft: { ...draft, message: wording.trim() } })
+      toast.success(
+        draft.recipients.length === 1
+          ? `Message sent to ${draft.recipients[0].name}.`
+          : `Message sent to ${draft.recipients.length} coordinators.`
+      )
+    } catch (err) {
+      mark({ sendState: 'failed' })
+      toast.error('Message not sent.', { description: err instanceof Error ? err.message : 'Try again in a moment.' })
+    }
   }
 
   /**
@@ -627,7 +733,13 @@ export function AssistantWidget() {
                 <div className="text-sm font-semibold leading-none">{ROBOT_NAME}</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground" data-testid="robi-status">
                   {statusLine}
-                  {aiReady && <span title="Replies are written by Claude from the live records"> · AI on</span>}
+                  {aiReady && !aiKeyError && <span title="Replies are written by the AI from the live records"> · AI on</span>}
+                  {aiReady && aiKeyError && (
+                    <span className="text-destructive" title={aiKeyError}>
+                      {' '}
+                      · AI off: key rejected
+                    </span>
+                  )}
                 </div>
               </div>
               <button
@@ -649,13 +761,16 @@ export function AssistantWidget() {
                 onUnskip={unskipItem}
               />
             )}
-
             {isLeader && team.team.length > 0 && (
               <TeamSection
                 team={team.team}
                 expanded={planOpen}
                 onToggle={() => setPlanOpen((v) => !v)}
                 onMessage={startMessage}
+                onHistory={() => {
+                  setOpen(false)
+                  navigate('/admin/overview?tab=robi')
+                }}
               />
             )}
 
@@ -673,9 +788,36 @@ export function AssistantWidget() {
                         : 'rounded-bl-sm bg-muted text-foreground'
                     )}
                   >
-                    <p className="whitespace-pre-wrap leading-relaxed">{message.text}</p>
+                    <p className="whitespace-pre-wrap leading-relaxed">
+                      {message.from === 'assistant' ? splitSuggestions(message.text).text : message.text}
+                    </p>
                     {message.detail && (
                       <p className="mt-1.5 text-xs opacity-75 leading-relaxed">{message.detail}</p>
+                    )}
+                    {message.draft && (
+                      <DraftCard
+                        draft={message.draft}
+                        state={message.sendState}
+                        onSend={(wording) => void sendDraft(message.id, wording)}
+                        onCancel={() =>
+                          setMessages((m) => m.map((x) => (x.id === message.id ? { ...x, sendState: 'cancelled' } : x)))
+                        }
+                      />
+                    )}
+                    {message.suggestions && message.suggestions.length > 0 && (
+                      <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="robi-suggestions">
+                        {message.suggestions.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            disabled={isThinking}
+                            onClick={() => void handleAsk(suggestion)}
+                            className="rounded-full border border-primary/30 bg-background px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -704,7 +846,7 @@ export function AssistantWidget() {
                 className="flex items-center gap-2"
                 onSubmit={(event) => {
                   event.preventDefault()
-                  handleAsk()
+                  void handleAsk()
                 }}
               >
                 <Input
@@ -812,7 +954,10 @@ function PlanSection({ plan, expanded, onToggle, onOpen, onSkip, onUnskip }: Pla
       </div>
       {expanded && (
         <ul className="max-h-52 space-y-1 overflow-y-auto px-3 pb-3 pt-2">
-          {plan.items.map((item) => (
+          {/* Work still to do first, so a new overdue round is not buried under finished tasks. */}
+          {[...plan.items]
+            .sort((a, b) => Number(a.status !== 'open' && a.status !== 'skipped') - Number(b.status !== 'open' && b.status !== 'skipped'))
+            .map((item) => (
             <PlanRow
               key={item.taskId}
               item={item}
@@ -873,6 +1018,12 @@ function PlanRow({
         {/* Struck through only for work that was actually done. */}
         <p className={cn('truncate text-sm font-medium', item.status === 'done' && 'line-through')}>
           {item.entityName ?? 'Account'}
+          {/* From Overdue Payments: four a day, and any extra rounds after them. */}
+          {item.entityType === 'overdue_payment' && (
+            <span className="ml-1.5 inline-block rounded bg-amber-500/15 px-1 py-px align-middle text-[10px] font-semibold uppercase text-amber-700 dark:text-amber-400">
+              Overdue
+            </span>
+          )}
         </p>
         <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">{item.message}</p>
       </div>
@@ -911,12 +1062,15 @@ function TeamSection({
   expanded,
   onToggle,
   onMessage,
+  onHistory,
 }: {
   team: TeamPlan[]
   expanded: boolean
   onToggle: () => void
   /** Starts a message to one coordinator, or to all of them. */
   onMessage: (who: string) => void
+  /** Opens the record of past days: who did what, and what slipped. */
+  onHistory: () => void
 }) {
   const withPlans = team.filter((t) => t.plan.total > 0)
   const done = withPlans.reduce((sum, t) => sum + t.plan.done, 0)
@@ -972,13 +1126,21 @@ function TeamSection({
               </li>
             ))}
           </ul>
-          <div className="px-4 pb-3">
+          <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
             <button
               type="button"
               onClick={() => onMessage('the team')}
               className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-primary hover:bg-muted"
             >
               <MessageSquare className="h-3.5 w-3.5" /> Message the whole team
+            </button>
+            <button
+              type="button"
+              onClick={onHistory}
+              data-testid="robi-history-link"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-primary hover:bg-muted"
+            >
+              <History className="h-3.5 w-3.5" /> Task history
             </button>
           </div>
         </>

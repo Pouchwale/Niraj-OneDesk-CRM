@@ -181,9 +181,13 @@ describe('what may be removed', () => {
     expect(blockedFromRemoval('admin-0', 'admin-0')).toBeTruthy()
   })
 
-  it('refuses an account the app ships with, which would leave nobody a way in', () => {
+  it('refuses the system administrator account, which would leave nobody a way in', () => {
     expect(blockedFromRemoval('admin-0', 'admin-1')).toBeTruthy()
-    expect(blockedFromRemoval('coord-1', 'admin-0')).toBeTruthy()
+  })
+
+  it('allows the rest of the team the app ships with', () => {
+    expect(blockedFromRemoval('coord-1', 'admin-0')).toBeNull()
+    expect(blockedFromRemoval('admin-1', 'admin-0')).toBeNull()
   })
 
   it('allows one added later', () => {

@@ -1,9 +1,9 @@
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-import { loadEnvFiles, parseEnvFile } from './env'
+import { loadEnvFiles, parseEnvFile, readEnvFiles, watchEnvFiles } from './env'
 
 const dir = mkdtempSync(join(tmpdir(), 'env-file-'))
 
@@ -59,5 +59,30 @@ describe('loadEnvFiles', () => {
     const empty = mkdtempSync(join(tmpdir(), 'env-none-'))
     expect(loadEnvFiles(empty, {})).toEqual([])
     rmSync(empty, { recursive: true, force: true })
+  })
+})
+
+describe('readEnvFiles', () => {
+  it('merges the files the same way without touching the environment', () => {
+    const own = mkdtempSync(join(tmpdir(), 'env-read-'))
+    writeFileSync(join(own, '.env'), 'OPENAI_API_KEY=old\nSHARED=base\n')
+    writeFileSync(join(own, '.env.local'), 'OPENAI_API_KEY=new\n')
+    expect(readEnvFiles(own)).toEqual({ OPENAI_API_KEY: 'new', SHARED: 'base' })
+    rmSync(own, { recursive: true, force: true })
+  })
+})
+
+describe('watchEnvFiles', () => {
+  it('notices a save, including a file that did not exist yet', async () => {
+    const own = mkdtempSync(join(tmpdir(), 'env-watch-'))
+    const onChange = vi.fn()
+    const stop = watchEnvFiles(onChange, own, 20)
+    try {
+      writeFileSync(join(own, '.env.local'), 'OPENAI_API_KEY=new\n')
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalled(), { timeout: 3_000 })
+    } finally {
+      stop()
+      rmSync(own, { recursive: true, force: true })
+    }
   })
 })

@@ -7,6 +7,7 @@ import { getCompanyById, updateCompany } from './companies-api'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { DAY_MS } from '@/lib/constants'
 import { normalizeBpCode } from './bp-code'
+import { whenSaved } from './shared-data'
 
 export interface FollowupStats {
   totalFollowups: number
@@ -92,13 +93,31 @@ export async function syncCompanyStatusFromFollowup(
   }
 }
 
-export async function addFollowup(data: Omit<Followup, 'id' | 'created_at' | 'edited_at'>): Promise<Followup | undefined> {
+/** A fresh follow-up id, for a form that has to keep the same one across retries. */
+export function createFollowupId(): string {
+  return `fu-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+export type NewFollowup = Omit<Followup, 'id' | 'created_at' | 'edited_at'> & {
+  /**
+   * Pass the same id when saving again after a failure. The store treats a
+   * known id as already recorded, so a retry can never log a follow-up twice.
+   */
+  id?: string
+}
+
+/**
+ * Logs a follow-up and resolves once the server has accepted it.
+ *
+ * Rejects with the reason when it was refused or never arrived, so a screen
+ * only says "saved" about something that was.
+ */
+export async function addFollowup(data: NewFollowup): Promise<Followup | undefined> {
   const now = new Date().toISOString()
-  
-  const id = `fu-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
   const followup: Followup = {
     ...data,
-    id,
+    id: data.id || createFollowupId(),
     created_at: now,
     edited_at: null
   }
@@ -111,6 +130,7 @@ export async function addFollowup(data: Omit<Followup, 'id' | 'created_at' | 'ed
   } else {
     demoCompanyStore.touchOverduePayment(data.entity_id, data.status)
   }
+  await whenSaved()
   return addedFollowup
 
 }
@@ -130,12 +150,7 @@ export async function editFollowup(
   const existing = demoCompanyStore.getAllFollowups().find(f => f.id === id)
   if (!existing) throw new Error('Followup not found')
 
-  const createdAt = new Date(existing.created_at)
-  const hoursDiff = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60)
-
-  if (hoursDiff > 24) {
-    throw new Error('Edit window (24 hours) has expired')
-  }
+  // No time limit on corrections: the audit entry below keeps what it said before.
 
   const updated = {
     ...existing,
@@ -164,6 +179,7 @@ export async function editFollowup(
   } else {
     demoCompanyStore.touchOverduePayment(updated.entity_id, updated.status)
   }
+  await whenSaved()
   return result
 
 }
@@ -388,7 +404,7 @@ export function filterHistoryRows(
 ): FollowupHistoryRow[] {
   const needle = options.search?.trim().toLowerCase()
   return rows
-    .filter((row) => !options.status || row.status === options.status)
+    .filter((row) => !options.status || matchesOutcome(row, options.status))
     .filter((row) =>
       !needle ||
       [row.entity_name, row.entity_bp_code, row.notes]
@@ -420,6 +436,69 @@ export function collapseToLatestPerAccount(entries: FollowupHistoryEntry[]): Fol
   return [...latest.values()].sort((a, b) => b.followup_date.localeCompare(a.followup_date))
 }
 
+/**
+ * Whether a follow-up answers the outcome filter.
+ *
+ * "Committed" means the customer gave a promise - a date they will pay by -
+ * whatever outcome was picked when it was logged. Most promises are logged as
+ * "Pending" (the payment is pending, after all): in the live book 126
+ * follow-ups carried a promise and only 27 had the outcome "Committed", so the
+ * filter showed ₹54.8 lakh of ₹2.42 crore promised.
+ */
+export function matchesOutcome(row: Followup, status: FollowupStatus): boolean {
+  if (status === 'committed') return Boolean(row.committed_date)
+  return row.status === status
+}
+
+/**
+ * Who paid, read once per summary: each record's customer (BP code, or the
+ * record itself without one), the times a payment was logged against each
+ * customer, and the customers the Excel file no longer shows owing anything.
+ *
+ * A promise is kept when the customer paid: the follow-up itself is marked
+ * paid, a later follow-up on any of the customer's records is, or every record
+ * of theirs is paid or settled in the file. A customer set aside - no
+ * follow-up or bankrupt - has not paid, whatever the file says.
+ */
+function paymentEvidence() {
+  const customerOf = new Map<string, string>()
+  const state = new Map<string, { open: boolean; setAside: boolean }>()
+  const note = (entityKey: string, code: string | null, open: boolean, setAside: boolean) => {
+    const normalized = normalizeBpCode(code)
+    const key = normalized ? `bp:${normalized}` : entityKey
+    customerOf.set(entityKey, key)
+    const was = state.get(key) ?? { open: false, setAside: false }
+    state.set(key, { open: was.open || open, setAside: was.setAside || setAside })
+  }
+  for (const c of demoCompanyStore.getAllCompanies()) {
+    note(`company:${c.id}`, c.sap_bp_code, c.status !== 'paid', isSetAside(c))
+  }
+  for (const p of demoCompanyStore.getAllOverduePayments()) {
+    note(`overdue_payment:${p.id}`, p.bp_code, p.status !== 'settled', isSetAside(p))
+  }
+  const customer = (f: Pick<Followup, 'entity_type' | 'entity_id'>) => {
+    const entityKey = `${f.entity_type}:${f.entity_id}`
+    return customerOf.get(entityKey) ?? entityKey
+  }
+
+  const paidAt = new Map<string, string[]>()
+  for (const f of demoCompanyStore.getAllFollowups()) {
+    if (f.status !== 'paid') continue
+    const key = customer(f)
+    const list = paidAt.get(key)
+    if (list) list.push(f.created_at)
+    else paidAt.set(key, [f.created_at])
+  }
+  const clearedInFile = new Set([...state].filter(([, s]) => !s.open && !s.setAside).map(([key]) => key))
+
+  return (e: Followup): boolean => {
+    if (e.status === 'paid') return true
+    const key = customer(e)
+    if (clearedInFile.has(key)) return true
+    return (paidAt.get(key) ?? []).some((at) => at > e.created_at)
+  }
+}
+
 /** The roll-up shown above a history list. */
 export interface FollowupHistorySummary {
   total: number
@@ -433,6 +512,7 @@ export interface FollowupHistorySummary {
 export function summariseHistory(entries: (FollowupHistoryEntry | FollowupHistoryRow)[]): FollowupHistorySummary {
   const accounts = new Set(entries.map((e) => e.entity_id))
   const withCommitment = entries.filter((e) => e.committed_date)
+  const kept = withCommitment.length > 0 ? paymentEvidence() : () => false
   return {
     // A rolled-up row stands for every call behind it, so the tile still counts
     // the work rather than the lines on screen.
@@ -440,7 +520,7 @@ export function summariseHistory(entries: (FollowupHistoryEntry | FollowupHistor
     accountsTouched: accounts.size,
     commitmentsMade: withCommitment.length,
     // Kept means the customer paid, whoever logged it afterwards.
-    commitmentsKept: withCommitment.filter((e) => e.status === 'paid').length,
+    commitmentsKept: withCommitment.filter(kept).length,
     amountCommitted: withCommitment.reduce((sum, e) => sum + (e.committed_amount ?? 0), 0),
     lastFollowupDate: entries.reduce<string | null>(
       (latest, e) => (!latest || e.followup_date > latest ? e.followup_date : latest),

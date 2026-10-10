@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { getNotifications, markAsRead, markAllAsRead, AppNotification } from '@/lib/notifications';
+import { subscribeToDemoStore } from '@/lib/demo-companies';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -27,8 +28,16 @@ export const NotificationBell = () => {
 
     fetchNotifications();
     const intervalId = setInterval(fetchNotifications, 60000); // Poll every 60s
+    // A message from the team leader arrives with the next server read; show
+    // it then, rather than up to a minute later.
+    const unsubscribe = subscribeToDemoStore(() => {
+      fetchNotifications();
+    });
 
-    return () => clearInterval(intervalId);
+    return () => {
+      clearInterval(intervalId);
+      unsubscribe();
+    };
   }, [user]);
 
   const unreadCount = notifications.filter(n => !n.read).length;

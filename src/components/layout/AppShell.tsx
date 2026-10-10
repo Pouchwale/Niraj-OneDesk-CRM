@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { AssistantWidget } from '@/features/assistant/AssistantWidget';
+import { ProofGate } from '@/features/assistant/ProofGate';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 
 export const AppShell = () => {
@@ -37,6 +38,7 @@ export const AppShell = () => {
 
       {/* Coordinator-only follow-up assistant; renders nothing for admins. */}
       <AssistantWidget />
+      <ProofGate />
     </div>
   );
 };

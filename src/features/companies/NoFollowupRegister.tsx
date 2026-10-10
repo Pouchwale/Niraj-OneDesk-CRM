@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { clearNoFollowup, deleteNoFollowup } from '@/lib/no-followup-api'
-import { isNoFollowup } from '@/lib/no-followup'
+import { isDispute, isNoFollowup } from '@/lib/no-followup'
 import { normalizeBpCode } from '@/lib/bp-code'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Company, OverduePayment } from '@/lib/types'
@@ -25,6 +25,13 @@ interface Props {
   overduePayments: OverduePayment[]
   /** Who is looking; recorded against a reinstatement or a deletion. */
   currentUserId?: string
+  /**
+   * Team leader or admin: resumes anyone's and may delete. A coordinator sees
+   * their own accounts, resumes only what they set aside, and deletes nothing.
+   */
+  canManageTeam?: boolean
+  /** The Dispute register: the same set-aside, recorded as a dispute. */
+  disputes?: boolean
   onChanged?: () => void
 }
 
@@ -57,7 +64,7 @@ interface SetAsideCustomer {
  * made: one customer usually has several invoices and an ageing row, and all of
  * them went aside together.
  */
-export function NoFollowupRegister({ companies, overduePayments, currentUserId, onChanged }: Props) {
+export function NoFollowupRegister({ companies, overduePayments, currentUserId, canManageTeam = true, disputes = false, onChanged }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<SetAsideCustomer | null>(null)
 
@@ -76,7 +83,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
     }
 
     for (const company of companies) {
-      if (!isNoFollowup(company)) continue
+      if (!isNoFollowup(company) || isDispute(company) !== disputes) continue
       const code = normalizeBpCode(company.sap_bp_code)
       const key = code ? `bp:${code}` : `company:${company.id}`
       const entry = seat(key, {
@@ -94,7 +101,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
     }
 
     for (const row of overduePayments) {
-      if (!isNoFollowup(row)) continue
+      if (!isNoFollowup(row) || isDispute(row) !== disputes) continue
       const code = normalizeBpCode(row.bp_code)
       const key = code ? `bp:${code}` : `ageing:${row.id}`
       const entry = seat(key, {
@@ -129,8 +136,8 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
         description: `${formatCurrency(entry.amount)} counts towards what is owed again.`,
       })
       onChanged?.()
-    } catch {
-      toast.error('That could not be undone. Try again in a moment.')
+    } catch (err) {
+      toast.error('Follow-up not resumed.', { description: err instanceof Error ? err.message : 'Try again in a moment.' })
     } finally {
       setBusy(null)
     }
@@ -149,8 +156,8 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
       })
       setDeleting(null)
       onChanged?.()
-    } catch {
-      toast.error('That could not be deleted. Try again in a moment.')
+    } catch (err) {
+      toast.error('Not deleted.', { description: err instanceof Error ? err.message : 'Try again in a moment.' })
     } finally {
       setBusy(null)
     }
@@ -160,7 +167,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
     return (
       <GlassCard className="p-8 text-center" data-testid="no-followup-register">
         <BellOff className="mx-auto h-8 w-8 text-muted-foreground/50" />
-        <p className="mt-3 text-sm font-medium">Nobody has been set aside</p>
+        <p className="mt-3 text-sm font-medium">{disputes ? 'No account is in dispute' : 'Nobody has been set aside'}</p>
         <p className="mt-1 text-xs text-muted-foreground">
           Accounts marked "No follow-up" leave the working lists and their balance leaves the
           outstanding total. They would all be listed here.
@@ -176,7 +183,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
           <div>
             <p className="flex items-center gap-2 text-sm font-semibold">
               <BellOff className="h-4 w-4 text-amber-500" />
-              Set aside — no follow-up
+              {disputes ? 'Set aside — in dispute' : 'Set aside — no follow-up'}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Not chased, and not counted in what is owed. Who decided each, and why.
@@ -235,15 +242,20 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy === entry.key || !currentUserId}
-                        onClick={() => resume(entry)}
-                      >
-                        <RotateCcw className="mr-2 h-3.5 w-3.5" />
-                        Resume
-                      </Button>
+                      {canManageTeam ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy === entry.key || !currentUserId}
+                          onClick={() => resume(entry)}
+                        >
+                          <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                          Resume
+                        </Button>
+                      ) : (
+                        <span className="self-center text-xs text-muted-foreground">Team leader</span>
+                      )}
+                      {canManageTeam && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -255,6 +267,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
                         <Trash2 className="mr-2 h-3.5 w-3.5" />
                         Delete
                       </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

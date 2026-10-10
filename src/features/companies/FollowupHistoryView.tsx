@@ -71,6 +71,12 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
   const [range, setRange] = useState<string>('30')
   const [status, setStatus] = useState<string>('all')
   const [search, setSearch] = useState('')
+  /**
+   * Every follow-up as its own row - the full log - or one row per account
+   * with only its latest. The log is the default: filtering to Pragati should
+   * list all 25 of her follow-ups, not the 12 accounts behind them.
+   */
+  const [show, setShow] = useState<'every' | 'latest'>('every')
 
   const coordinators = useMemo(() => getAllCoordinators(), [])
   const showWhoFilter = !coordinatorId
@@ -107,14 +113,22 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
   // Roll up to one row per coordinator per account first, then narrow. Doing it
   // the other way round let "no response" surface a call the customer has since
   // answered, which is the past record this view is meant to hide.
-  const rows = useMemo(
-    () =>
-      filterHistoryRows(collapseToLatestPerAccount(entries), {
-        status: status === 'all' ? undefined : (status as FollowupStatus),
-        search: search.trim() || undefined,
-      }),
-    [entries, status, search]
-  )
+  const rows = useMemo(() => {
+    const base =
+      show === 'latest'
+        ? collapseToLatestPerAccount(entries)
+        : entries
+            .map((entry) => ({ ...entry, touches: 1 }))
+            // Newest first; the same day falls back to when it was recorded.
+            .sort(
+              (a, b) =>
+                b.followup_date.localeCompare(a.followup_date) || (b.created_at ?? '').localeCompare(a.created_at ?? '')
+            )
+    return filterHistoryRows(base, {
+      status: status === 'all' ? undefined : (status as FollowupStatus),
+      search: search.trim() || undefined,
+    })
+  }, [entries, status, search, show])
   // The tiles describe the rows on screen, counting the calls behind them.
   const summary = useMemo(() => summariseHistory(rows), [rows])
 
@@ -162,6 +176,16 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
               </SelectContent>
             </Select>
 
+            <Select value={show} onValueChange={(v) => setShow(v as 'every' | 'latest')}>
+              <SelectTrigger className="w-[190px]" data-testid="history-show">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="every">Every follow-up</SelectItem>
+                <SelectItem value="latest">Latest per account</SelectItem>
+              </SelectContent>
+            </Select>
+
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue />
@@ -170,7 +194,8 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
                 <SelectItem value="all">Any outcome</SelectItem>
                 {(Object.keys(FOLLOWUP_STATUS_LABEL) as FollowupStatus[]).map((s) => (
                   <SelectItem key={s} value={s}>
-                    {FOLLOWUP_STATUS_LABEL[s]}
+                    {/* Every promise, however the outcome was recorded. */}
+                    {s === 'committed' ? 'Committed (any promise)' : FOLLOWUP_STATUS_LABEL[s]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -216,7 +241,7 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Last contact</TableHead>
+                  <TableHead>{show === 'latest' ? 'Last contact' : 'Date'}</TableHead>
                   {showWhoFilter && <TableHead>Coordinator</TableHead>}
                   <TableHead>Account</TableHead>
                   <TableHead>Mode</TableHead>

@@ -1,19 +1,31 @@
-import type { Company, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { Company, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
-import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, isBankrupt, isNoFollowup, markNoFollowup } from './no-followup'
+import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, isBankrupt, isNoFollowup, isSetAside, markNoFollowup } from './no-followup'
 import { invoiceKeyOf } from './account-key'
-import {
-  HANDOVER_RULES,
-  applyHandoverToRows,
-  coordinatorNameFor,
-  isHandedOver,
-  planHandover,
-  repinHandover,
-} from './handover'
 // Relative: this file runs on the server too, outside Vite's alias resolution.
 import { DAY_MS } from './constants'
+import type { DailyPlan, PlanItemStatus } from '../features/assistant/daily-plan'
+
+/**
+ * Who a re-imported row stays with.
+ *
+ * The file decides, except in one case: it names somebody with no login here
+ * (so it books the row to nobody) and it is the same name as last time, while
+ * the row is booked to someone. Then that booking was made in the CRM - a
+ * leader handing an unknown name's account to a coordinator - and tomorrow's
+ * unchanged file must not take it back off them.
+ */
+export function keptOwner(
+  existing: { assigned_coordinator_id: string | null; coordinator_name?: string | null },
+  incoming: { assigned_coordinator_id: string | null; coordinator_name?: string | null }
+): string | null {
+  if (incoming.assigned_coordinator_id || !existing.assigned_coordinator_id) return incoming.assigned_coordinator_id
+  const same = (value?: string | null) => (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+  const fileName = same(incoming.coordinator_name)
+  return fileName && fileName === same(existing.coordinator_name) ? existing.assigned_coordinator_id : null
+}
 
 function daysAgo(n: number): string { return new Date(Date.now() - n * DAY_MS).toISOString() }
 function dateAgo(n: number): string { return daysAgo(n).split('T')[0] }
@@ -347,6 +359,18 @@ export interface PersistedStore {
   uploads: Upload[]
   uploadErrors: UploadError[]
   auditLog: AuditLogEntry[]
+  /**
+   * Robi's daily plans, one per coordinator per day, kept for good: the record
+   * a team leader reads to see who did what they were asked, and what slipped.
+   * Optional so a file saved before plans were kept still loads.
+   */
+  dailyPlans?: DailyPlan[]
+  /** Messages sent through Robi, one row per recipient. Optional for older files. */
+  messages?: DirectedReminder[]
+  /** Robi's proof checks. Optional for older files. */
+  proofRequests?: ProofRequest[]
+  /** Coordinators' requests to set a customer aside, awaiting approval. */
+  decisionRequests?: DecisionRequest[]
 }
 
 /**
@@ -427,6 +451,10 @@ class DemoCompanyStore {
   auditLog: AuditLogEntry[] = restored?.auditLog ?? []
   aliases: CoordinatorAlias[] = loadLearnedAliases()
   overduePayments: OverduePayment[] = restored?.overduePayments ?? [...SEED_OVERDUE]
+  dailyPlans: DailyPlan[] = restored?.dailyPlans ?? []
+  messages: DirectedReminder[] = restored?.messages ?? []
+  proofRequests: ProofRequest[] = restored?.proofRequests ?? []
+  decisionRequests: DecisionRequest[] = restored?.decisionRequests ?? []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
 
@@ -434,78 +462,6 @@ class DemoCompanyStore {
     // Declarations made before bankruptcy covered the whole customer marked only
     // the ageing row; carry them to the invoices once, on load.
     this.carryBankruptcyToInvoices()
-    // Records imported before a desk was handed on still name the coordinator
-    // who left it; move them to whoever took their share.
-    this.applyHandovers()
-  }
-
-  /**
-   * Moves the records of a handed-over coordinator to whoever took them.
-   *
-   * The import seam handles every future sync; this is for what is already
-   * here. Both books are planned together so a customer's ageing row and their
-   * invoices go to the same person, and it settles after the first pass - once
-   * nothing is left with the old coordinator there is nothing to move.
-   */
-  applyHandovers(): void {
-    const mine = this.companies.filter((c) => isHandedOver(c.assigned_coordinator_id))
-    const theirs = this.overduePayments.filter((p) => isHandedOver(p.assigned_coordinator_id))
-    if (mine.length === 0 && theirs.length === 0) return
-
-    // One plan across both books, so the split counts each customer once.
-    for (const rule of HANDOVER_RULES) {
-      planHandover(rule, [
-        ...mine.filter((c) => c.assigned_coordinator_id === rule.fromCoordinatorId).map((c) => c.sap_bp_code),
-        ...theirs.filter((p) => p.assigned_coordinator_id === rule.fromCoordinatorId).map((p) => p.bp_code),
-      ])
-    }
-
-    const moved: Record<string, { invoices: number; customers: number }> = {}
-    const count = (id: string, key: 'invoices' | 'customers') => {
-      moved[id] ??= { invoices: 0, customers: 0 }
-      moved[id][key]++
-    }
-
-    applyHandoverToRows(
-      mine,
-      (c) => c.assigned_coordinator_id,
-      (c) => c.sap_bp_code,
-      (c, coordinatorId) => {
-        c.assigned_coordinator_id = coordinatorId
-        c.updated_at = new Date().toISOString()
-        count(coordinatorId, 'invoices')
-      }
-    )
-    applyHandoverToRows(
-      theirs,
-      (p) => p.assigned_coordinator_id,
-      (p) => p.bp_code,
-      (p, coordinatorId) => {
-        const name = coordinatorNameFor(coordinatorId)
-        p.assigned_coordinator_id = coordinatorId
-        if (name) p.coordinator_name = name
-        p.updated_at = new Date().toISOString()
-        count(coordinatorId, 'customers')
-      }
-    )
-
-    if (Object.keys(moved).length === 0) return
-    /*
-     * One audit entry for the whole handover, not one per record. Six hundred
-     * entries would be six hundred rows of the same sentence, and this store
-     * has run out of browser storage before.
-     */
-    this.addAuditEntry({
-      id: `audit-handover-${Date.now()}`,
-      entity_type: 'company',
-      entity_id: HANDOVER_RULES.map((r) => r.id).join(','),
-      action: 'reassign',
-      actor_id: 'system',
-      before: {},
-      after: moved,
-      created_at: new Date().toISOString(),
-    })
-    this.persist()
   }
 
   /**
@@ -681,10 +637,12 @@ class DemoCompanyStore {
         ...existing,
         ...company,
         id: existing.id,
+        assigned_coordinator_id: keptOwner(existing, company),
         // Decisions the team made in the app outlive tomorrow's file.
         no_followup_at: existing.no_followup_at ?? null,
         no_followup_by: existing.no_followup_by ?? null,
         no_followup_note: existing.no_followup_note ?? null,
+        no_followup_kind: existing.no_followup_kind ?? null,
         bankrupt_declared_at: existing.bankrupt_declared_at ?? null,
         bankrupt_declared_by: existing.bankrupt_declared_by ?? null,
         bankrupt_note: existing.bankrupt_note ?? null,
@@ -694,9 +652,11 @@ class DemoCompanyStore {
       return this.companies[index]
     }
     // A new invoice for a customer already declared bankrupt belongs to the
-    // same insolvency: it arrives held out, like the rest of theirs.
+    // same insolvency: it arrives held out, like the rest of theirs — whether
+    // the declaration was made on the ageing row or on one of their invoices.
     const insolvent = company.sap_bp_code
-      ? this.overduePayments.find((p) => p.status === 'bankrupt' && sameBpCode(p.bp_code, company.sap_bp_code))
+      ? this.overduePayments.find((p) => p.status === 'bankrupt' && sameBpCode(p.bp_code, company.sap_bp_code)) ??
+        this.companies.find((c) => c.bankrupt_declared_at && sameBpCode(c.sap_bp_code, company.sap_bp_code))
       : undefined
     const newCompany = {
       ...company,
@@ -735,11 +695,6 @@ class DemoCompanyStore {
     const idx = this.companies.findIndex(c => c.id === id)
     if (idx >= 0) {
       this.companies[idx] = { ...this.companies[idx], ...updates, updated_at: new Date().toISOString() }
-      // Moving a handed-over customer by hand has to outlast tomorrow's sync
-      // too, so the handover ledger is corrected rather than the record alone.
-      if (updates.assigned_coordinator_id) {
-        repinHandover(this.companies[idx].sap_bp_code, updates.assigned_coordinator_id)
-      }
     }
   }
 
@@ -855,6 +810,14 @@ class DemoCompanyStore {
   getFollowupsForCompany(companyId: string): Followup[] { return this.getFollowupsForEntity(companyId, 'company') }
   
   addFollowup(followup: Followup): Followup {
+    /*
+     * The same id twice is the same follow-up. The browser chooses the id, so a
+     * coordinator pressing Save again after a save that failed — or seemed to —
+     * cannot record one follow-up twice, whichever copy had already taken it.
+     */
+    const existing = followup.id ? this.followups.find(f => f.id === followup.id) : undefined
+    if (existing) return existing
+
     const newFollowup = { ...followup, id: followup.id || "fup-" + Date.now(), created_at: new Date().toISOString() }
     this.followups.push(newFollowup)
     return newFollowup
@@ -955,20 +918,30 @@ class DemoCompanyStore {
         ...existing,
         ...payment,
         id: existing.id,
-        // A settled balance and a bankrupt company are both decisions the team
-        // made in the app; tomorrow's file must not overwrite either.
-        status: existing.status === 'settled' || existing.status === 'bankrupt' ? existing.status : payment.status,
+        assigned_coordinator_id: keptOwner(existing, payment),
+        // The file is the truth about the money: a balance it still lists is
+        // overdue, whatever an earlier sync concluded when the row went
+        // missing for a day. Only a bankruptcy - a declaration somebody made
+        // on purpose - outlives the file.
+        status: existing.status === 'bankrupt' ? existing.status : payment.status,
         no_followup_at: existing.no_followup_at ?? null,
         no_followup_by: existing.no_followup_by ?? null,
         no_followup_note: existing.no_followup_note ?? null,
+        no_followup_kind: existing.no_followup_kind ?? null,
         created_at: existing.created_at,
         updated_at: new Date().toISOString()
       }
       return { payment: this.overduePayments[index], wasCreated: false }
     }
 
-    const created = {
+    // A customer declared bankrupt from their invoices, before the ageing report
+    // listed them, arrives here already declared.
+    const insolvent = payment.bp_code
+      ? this.companies.find((c) => c.bankrupt_declared_at && sameBpCode(c.sap_bp_code, payment.bp_code))
+      : undefined
+    const created: OverduePayment = {
       ...payment,
+      ...(insolvent ? { status: 'bankrupt' as const, ...bankruptMarkOf(insolvent) } : {}),
       id: payment.id || `ovd-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -981,9 +954,6 @@ class DemoCompanyStore {
     const idx = this.overduePayments.findIndex(p => p.id === id)
     if (idx >= 0) {
       this.overduePayments[idx] = { ...this.overduePayments[idx], ...updates, updated_at: new Date().toISOString() }
-      if (updates.assigned_coordinator_id) {
-        repinHandover(this.overduePayments[idx].bp_code, updates.assigned_coordinator_id)
-      }
     }
   }
 
@@ -994,34 +964,123 @@ class DemoCompanyStore {
    * and a stray note on the account must not quietly put it back in the queue.
    */
   touchOverduePayment(id: string, followupStatus: FollowupStatus): void {
-    if (this.getOverduePaymentById(id)?.status === 'bankrupt') return
+    // Bankrupt is a decision; settled at ₹0 is the Excel file saying nothing is
+    // owed. A call logged afterwards changes neither - it reopened Neilmed at ₹0.
+    // (Settled by a "paid" follow-up keeps its balance, so correcting it still reopens.)
+    const current = this.getOverduePaymentById(id)
+    if (current?.status === 'bankrupt') return
+    if (current?.status === 'settled' && !current.balance_due) return
     const status: OverdueStatus = followupStatus === 'paid' ? 'settled' : 'in_progress'
     this.updateOverduePayment(id, { status })
   }
 
+  /** Declares bankrupt from the ageing row. Kept for callers that only have one. */
+  declareBankrupt(id: string, by: string, note?: string | null): void {
+    this.declareCustomerBankrupt('overdue_payment', id, by, note)
+  }
+
   /**
-   * Declares a company bankrupt.
+   * Every record of the customer a record belongs to: its BP code in both
+   * books, or the record alone when it has no code to match on.
+   */
+  getCustomerRecords(
+    entityType: FollowupEntityType,
+    entityId: string
+  ): { bpCode: string | null; companies: Company[]; payments: OverduePayment[] } | null {
+    const record =
+      entityType === 'company'
+        ? this.companies.find((c) => c.id === entityId)
+        : this.overduePayments.find((p) => p.id === entityId)
+    if (!record) return null
+
+    const bpCode = ('sap_bp_code' in record ? record.sap_bp_code : record.bp_code) || null
+    return {
+      bpCode,
+      companies: this.companies.filter(
+        (c) => (entityType === 'company' && c.id === entityId) || (bpCode !== null && sameBpCode(c.sap_bp_code, bpCode))
+      ),
+      payments: this.overduePayments.filter(
+        (p) => (entityType === 'overdue_payment' && p.id === entityId) || (bpCode !== null && sameBpCode(p.bp_code, bpCode))
+      ),
+    }
+  }
+
+  /**
+   * Declares a customer bankrupt, from whichever book the record is in.
    *
    * Since 11 Sept 2026 this works the way no follow-up does: the customer
    * leaves every working list and every total, in both books, and is listed
-   * only in the Bankrupt register. It is declared on the ageing row, but it is
-   * the customer that has gone under, so their Active Payments invoices carry
-   * the same stamp. Who decided it and why is kept on every record.
+   * only in the Bankrupt register. A coordinator can make the call from an
+   * Active Payments invoice as well as from the ageing row — it is the customer
+   * that has gone under, so the ageing row and every invoice carry the same
+   * stamp either way, and a customer the ageing report does not list yet is
+   * still held out. Records already declared keep who declared them and why.
+   * Returns how many records it marked.
    */
-  declareBankrupt(id: string, by: string, note?: string | null): void {
-    const payment = this.getOverduePaymentById(id)
-    const mark = {
-      bankrupt_declared_at: new Date().toISOString(),
-      bankrupt_declared_by: by,
-      bankrupt_note: note?.trim() || null,
-    }
-    this.updateOverduePayment(id, { status: 'bankrupt', ...mark })
-    if (!payment?.bp_code) return
-    for (const company of this.companies) {
-      if (sameBpCode(company.sap_bp_code, payment.bp_code)) {
-        Object.assign(company, mark, { updated_at: new Date().toISOString() })
-      }
-    }
+  declareCustomerBankrupt(
+    entityType: FollowupEntityType,
+    entityId: string,
+    by: string,
+    note?: string | null
+  ): number {
+    const customer = this.getCustomerRecords(entityType, entityId)
+    if (!customer) return 0
+
+    const now = new Date().toISOString()
+    const mark = { bankrupt_declared_at: now, bankrupt_declared_by: by, bankrupt_note: note?.trim() || null }
+    return this.replaceCustomerRecords(
+      customer,
+      (payment) => (payment.status === 'bankrupt' ? null : { ...payment, status: 'bankrupt', ...mark, updated_at: now }),
+      (company) => (company.bankrupt_declared_at ? null : { ...company, ...mark, updated_at: now })
+    )
+  }
+
+  /**
+   * Swaps a customer's records for changed copies, rather than editing them in
+   * place, the way updateOverduePayment does: a record object somebody else
+   * still holds (a screen, the shipped seeds) never changes underneath them.
+   * A change that returns null leaves that record alone. Returns how many changed.
+   */
+  private replaceCustomerRecords(
+    customer: { companies: Company[]; payments: OverduePayment[] },
+    changePayment: (payment: OverduePayment) => OverduePayment | null,
+    changeCompany: (company: Company) => Company | null
+  ): number {
+    let touched = 0
+    const payments = new Set(customer.payments)
+    const companies = new Set(customer.companies)
+    this.overduePayments = this.overduePayments.map((payment) => {
+      const changed = payments.has(payment) ? changePayment(payment) : null
+      if (!changed) return payment
+      touched++
+      return changed
+    })
+    this.companies = this.companies.map((company) => {
+      const changed = companies.has(company) ? changeCompany(company) : null
+      if (!changed) return company
+      touched++
+      return changed
+    })
+    return touched
+  }
+
+  /**
+   * Undoes a bankruptcy for the whole customer, in both books: the ageing row
+   * goes back to what its buckets say, and the invoices lose the stamp.
+   * Returns how many records came back.
+   */
+  reinstateCustomer(entityType: FollowupEntityType, entityId: string): number {
+    const customer = this.getCustomerRecords(entityType, entityId)
+    if (!customer) return 0
+
+    const now = new Date().toISOString()
+    const cleared = { bankrupt_declared_at: null, bankrupt_declared_by: null, bankrupt_note: null, updated_at: now }
+    return this.replaceCustomerRecords(
+      customer,
+      // Back to what the ageing itself says, not to whatever it was before.
+      (payment) => (payment.status === 'bankrupt' ? { ...payment, status: deriveOverdueStatusFor(payment), ...cleared } : null),
+      (company) => (company.bankrupt_declared_at ? { ...company, ...cleared } : null)
+    )
   }
 
   /**
@@ -1052,8 +1111,8 @@ class DemoCompanyStore {
    * the other still being chased and still adding to the total — which is
    * exactly the confusion the setting exists to remove.
    */
-  setNoFollowup(bpCode: string | null, entityId: string, by: string, note?: string | null): number {
-    const fields = markNoFollowup(by, note)
+  setNoFollowup(bpCode: string | null, entityId: string, by: string, note?: string | null, kind?: 'dispute' | null): number {
+    const fields = markNoFollowup(by, note, kind)
     let touched = 0
 
     for (const company of this.companies) {
@@ -1087,23 +1146,9 @@ class DemoCompanyStore {
 
   /** Puts it back in the working list, for a declaration made in error. */
   reinstateOverduePayment(id: string): void {
-    const payment = this.getOverduePaymentById(id)
-    if (!payment || payment.status !== 'bankrupt') return
-    this.updateOverduePayment(id, {
-      // Back to what the ageing itself says, not to whatever it was before.
-      status: deriveOverdueStatusFor(payment),
-      bankrupt_declared_at: null,
-      bankrupt_declared_by: null,
-      bankrupt_note: null,
-    })
+    if (this.getOverduePaymentById(id)?.status !== 'bankrupt') return
     // The customer's invoices come back with it.
-    if (payment.bp_code) {
-      for (const company of this.companies) {
-        if (company.bankrupt_declared_at && sameBpCode(company.sap_bp_code, payment.bp_code)) {
-          Object.assign(company, { bankrupt_declared_at: null, bankrupt_declared_by: null, bankrupt_note: null, updated_at: new Date().toISOString() })
-        }
-      }
-    }
+    this.reinstateCustomer('overdue_payment', id)
   }
 
   getOverdueStats(coordinatorId?: string) {
@@ -1195,15 +1240,20 @@ class DemoCompanyStore {
   }
 
   /**
-   * Whether the account a follow-up points at has been closed.
+   * Whether the account a follow-up points at has been closed or set aside.
    *
    * Every rule that nags about a promise or a reminder asks this first: once
-   * the company is paid or the balance settled, the promise is moot, and the
-   * bell, the Overview and the assistant should all fall silent together.
+   * the company is paid, the balance settled, or the customer set aside with no
+   * follow-up or declared bankrupt, the promise is moot, and the bell, the
+   * Overview and the assistant should all fall silent together.
    */
   isEntitySettled(entityType: FollowupEntityType, entityId: string): boolean {
-    if (entityType === 'company') return this.getCompanyById(entityId)?.status === 'paid'
-    return this.getOverduePaymentById(entityId)?.status === 'settled'
+    if (entityType === 'company') {
+      const company = this.getCompanyById(entityId)
+      return company?.status === 'paid' || isSetAside(company)
+    }
+    const payment = this.getOverduePaymentById(entityId)
+    return payment?.status === 'settled' || isSetAside(payment)
   }
 
   /**
@@ -1221,7 +1271,140 @@ class DemoCompanyStore {
       uploads: this.uploads,
       uploadErrors: this.uploadErrors,
       auditLog: this.auditLog,
+      dailyPlans: this.dailyPlans,
+      messages: this.messages,
+      proofRequests: this.proofRequests,
+      decisionRequests: this.decisionRequests,
     }
+  }
+
+  /* ===== Requests to set a customer aside ===== */
+
+  getDecisionRequests(): DecisionRequest[] {
+    return [...this.decisionRequests]
+  }
+
+  addDecisionRequest(request: DecisionRequest): void {
+    if (!request?.id || this.decisionRequests.some((r) => r.id === request.id)) return
+    this.decisionRequests = [...this.decisionRequests, request]
+  }
+
+  /** Approve or reject a pending request; the approval itself is applied by setNoFollowup / declareCustomerBankrupt. */
+  reviewDecisionRequest(id: string, status: 'approved' | 'rejected', by: string, at: string, note?: string | null): void {
+    this.decisionRequests = this.decisionRequests.map((r) =>
+      r.id === id && r.status === 'pending' ? { ...r, status, reviewedBy: by, reviewedAt: at, reviewNote: note ?? null } : r
+    )
+  }
+
+  /* ===== Robi's proof checks ===== */
+
+  getProofRequests(): ProofRequest[] {
+    return [...this.proofRequests]
+  }
+
+  /** One request per task per day: a second screen asking again is ignored. */
+  addProofRequest(request: ProofRequest): void {
+    if (!request?.id || this.proofRequests.some((r) => r.id === request.id)) return
+    this.proofRequests = [...this.proofRequests, request]
+  }
+
+  private changeProof(id: string, from: ProofRequest['status'][], patch: Partial<ProofRequest>): void {
+    this.proofRequests = this.proofRequests.map((r) => (r.id === id && from.includes(r.status) ? { ...r, ...patch } : r))
+  }
+
+  submitProof(id: string, fileUrl: string, at: string): void {
+    this.changeProof(id, ['pending'], { status: 'submitted', fileUrl, submittedAt: at })
+  }
+
+  markProofMissed(id: string, at: string): void {
+    // When it was found missed: the deadline itself stays what it was.
+    this.changeProof(id, ['pending'], { status: 'missed', reviewedAt: null, reviewNote: `Not sent by ${at}` })
+  }
+
+  reviewProof(id: string, status: 'approved' | 'rejected', by: string, at: string, note?: string | null): void {
+    this.changeProof(id, ['submitted', 'approved', 'rejected'], { status, reviewedBy: by, reviewedAt: at, reviewNote: note ?? null })
+  }
+
+  /* ===== Messages sent through Robi ===== */
+
+  getDirectedMessages(): DirectedReminder[] {
+    return [...this.messages]
+  }
+
+  /** Stores a message's copies; one already stored (same id) is not stored twice. */
+  addDirectedMessages(messages: DirectedReminder[]): number {
+    const known = new Set(this.messages.map((m) => m.id))
+    const fresh = messages.filter((m) => m && m.id && !known.has(m.id))
+    this.messages = [...this.messages, ...fresh]
+    return fresh.length
+  }
+
+  /* ===== Robi's daily plans ===== */
+
+  getDailyPlans(): DailyPlan[] {
+    return [...this.dailyPlans]
+  }
+
+  getDailyPlan(userId: string, date: string): DailyPlan | null {
+    return this.dailyPlans.find((p) => p.userId === userId && p.date === date) ?? null
+  }
+
+  /** The most recent plan this person had before `date`. */
+  getPreviousDailyPlan(userId: string, date: string): DailyPlan | null {
+    let latest: DailyPlan | null = null
+    for (const plan of this.dailyPlans) {
+      if (plan.userId !== userId || plan.date >= date) continue
+      if (!latest || plan.date > latest.date) latest = plan
+    }
+    return latest
+  }
+
+  /**
+   * Keeps a day's plan. The first one made for a person and a day stands:
+   * the leader's screen and the coordinator's own may both try to make it, and
+   * the goalposts must not move once work has started. An empty plan may be
+   * replaced - there was nothing to plan when the day began, and an upload
+   * since may have changed that.
+   */
+  recordDailyPlan(plan: DailyPlan): DailyPlan {
+    const index = this.dailyPlans.findIndex((p) => p.userId === plan.userId && p.date === plan.date)
+    if (index === -1) {
+      this.dailyPlans.push(plan)
+      return plan
+    }
+    if (this.dailyPlans[index].items.length > 0) return this.dailyPlans[index]
+    this.dailyPlans[index] = plan
+    return plan
+  }
+
+  /**
+   * Adds a round of overdue accounts to a day's plan, once: the leader's
+   * screen and the coordinator's may both notice the batch before it is done,
+   * and the second one must not add it again.
+   */
+  addDailyPlanRound(userId: string, date: string, round: number, items: DailyPlan['items']): void {
+    const plan = this.getDailyPlan(userId, date)
+    if (!plan || items.length === 0) return
+    if (plan.items.some((item) => (item.round ?? 0) >= round)) return
+    const next = { ...plan, items: [...plan.items, ...items.map((item) => ({ ...item, round }))] }
+    this.dailyPlans = this.dailyPlans.map((p) => (p === plan ? next : p))
+  }
+
+  /** Sets an item aside for the day ("Later"), or puts it back. */
+  setDailyPlanItemSkipped(userId: string, date: string, taskId: string, skipped: boolean): void {
+    const plan = this.getDailyPlan(userId, date)
+    if (!plan || !plan.items.some((item) => item.taskId === taskId)) return
+    const rest = plan.skipped.filter((id) => id !== taskId)
+    const next = { ...plan, skipped: skipped ? [...rest, taskId] : rest }
+    this.dailyPlans = this.dailyPlans.map((p) => (p === plan ? next : p))
+  }
+
+  /** Fixes how a finished day ended. Once only: the first judgement stands. */
+  closeDailyPlan(userId: string, date: string, outcome: Record<string, PlanItemStatus>, closedAt: string): void {
+    const plan = this.getDailyPlan(userId, date)
+    if (!plan || plan.outcome) return
+    const next = { ...plan, outcome, closedAt }
+    this.dailyPlans = this.dailyPlans.map((p) => (p === plan ? next : p))
   }
 
   /**
@@ -1239,6 +1422,10 @@ class DemoCompanyStore {
     this.uploads = snapshot.uploads ?? []
     this.uploadErrors = (snapshot.uploadErrors ?? []).map(slimUploadError)
     this.auditLog = snapshot.auditLog ?? []
+    this.dailyPlans = snapshot.dailyPlans ?? []
+    this.messages = snapshot.messages ?? []
+    this.proofRequests = snapshot.proofRequests ?? []
+    this.decisionRequests = snapshot.decisionRequests ?? []
     this.refreshStatuses()
   }
 }
@@ -1251,7 +1438,12 @@ class DemoCompanyStore {
  * an allow-list of writers would silently lose data the day someone forgets to
  * add to it. A stray save on a read costs one debounced serialisation.
  */
-const READ_ONLY_PREFIXES = ['get', 'find', 'count', 'persist']
+/*
+ * `is` too: isEntitySettled only answers a question, but without it here it
+ * was sent to the server as a change - and refused, taking every real change
+ * that happened to share its batch down with it.
+ */
+const READ_ONLY_PREFIXES = ['get', 'find', 'count', 'persist', 'is']
 
 function isReadOnly(method: string): boolean {
   return READ_ONLY_PREFIXES.some((prefix) => method.startsWith(prefix))

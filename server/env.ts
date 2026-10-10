@@ -10,7 +10,7 @@
  * override what an operator deliberately set on the command line.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, unwatchFile, watchFile, type Stats } from 'node:fs'
 import { resolve } from 'node:path'
 
 /** Parses `.env` text: KEY=value per line, `#` comments, optional quotes. */
@@ -69,4 +69,30 @@ export function loadEnvFiles(cwd = process.cwd(), env: NodeJS.ProcessEnv = proce
   }
 
   return loaded
+}
+
+/** What the env files say now, merged the same way, leaving `process.env` alone. */
+export function readEnvFiles(cwd = process.cwd()): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of ENV_FILES) {
+    const path = resolve(cwd, name)
+    if (existsSync(path)) Object.assign(out, parseEnvFile(readFileSync(path, 'utf8')))
+  }
+  return out
+}
+
+/**
+ * Calls `onChange` after either env file is saved. Returns a stop function.
+ *
+ * Polled rather than `fs.watch`ed: on Windows that fires several times per
+ * save for some editors and not at all for others. A missing file is watched
+ * too, so creating `.env.local` counts as a change.
+ */
+export function watchEnvFiles(onChange: () => void, cwd = process.cwd(), intervalMs = 2_000): () => void {
+  const paths = ENV_FILES.map((name) => resolve(cwd, name))
+  const listener = (now: Stats, before: Stats) => {
+    if (now.mtimeMs !== before.mtimeMs) onChange()
+  }
+  for (const path of paths) watchFile(path, { interval: intervalMs, persistent: false }, listener)
+  return () => paths.forEach((path) => unwatchFile(path, listener))
 }

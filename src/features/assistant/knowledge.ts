@@ -18,7 +18,7 @@
 import type { Company, Followup, OverduePayment, UserRole } from '@/lib/types'
 import { seesAllAccounts } from '@/lib/users/roles'
 import { carriedOverLine } from './daily-plan'
-import { isSetAside } from '@/lib/no-followup'
+import { isBankrupt, isSetAside } from '@/lib/no-followup'
 import { recalculateDueDate } from '@/lib/due-date'
 import type { Commitment } from '@/lib/followups-api'
 import { nameSimilarity, normalizeReference } from '@/lib/name-match'
@@ -54,7 +54,15 @@ export interface SystemSnapshot {
   /** Each coordinator's daily plan, by id. Present for whoever runs the team. */
   teamPlans?: Record<
     string,
-    { done: number; total: number; open: number; carriedOver: number; oldestCarried: string | null; date: string }
+    {
+      done: number
+      total: number
+      open: number
+      carriedOver: number
+      oldestCarried: string | null
+      date: string
+      items?: { account: string; status: string; nudge: string }[]
+    }
   >
   /** The asker's own plan for today, when they are a coordinator. */
   myPlan?: {
@@ -693,6 +701,20 @@ function answerPriority(snapshot: SystemSnapshot, scope: Scope): AssistantAnswer
 const MESSAGE_VERBS =
   /^\s*(?:please\s+|pls\s+|can\s+you\s+|could\s+you\s+|kindly\s+|just\s+)*(?:send\s+a\s+message\s+to|send\s+a\s+message|drop\s+a\s+message\s+to|message|remind|tell|notify|nudge|inform|ask|chase\s+up|chase|let)\s+/i
 
+/**
+ * Whether the sentence is an instruction to pass something on - it starts with
+ * the verb ("tell Pragati ...", "please let the team know ...") and is not
+ * addressed to Robi itself ("tell me why ...", "remind me what ...").
+ *
+ * It used to fire on the word anywhere, so "can you tell me why AyuLabs is
+ * missing?" was answered "who should I send that to?".
+ */
+export function isMessageRequest(question: string): boolean {
+  if (!MESSAGE_VERBS.test(question)) return false
+  const afterVerb = question.replace(MESSAGE_VERBS, '')
+  return !/^\s*(?:me|us|myself)\b/i.test(afterVerb)
+}
+
 /** Ways of addressing everyone at once. */
 const EVERYONE =
   /\b(everyone|everybody|all\s+coordinators?|all\s+of\s+(?:them|the\s+team)|the\s+coordinators?|whole\s+team|entire\s+team|the\s+team|my\s+team|all\s+the\s+team)\b/i
@@ -726,6 +748,14 @@ export function instructionFrom(question: string, addressedAs: string[]): string
     text = text.replace(new RegExp(`^\\s*${escapeRegExp(piece)}\\b[\\s,:;-]*`, 'i'), '')
     if (text !== before) break
   }
+
+  // "... and notify them that ...", "... and let everyone know that ...": the
+  // second verb is more addressing, not the message. Left in, the team read
+  // "and notify them that Each day, Robi AI will ...".
+  text = text.replace(
+    /^\s*(?:and|&)\s+(?:please\s+)?(?:notify|inform|tell|let|remind|ask|message|update)\s+(?:them|everyone|everybody|all(?:\s+of\s+them)?|the\s+team|him|her)?\s*/i,
+    ''
+  )
 
   // "let the team know that ...", "tell her to ...", "message: ..."
   text = text.replace(/^\s*(?:know\s+)?(?:that|to|about|please|:|-|,)\s+/i, '')
@@ -824,12 +854,14 @@ function answerRemind(
       ? recipients[0].full_name
       : `${audience} — ${plural(recipients.length, 'coordinator')}`
 
+  // Nothing is sent yet: the widget shows the message with Send / Cancel, and
+  // only the press of Send puts it in anybody's notifications.
   return {
     intent: 'remind',
     text:
       recipients.length === 1
-        ? `Sent. ${recipients[0].full_name} will see it in their notifications.`
-        : `Sent to ${plural(recipients.length, 'coordinator')}. It is in their notifications now.`,
+        ? `Here is the message for ${recipients[0].full_name}. Check the wording, change it if you like, then press Send.`
+        : `Here is the message for ${audience} (${plural(recipients.length, 'coordinator')}). Check the wording, change it if you like, then press Send.`,
     facts: [
       { label: 'To', value: to },
       ...(recipients.length > 1
@@ -945,7 +977,20 @@ export function askAssistant(question: string, snapshot: SystemSnapshot): Assist
 
   const scope = scopeFor(snapshot)
 
-  if (has(text, 'help', 'what can you', 'what do you know', 'commands')) {
+  // An instruction to pass something on comes first: "tell the team ... help
+  // you get them done" is a message, not a request for the help menu.
+  if (isMessageRequest(question)) {
+    if (seesAllAccounts(snapshot.role)) return answerRemind(question, snapshot, scope)
+    return {
+      intent: 'remind_denied',
+      text: 'Only a team leader or the administrator can message a coordinator through me. You can log a follow-up on the account instead, and your team leader will see it.',
+    }
+  }
+
+  // The menu only for a short request for it: "help", "what can you do".
+  // A question that merely contains "help" - "help me understand why ..." -
+  // is a question, and goes to the AI like any other.
+  if (text.split(' ').length <= 5 && has(text, 'help', 'what can you', 'what do you know', 'commands')) {
     return answerHelp(snapshot)
   }
 
@@ -956,16 +1001,6 @@ export function askAssistant(question: string, snapshot: SystemSnapshot): Assist
     seesAllAccounts(snapshot.role)
   ) {
     return answerSent(snapshot)
-  }
-
-  // Tasking somebody is checked before the lookups: "remind Pragati about
-  // Balaji" names a customer, and must not be answered as a balance enquiry.
-  if (has(text, 'remind', 'tell ', 'notify', 'nudge', 'ask ', 'chase up', 'message ', 'inform ', 'let the team', 'send a message')) {
-    if (seesAllAccounts(snapshot.role)) return answerRemind(question, snapshot, scope)
-    return {
-      intent: 'remind_denied',
-      text: 'Only a team leader or the administrator can message a coordinator through me. You can log a follow-up on the account instead, and your team leader will see it.',
-    }
   }
 
   // Named records answer themselves.
@@ -1120,9 +1155,34 @@ export interface AiContext {
    */
   worthRaising?: { what: string; detail: string; where: string }[]
   brokenPromises?: { customer: string; amount: string; promisedFor: string; daysLate: number; coordinator: string }[]
+  /**
+   * Customers the question names that are set aside - No follow-up or
+   * bankrupt - with who did it, when and why. The usual answer to "why can't
+   * I see X?", which the lists themselves can never give.
+   */
+  setAside?: { customer: string; bpCode: string | null; reason: string; by: string; on: string | null; note: string | null; amount: string }[]
+  /** Customers the question names that the Excel file no longer carries (settled or paid by the sync). */
+  goneFromExcel?: { customer: string; bpCode: string | null; lastChanged: string | null }[]
+  /** Leader/admin: how many customers are set aside in all. */
+  setAsideCount?: number
+  /** Leader/admin: coordinator names in the Excel file that match nobody in the CRM ("Unknown"). */
+  unknownCoordinatorNames?: { name: string; accounts: number; amount: string }[]
+  /**
+   * The coordinator the question names: their own plan for today and their own
+   * accounts, oldest money first. What they should do comes from here and
+   * nowhere else - without it the model picked accounts that were not theirs,
+   * and once invented a customer outright.
+   */
+  coordinator?: {
+    name: string
+    planToday: { account: string; status: string; nudge: string }[]
+    planDone: number
+    planTotal: number
+    accounts: { name: string; status: string; outstanding: string; pastNinetyDays: string | null; daysPastDue: number | null }[]
+  }
 }
 
-const CONTEXT_CUSTOMERS = 10
+const CONTEXT_CUSTOMERS = 30
 const CONTEXT_FOLLOWUPS = 5
 
 function accountStatus(account: BookAccount): string {
@@ -1136,6 +1196,86 @@ function accountNote(account: BookAccount): string {
   if (account.company?.due_date) return `due ${formatDate(account.company.due_date)}`
   if (account.isOverdue) return 'past due on the ageing report'
   return 'not yet due'
+}
+
+/* ===== Customers that are not in the lists, and why ===== */
+
+type AnyRecord = Company | OverduePayment
+
+const isInvoice = (r: AnyRecord): r is Company => 'sap_bp_code' in r
+const codeOfRecord = (r: AnyRecord) => (isInvoice(r) ? r.sap_bp_code : r.bp_code)
+const nameOfRecord = (r: AnyRecord) => (isInvoice(r) ? r.name : r.customer_name || r.bp_code)
+const amountOfRecord = (r: AnyRecord) => (isInvoice(r) ? r.total_amount : r.balance_due) || 0
+const closedRecord = (r: AnyRecord) => r.status === 'paid' || r.status === 'settled'
+const customerKeyOf = (r: AnyRecord) => normalizeBpCode(codeOfRecord(r)) ?? normalize(nameOfRecord(r))
+
+/** Words that cannot be the first distinctive word of a company name. */
+const NOT_DISTINCTIVE = new Set([
+  'the', 'shri', 'shree', 'sri', 'new', 'india', 'indian', 'private', 'limited', 'pvt', 'ltd', 'llp', 'and',
+  'foods', 'food', 'industries', 'enterprise', 'enterprises', 'company', 'pharma', 'products', 'trading',
+])
+
+/** Whether the question names this customer: their BP code, or the first distinctive word of their name. */
+function questionNames(asked: string, record: AnyRecord): boolean {
+  const code = normalizeBpCode(codeOfRecord(record))
+  if (code && asked.includes(code.toLowerCase())) return true
+  const word = normalize(nameOfRecord(record))
+    .split(' ')
+    .find((w) => w.length >= 4 && !NOT_DISTINCTIVE.has(w) && !GENERIC_NAME_WORDS.has(w))
+  return Boolean(word && new RegExp(`\\b${word}\\b`).test(asked))
+}
+
+function namedOffList(question: string, scope: Scope, snapshot: SystemSnapshot) {
+  const asked = normalize(question)
+  const records: AnyRecord[] = [...scope.companies, ...scope.overduePayments]
+  const byCustomer = new Map<string, AnyRecord[]>()
+  for (const r of records) {
+    if (!questionNames(asked, r)) continue
+    const key = customerKeyOf(r)
+    const list = byCustomer.get(key)
+    if (list) list.push(r)
+    else byCustomer.set(key, [r])
+  }
+
+  const setAside: NonNullable<AiContext['setAside']> = []
+  const gone: NonNullable<AiContext['goneFromExcel']> = []
+  for (const list of byCustomer.values()) {
+    const open = list.filter((r) => !closedRecord(r))
+    const held = open.find((r) => isSetAside(r))
+    if (held) {
+      const bankrupt = isBankrupt(held)
+      setAside.push({
+        customer: nameOfRecord(held),
+        bpCode: normalizeBpCode(codeOfRecord(held)),
+        reason: bankrupt ? 'declared bankrupt' : 'marked No follow-up',
+        by: nameOf(snapshot, (bankrupt ? held.bankrupt_declared_by : held.no_followup_by) ?? null),
+        on: (bankrupt ? held.bankrupt_declared_at : held.no_followup_at)?.slice(0, 10) ?? null,
+        note: (bankrupt ? held.bankrupt_note : held.no_followup_note) ?? null,
+        amount: formatCurrency(open.filter((r) => isSetAside(r)).reduce((sum, r) => sum + amountOfRecord(r), 0)),
+      })
+    } else if (open.length === 0) {
+      const last = list.map((r) => r.updated_at).sort().pop() ?? null
+      gone.push({ customer: nameOfRecord(list[0]), bpCode: normalizeBpCode(codeOfRecord(list[0])), lastChanged: last?.slice(0, 10) ?? null })
+    }
+  }
+  return { setAside: setAside.slice(0, 5), gone: gone.slice(0, 5) }
+}
+
+/** Coordinator names in the Excel file that match nobody in the CRM, with what sits under them. */
+function unknownNames(scope: Scope): NonNullable<AiContext['unknownCoordinatorNames']> {
+  const byName = new Map<string, { name: string; accounts: Set<string>; amount: number }>()
+  for (const r of [...scope.companies, ...scope.overduePayments]) {
+    if (r.assigned_coordinator_id || closedRecord(r) || isSetAside(r)) continue
+    const name = (r.coordinator_name ?? '').trim() || '(blank)'
+    const entry = byName.get(name.toLowerCase()) ?? { name, accounts: new Set<string>(), amount: 0 }
+    entry.accounts.add(customerKeyOf(r))
+    entry.amount += amountOfRecord(r)
+    byName.set(name.toLowerCase(), entry)
+  }
+  return [...byName.values()]
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 15)
+    .map((e) => ({ name: e.name, accounts: e.accounts.size, amount: formatCurrency(e.amount) }))
 }
 
 export function buildAiContext(question: string, snapshot: SystemSnapshot): AiContext {
@@ -1216,6 +1356,65 @@ export function buildAiContext(question: string, snapshot: SystemSnapshot): AiCo
           }`
         : null,
     }
+  }
+
+  // Why a customer the question names is not in the lists.
+  const named = namedOffList(question, scope, snapshot)
+  if (named.setAside.length > 0) context.setAside = named.setAside
+  if (named.gone.length > 0) context.goneFromExcel = named.gone
+
+  /*
+   * The customer summary is read from the working lists, which leave set-aside
+   * customers out - so a customer marked No follow-up came through as
+   * "settled, ₹0" beside the note saying who set it aside, and the model
+   * believed the first. Say the real reason in the summary itself.
+   */
+  if (context.customer) {
+    const code = context.customer.bpCode
+    const held = named.setAside.find((s) => s.bpCode === code || s.customer === context.customer!.name)
+    const gone = named.gone.find((g) => g.bpCode === code || g.customer === context.customer!.name)
+    if (held) {
+      context.customer.status = `set aside - ${held.reason} by ${held.by}${held.on ? ` on ${formatDate(held.on)}` : ''}${
+        held.note ? ` ("${held.note}")` : ''
+      }; not in Active Payments, Overdue Payments or any total`
+      context.customer.outstanding = held.amount
+    } else if (gone) {
+      context.customer.status = 'not in the Excel file any more - settled/paid by the sync, so not in any list'
+    }
+  }
+
+  // A named coordinator: their real plan and their real accounts, nobody else's.
+  if (scope.wholeBusiness) {
+    const colleague = findCoordinator(question, snapshot.coordinators)
+    if (colleague) {
+      const plan = snapshot.teamPlans?.[colleague.id]
+      context.coordinator = {
+        name: colleague.full_name,
+        planToday: plan?.items ?? [],
+        planDone: plan?.done ?? 0,
+        planTotal: plan?.total ?? 0,
+        accounts: bookForCoordinator(book, colleague.id)
+          .sort((a, b) => (b.daysPastDue ?? -1) - (a.daysPastDue ?? -1) || b.outstanding - a.outstanding)
+          .slice(0, 12)
+          .map((account) => ({
+            name: account.name,
+            status: accountStatus(account),
+            outstanding: formatCurrency(account.outstanding),
+            pastNinetyDays: account.criticalAmount > 0 ? formatCurrency(account.criticalAmount) : null,
+            daysPastDue: account.daysPastDue,
+          })),
+      }
+    }
+  }
+
+  if (scope.wholeBusiness) {
+    context.setAsideCount = new Set(
+      [...scope.companies, ...scope.overduePayments]
+        .filter((r) => isSetAside(r) && !closedRecord(r))
+        .map((r) => customerKeyOf(r))
+    ).size
+    const unknown = unknownNames(scope)
+    if (unknown.length > 0) context.unknownCoordinatorNames = unknown
   }
 
   if (scope.wholeBusiness) {

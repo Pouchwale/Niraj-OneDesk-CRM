@@ -204,6 +204,7 @@ export function AdminPanelPage() {
             <TableBody>
               {visible.map((u) => {
                 const isSelf = u.id === signedIn?.id
+                const blocked = blockedFromRemoval(u.id, signedIn?.id)
                 return (
                   <TableRow key={u.id}>
                     <TableCell>
@@ -256,15 +257,18 @@ export function AdminPanelPage() {
                         >
                           <KeyRound className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setConfirming(u)}
-                          disabled={Boolean(blockedFromRemoval(u.id, signedIn?.id))}
-                          aria-label={`Remove ${u.full_name}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-rose-500" />
-                        </Button>
+                        {/* A disabled button takes no hover, so the reason sits on its wrapper. */}
+                        <span title={blocked ?? undefined}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setConfirming(u)}
+                            disabled={Boolean(blocked)}
+                            aria-label={`Remove ${u.full_name}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-rose-500" />
+                          </Button>
+                        </span>
                       </div>
                     </TableCell>
                   </TableRow>

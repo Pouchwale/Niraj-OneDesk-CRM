@@ -402,6 +402,15 @@ describe('declaring a company bankrupt', () => {
     expect(row().status).toBe('bankrupt')
   })
 
+  it('a follow-up never reopens a balance the Excel file settled', () => {
+    // Neilmed, 6 Oct 2026: settled by the sync, a call logged after, back in the list at ₹0.
+    const { payment } = demoCompanyStore.upsertOverduePayment({ ...row(), id: 'ovd-neilmed', bp_code: 'BP-NEILMED' })
+    demoCompanyStore.settleOverduePayments([payment.id])
+    demoCompanyStore.touchOverduePayment(payment.id, 'committed')
+
+    expect(demoCompanyStore.getOverduePaymentById(payment.id)?.status).toBe('settled')
+  })
+
   it('can be undone, back to what the ageing itself says', () => {
     const id = row().id
     const aged = (row().due_91_120 || 0) + (row().due_121_plus || 0) > 0

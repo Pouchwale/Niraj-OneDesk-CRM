@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { MIN_PASSWORD_LENGTH, type AuthRole, type AuthUser, type UserDraftRequest } from '../../../shared/auth'
 import { SEED_PROFILES } from '../../../shared/roster'
 import { hashPassword, verifyPassword } from './hash'
-import { FALLBACK_PASSWORD, loadInitialPasswords } from './seed'
+import { FALLBACK_PASSWORD, INITIAL_PASSWORDS } from './seed'
 
 /** An account as the file holds it: everything in AuthUser, plus the hash. */
 interface StoredAccount extends AuthUser {
@@ -72,14 +72,13 @@ export function createAccountStore(dir: string, options: { now?: () => Date } = 
   /** First run: the accounts the app ships with, their passwords hashed. */
   function seed(): StoredAccount[] {
     const at = now().toISOString()
-    const starting = loadInitialPasswords(dir)
     const seeded = SEED_PROFILES.map((profile) => ({
       ...profile,
       relation_manager_name: profile.relation_manager_name ?? null,
       builtIn: true,
       created_at: at,
       updated_at: at,
-      passwordHash: hashPassword(starting[profile.id] ?? FALLBACK_PASSWORD),
+      passwordHash: hashPassword(INITIAL_PASSWORDS[profile.id] ?? FALLBACK_PASSWORD),
     }))
     persist(seeded)
     return seeded
@@ -194,7 +193,13 @@ export function createAccountStore(dir: string, options: { now?: () => Date } = 
       const account = byId(id)
       if (!account) throw new AccountError('That account is not there.')
       if (account.id === actingUserId) throw new AccountError('You cannot remove the account you are signed in with.')
-      if (account.builtIn) throw new AccountError('Accounts the app ships with cannot be removed.')
+      /*
+       * Only the owner account is kept, for the same reason update() keeps it an
+       * administrator. The rest of the shipped roster is the real team, and
+       * refusing those left the administrator unable to remove anybody at all.
+       * The file is only reseeded when it is empty, so a removal stays removed.
+       */
+      if (account.id === 'admin-0') throw new AccountError('The system administrator account cannot be removed.')
       accounts = accounts.filter((a) => a.id !== id)
       save()
     },

@@ -90,63 +90,6 @@ export async function reassignOverduePayment(
 
 }
 
-/**
- * Marks a customer bankrupt, and records who decided it.
- *
- * Audited like a reassignment, because it is the same kind of act: somebody
- * changed what the team will do about a debt, and in six months the question
- * will be who, and on what basis.
- */
-export async function declareBankrupt(
-  paymentId: string,
-  actorId: string,
-  note?: string | null
-): Promise<void> {
-  const current = await getOverduePaymentById(paymentId)
-  if (!current) throw new Error('Overdue payment not found')
-
-  const after = {
-    status: 'bankrupt' as const,
-    bankrupt_declared_at: new Date().toISOString(),
-    bankrupt_declared_by: actorId,
-    bankrupt_note: note?.trim() || null,
-  }
-
-  demoCompanyStore.declareBankrupt(paymentId, actorId, note)
-  demoCompanyStore.addAuditEntry({
-    id: `audit-${Date.now()}`,
-    entity_type: 'overdue_payment',
-    entity_id: paymentId,
-    action: 'declare_bankrupt',
-    actor_id: actorId,
-    before: { status: current.status },
-    after,
-    created_at: new Date().toISOString(),
-  })
-  return
-
-}
-
-/** Undoes a declaration made in error, back to what the ageing itself says. */
-export async function reinstateOverduePayment(paymentId: string, actorId: string): Promise<void> {
-  const current = await getOverduePaymentById(paymentId)
-  if (!current) throw new Error('Overdue payment not found')
-
-  demoCompanyStore.reinstateOverduePayment(paymentId)
-  demoCompanyStore.addAuditEntry({
-    id: `audit-${Date.now()}`,
-    entity_type: 'overdue_payment',
-    entity_id: paymentId,
-    action: 'reinstate',
-    actor_id: actorId,
-    before: { status: current.status, bankrupt_note: current.bankrupt_note ?? null },
-    after: { status: 'reinstated' },
-    created_at: new Date().toISOString(),
-  })
-  return
-
-}
-
 export async function deleteOverduePayment(id: string): Promise<void> {
   demoCompanyStore.deleteOverduePayment(id)
   return

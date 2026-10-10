@@ -14,11 +14,11 @@
  */
 
 import { demoCompanyStore } from './demo-companies'
-import { deleteCompany } from './companies-api'
-import { deleteOverduePayment } from './overdue-api'
 import { isNoFollowup } from './no-followup'
 import { CLEAR_NO_FOLLOWUP, markNoFollowup } from './no-followup'
-import { normalizeBpCode } from './bp-code'
+import { normalizeBpCode, sameBpCode } from './bp-code'
+import type { DecisionRequest } from './types'
+import { whenSaved } from './shared-data'
 
 export type NoFollowupEntity = 'company' | 'overdue_payment'
 
@@ -38,21 +38,24 @@ export interface NoFollowupTarget {
 export async function setNoFollowup(
   target: NoFollowupTarget,
   actorId: string,
-  note?: string | null
+  note?: string | null,
+  kind?: 'dispute' | null
 ): Promise<number> {
-  const fields = markNoFollowup(actorId, note)
+  const fields = markNoFollowup(actorId, note, kind)
 
-  const touched = demoCompanyStore.setNoFollowup(target.bpCode, target.entityId, actorId, note)
+  const touched = demoCompanyStore.setNoFollowup(target.bpCode, target.entityId, actorId, note, kind ?? null)
   demoCompanyStore.addAuditEntry({
     id: `audit-${Date.now()}`,
     entity_type: target.entityType,
     entity_id: target.entityId,
-    action: 'set_no_followup',
+    action: kind === 'dispute' ? 'set_dispute' : 'set_no_followup',
     actor_id: actorId,
     before: { no_followup_at: null },
     after: { ...fields, rows: touched },
     created_at: fields.no_followup_at ?? new Date().toISOString(),
   })
+  // Resolves once the server has accepted it; a refusal rejects with its reason.
+  await whenSaved()
   return touched
 
 }
@@ -102,6 +105,7 @@ export async function deleteNoFollowup(
       created_at: new Date().toISOString(),
     })
   }
+  await whenSaved()
   return removed
 
 }
@@ -122,6 +126,106 @@ export async function clearNoFollowup(
     after: { ...CLEAR_NO_FOLLOWUP, rows: touched },
     created_at: new Date().toISOString(),
   })
+  await whenSaved()
   return touched
 
+}
+
+/**
+ * Declares the customer bankrupt, from an invoice or from the ageing row.
+ *
+ * Audited like a reassignment, because it is the same kind of act: somebody
+ * changed what the team will do about a debt, and in six months the question
+ * will be who, and on what basis. Returns how many records it marked.
+ */
+export async function declareCustomerBankrupt(
+  target: NoFollowupTarget,
+  actorId: string,
+  note?: string | null
+): Promise<number> {
+  const touched = demoCompanyStore.declareCustomerBankrupt(target.entityType, target.entityId, actorId, note)
+  demoCompanyStore.addAuditEntry({
+    id: `audit-${Date.now()}`,
+    entity_type: target.entityType,
+    entity_id: target.entityId,
+    action: 'declare_bankrupt',
+    actor_id: actorId,
+    before: { bankrupt: false },
+    after: { bankrupt_declared_by: actorId, bankrupt_note: note?.trim() || null, rows: touched },
+    created_at: new Date().toISOString(),
+  })
+  await whenSaved()
+  return touched
+}
+
+/** Undoes a bankruptcy declared in error, for the whole customer. */
+export async function reinstateBankruptCustomer(target: NoFollowupTarget, actorId: string): Promise<number> {
+  const touched = demoCompanyStore.reinstateCustomer(target.entityType, target.entityId)
+  demoCompanyStore.addAuditEntry({
+    id: `audit-${Date.now()}`,
+    entity_type: target.entityType,
+    entity_id: target.entityId,
+    action: 'reinstate',
+    actor_id: actorId,
+    before: { bankrupt: true },
+    after: { status: 'reinstated', rows: touched },
+    created_at: new Date().toISOString(),
+  })
+  await whenSaved()
+  return touched
+}
+
+/* ===== A coordinator asks; the team leader or administrator approves ===== */
+
+export type DecisionKind = DecisionRequest['kind']
+
+/** A coordinator's request to set a customer aside. Nothing changes until it is approved. */
+export async function requestDecision(
+  target: NoFollowupTarget & { name: string; amount: number },
+  kind: DecisionKind,
+  requestedBy: string,
+  reason: string
+): Promise<void> {
+  demoCompanyStore.addDecisionRequest({
+    id: `decision-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind,
+    entityType: target.entityType,
+    entityId: target.entityId,
+    bpCode: target.bpCode,
+    name: target.name,
+    amount: target.amount,
+    reason: reason.trim(),
+    requestedBy,
+    requestedAt: new Date().toISOString(),
+    status: 'pending',
+  })
+  await whenSaved()
+}
+
+/** The pending request about this customer (any of their records), if there is one. */
+export function pendingDecisionFor(target: NoFollowupTarget): DecisionRequest | undefined {
+  return demoCompanyStore
+    .getDecisionRequests()
+    .find(
+      (r) =>
+        r.status === 'pending' &&
+        (r.entityId === target.entityId || (!!target.bpCode && !!r.bpCode && sameBpCode(r.bpCode, target.bpCode)))
+    )
+}
+
+/** Applies the request in the coordinator's name, with their reason, and records who approved it. */
+export async function approveDecision(request: DecisionRequest, approverId: string): Promise<void> {
+  const target = { entityType: request.entityType, entityId: request.entityId, bpCode: request.bpCode }
+  if (request.kind === 'bankrupt') {
+    await declareCustomerBankrupt(target, request.requestedBy, request.reason)
+  } else {
+    await setNoFollowup(target, request.requestedBy, request.reason, request.kind === 'dispute' ? 'dispute' : null)
+  }
+  demoCompanyStore.reviewDecisionRequest(request.id, 'approved', approverId, new Date().toISOString())
+  await whenSaved()
+}
+
+export async function rejectDecision(request: DecisionRequest, approverId: string, note: string | null): Promise<void> {
+  demoCompanyStore.reviewDecisionRequest(request.id, 'rejected', approverId, new Date().toISOString(), note)
+  await whenSaved()
 }

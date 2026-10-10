@@ -12,6 +12,8 @@ const OPEN_OR_LATER: AssistantAction[] = [
   { intent: 'snooze', label: 'Later' },
 ]
 import { DAY_MS } from '@/lib/constants'
+import { accountKeyOf } from '@/lib/account-key'
+import { waitingCustomers } from './daily-plan'
 import { isSetAside } from '@/lib/no-followup'
 import { worthChasing } from '@/lib/status-rules'
 import { DUE_SOON_DAYS as SHARED_DUE_SOON_DAYS } from '@/lib/status-rules'
@@ -84,21 +86,43 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
         'a customer'
 
   /**
-   * Whether the account a follow-up points at has been closed since. A promise
-   * or reminder on it is moot, and every other surface skips these too.
+   * Whether the account a follow-up points at has been closed or set aside
+   * (no follow-up or bankrupt) since. A promise or reminder on it is moot, and
+   * every other surface skips these too.
    */
-  const isSettled = (followup: Followup): boolean =>
-    followup.entity_type === 'company'
-      ? companyById.get(followup.entity_id)?.status === 'paid'
-      : ['settled', 'bankrupt'].includes(overdueById.get(followup.entity_id)?.status ?? '')
+  const isSettled = (followup: Followup): boolean => {
+    if (followup.entity_type === 'company') {
+      const company = companyById.get(followup.entity_id)
+      return company?.status === 'paid' || isSetAside(company)
+    }
+    const payment = overdueById.get(followup.entity_id)
+    return payment?.status === 'settled' || isSetAside(payment)
+  }
 
-  /** Most recent follow-up per entity, so "last contact" rules can look back. */
-  const latestByEntity = new Map<string, Followup>()
+  /**
+   * The customer each record belongs to. A customer is several records - an
+   * invoice per open bill in Active Payments and a row in the ageing report -
+   * and a call is logged on whichever one was open. "Last contact" is about
+   * the customer, so a call on their ageing row counts for their invoices.
+   * Reading it per record had Robi call a customer "never followed up" the
+   * morning after the coordinator rang them.
+   */
+  const customerOf = (entityType: string, entityId: string): string => {
+    if (entityType === 'company') {
+      const company = companyById.get(entityId)
+      return company ? accountKeyOf(company.sap_bp_code, company.name) : `company:${entityId}`
+    }
+    const payment = overdueById.get(entityId)
+    return payment ? accountKeyOf(payment.bp_code, payment.customer_name) : `overdue_payment:${entityId}`
+  }
+
+  /** Most recent follow-up per customer, so "last contact" rules can look back. */
+  const latestByCustomer = new Map<string, Followup>()
   for (const followup of context.followups) {
-    const key = `${followup.entity_type}:${followup.entity_id}`
-    const current = latestByEntity.get(key)
+    const key = customerOf(followup.entity_type, followup.entity_id)
+    const current = latestByCustomer.get(key)
     if (!current || followup.followup_date > current.followup_date) {
-      latestByEntity.set(key, followup)
+      latestByCustomer.set(key, followup)
     }
   }
 
@@ -224,7 +248,8 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
   for (const company of context.companies) {
     if (isSetAside(company) || !worthChasing(company.total_amount)) continue
     if (company.status !== 'overdue' && company.status !== 'critical') continue
-    if (latestByEntity.has(`company:${company.id}`)) continue
+    // Any call to this customer, on any of their records, means they have been followed up.
+    if (latestByCustomer.has(customerOf('company', company.id))) continue
 
     tasks.push({
       id: `untouched:company:${company.id}`,
@@ -243,7 +268,7 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
   for (const payment of context.overduePayments) {
     if (payment.status === 'settled' || isSetAside(payment)) continue
     if (!worthChasing(payment.balance_due)) continue
-    if (latestByEntity.has(`overdue_payment:${payment.id}`)) continue
+    if (latestByCustomer.has(customerOf('overdue_payment', payment.id))) continue
 
     const name = payment.customer_name || payment.bp_code
     tasks.push({
@@ -302,8 +327,8 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
     const agedValue = (payment.due_91_120 ?? 0) + (payment.due_121_plus ?? 0)
     if (agedValue <= 0) continue
 
-    const key = `overdue_payment:${payment.id}`
-    const latest = latestByEntity.get(key)
+    const customer = customerOf('overdue_payment', payment.id)
+    const latest = latestByCustomer.get(customer)
     // Never-touched balances are already covered, with their own wording.
     if (!latest) continue
     if (latest.status === 'paid') continue
@@ -319,7 +344,7 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
     if (latest.committed_date && latest.committed_date >= today) continue
 
     const name = payment.customer_name || payment.bp_code
-    ageingNudged.add(key)
+    ageingNudged.add(customer)
 
     tasks.push({
       id: `ageing:overdue:${payment.id}`,
@@ -340,19 +365,21 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
 
   /* ---------- 9. Accounts that have gone quiet ---------- */
 
-  for (const [key, followup] of latestByEntity) {
+  // One card per customer, pointing at the record the last call was logged on.
+  for (const [customer, followup] of latestByCustomer) {
     if (followup.status === 'paid') continue
     // Already raised, more urgently, by the ageing rule above.
-    if (ageingNudged.has(key)) continue
+    if (ageingNudged.has(customer)) continue
 
     const day = followupDay(followup)
     if (!day || daysBetween(day, today) < STALE_AFTER_DAYS) continue
 
-    const [entityType, entityId] = key.split(':') as ['company' | 'overdue_payment', string]
+    const entityType = followup.entity_type
+    const entityId = followup.entity_id
+    const key = `${entityType}:${entityId}`
 
-    // Skip anything already settled at the record level.
-    if (entityType === 'company' && companyById.get(entityId)?.status === 'paid') continue
-    if (entityType === 'overdue_payment' && ['settled', 'bankrupt'].includes(overdueById.get(entityId)?.status ?? '')) continue
+    // Skip anything settled or set aside at the record level.
+    if (isSettled(followup)) continue
 
     const name = nameOf(followup)
     tasks.push({
@@ -368,5 +395,12 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
     })
   }
 
-  return tasks.sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))
+  // Nothing about a customer before the next follow-up date set for them.
+  const waiting = waitingCustomers(context.followups, today, (key) => {
+    const at = key.indexOf(':')
+    return customerOf(key.slice(0, at), key.slice(at + 1))
+  })
+  return tasks
+    .filter((task) => !task.entityType || !task.entityId || !waiting.has(customerOf(task.entityType, task.entityId)))
+    .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))
 }

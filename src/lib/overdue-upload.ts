@@ -10,7 +10,6 @@ import {
   type CoordinatorMatch,
 } from './coordinator-aliases'
 import { getFallbackOwner } from '@/features/auth/AuthContext'
-import { applyHandoverToRows, coordinatorNameFor } from './handover'
 import { demoCompanyStore, inBulk } from './demo-companies'
 import { accountKeyOf } from './account-key'
 import { countSettlements, guardSettlements, planSettlements, type FileAccounts } from './excel-reconcile'
@@ -237,40 +236,19 @@ export async function validateOverdueRows(
     row.coordinator_match = owner.match
     row.coordinator_id = owner.coordinatorId
     if (owner.routedToAdmin) row.coordinator_name = fallbackOwnerName ?? row.coordinator_name
-    if (owner.error) rowErrors.push(owner.error)
+    // A name nobody logs in as imports with no CRM owner and keeps the file's
+    // name, rather than being refused and leaving its money off every screen.
+    const unknownName = owner.error === 'Unassigned coordinator'
+    if (owner.error && !unknownName) rowErrors.push(owner.error)
+    if (unknownName) unassigned.push(row)
 
     if (rowErrors.length > 0) {
       errors[row._originalIndex] = rowErrors
       invalid.push(row)
-      if (rowErrors.includes('Unassigned coordinator')) unassigned.push(row)
     } else {
       valid.push(row)
     }
   }
-
-  /*
-   * The same handover as the Active Payments book, keyed on the same BP code,
-   * so a customer's ageing row and their invoices land with the same person.
-   * The name is rewritten too: this book keeps the file's spelling of the
-   * coordinator and the search box reads it, so leaving it would find these
-   * customers under the name of someone who no longer chases them.
-   */
-  applyHandoverToRows(
-    rows,
-    (row) => row.coordinator_id,
-    (row) => row.bp_code,
-    (row, coordinatorId, rule) => {
-      const name = coordinatorNameFor(coordinatorId)
-      row.coordinator_id = coordinatorId
-      if (name) row.coordinator_name = name
-      row.coordinator_match = {
-        coordinatorId,
-        confidence: 1,
-        method: 'handover',
-        reason: `${coordinatorNameFor(rule.fromCoordinatorId) ?? 'That coordinator'}'s customers were handed on; this one is ${name ?? 'theirs'}`,
-      }
-    }
-  )
 
   return { rows, valid, invalid, unassigned, errors }
 }

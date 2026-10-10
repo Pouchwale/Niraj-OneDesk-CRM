@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { PlanHistoryView } from '@/features/assistant/PlanHistoryView';
+import { ProofReview, useProofsToReview } from '@/features/assistant/ProofReview';
+import { WeeklyScores } from '@/features/assistant/ScoresView';
+import { DecisionApprovals, usePendingDecisions } from './DecisionApprovals';
 import { motion } from 'motion/react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { KpiCard } from '@/components/shared/KpiCard';
@@ -19,11 +23,12 @@ import {
   type CompanyFollowupSummary,
   type OverdueCommitment,
 } from '@/lib/followups-api';
-import { getAllCoordinators, getCoordinatorDisplayName } from '@/features/auth/AuthContext';
+import { getAllCoordinators, getCoordinatorDisplayName, rowOwner } from '@/features/auth/AuthContext';
+import { OWNER_NONE_KEY, type Owner } from '@/lib/owner';
 import { CompanyDetailPanel } from './CompanyDetailPanel';
 import { FollowupHistoryView } from './FollowupHistoryView';
 import { NoFollowupRegister } from './NoFollowupRegister';
-import { isNoFollowup } from '@/lib/no-followup';
+import { isDispute, isNoFollowup, listBankruptCustomers } from '@/lib/no-followup';
 import { normalizeBpCode } from '@/lib/bp-code';
 import { BankruptRegister } from '@/features/overdue/components/BankruptRegister';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -44,23 +49,36 @@ export function AdminOverviewPage() {
   const [followupSummary, setFollowupSummary] = useState<Map<string, CompanyFollowupSummary>>(new Map());
   const { user } = useAuth();
 
-  /** Shown on the tab so a declaration is never waiting unseen. */
+  // In the URL so Robi's "see history" link can open a tab directly.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') || 'summary';
+  const proofsToReview = useProofsToReview();
+  const pendingDecisions = usePendingDecisions();
+  const setTab = (next: string) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'summary') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  };
+
+  /** Shown on the tab so a declaration is never waiting unseen — from either book. */
   const bankruptCount = useMemo(
-    () => overduePayments.filter((p) => p.status === 'bankrupt').length,
-    [overduePayments]
+    () => listBankruptCustomers(companies, overduePayments).length,
+    [companies, overduePayments]
   );
 
   // Customers, not records: setting aside is a decision about a customer, and
   // one of them usually carries several invoices and an ageing row.
   const setAsideCount = useMemo(() => {
-    const seen = new Set<string>();
+    const plain = new Set<string>();
+    const disputed = new Set<string>();
     for (const c of companies) {
-      if (isNoFollowup(c)) seen.add(normalizeBpCode(c.sap_bp_code) ?? `company:${c.id}`);
+      if (isNoFollowup(c)) (isDispute(c) ? disputed : plain).add(normalizeBpCode(c.sap_bp_code) ?? `company:${c.id}`);
     }
     for (const o of overduePayments) {
-      if (isNoFollowup(o)) seen.add(normalizeBpCode(o.bp_code) ?? `ageing:${o.id}`);
+      if (isNoFollowup(o)) (isDispute(o) ? disputed : plain).add(normalizeBpCode(o.bp_code) ?? `ageing:${o.id}`);
     }
-    return seen.size;
+    return { plain: plain.size, disputed: disputed.size };
   }, [companies, overduePayments]);
 
   const loadData = useCallback(async () => {
@@ -156,6 +174,30 @@ export function AdminOverviewPage() {
     }).sort((a, b) => b.overdueCommitmentsCount - a.overdueCommitmentsCount || b.overdue - a.overdue);
   }, [coordinators, book, overdueCommitments, followupSummary, plans]);
 
+  /*
+   * The rest of the book, so the breakdown adds up to the cards above it:
+   * accounts under a name the Excel file uses for someone with no login here,
+   * and accounts booked to someone who is not a coordinator (the team leader).
+   * Grouped by the name on the record, with the same totals as a coordinator's.
+   */
+  const otherOwnerStats = useMemo(() => {
+    const coordinatorIds = new Set(coordinators.map((c) => c.id));
+    const groups = new Map<string, { owner: Owner; accounts: typeof book }>();
+    for (const account of book) {
+      if (account.coordinatorId && coordinatorIds.has(account.coordinatorId)) continue;
+      const record = account.company ?? account.ageing;
+      const owner = record
+        ? rowOwner(record)
+        : { key: OWNER_NONE_KEY, name: 'Unassigned', inCrm: false };
+      const group = groups.get(owner.key) ?? { owner, accounts: [] };
+      group.accounts.push(account);
+      groups.set(owner.key, group);
+    }
+    return [...groups.values()]
+      .map(({ owner, accounts }) => ({ owner, totals: summariseBook(accounts) }))
+      .sort((a, b) => Number(b.owner.inCrm) - Number(a.owner.inCrm) || b.totals.outstanding - a.totals.outstanding);
+  }, [book, coordinators]);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -163,10 +205,24 @@ export function AdminOverviewPage() {
         subtitle="Cross-coordinator payment follow-up tracking"
       />
 
-      <Tabs defaultValue="summary" className="space-y-6">
-        <TabsList>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
+        <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="history">Follow-up history</TabsTrigger>
+          <TabsTrigger value="approvals" data-testid="tab-approvals">
+            Approvals
+            {pendingDecisions > 0 && (
+              <span className="ml-1.5 rounded bg-blue-500/15 px-1.5 text-xs text-blue-600 dark:text-blue-400">{pendingDecisions}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="scores" data-testid="tab-scores">Scores</TabsTrigger>
+          <TabsTrigger value="robi" data-testid="tab-robi">Robi task history</TabsTrigger>
+          <TabsTrigger value="proofs" data-testid="tab-proofs">
+            Proof checks
+            {proofsToReview > 0 && (
+              <span className="ml-1.5 rounded bg-blue-500/15 px-1.5 text-xs text-blue-600 dark:text-blue-400">{proofsToReview}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="bankrupt">
             Bankrupt
             {bankruptCount > 0 && (
@@ -182,13 +238,31 @@ export function AdminOverviewPage() {
           */}
           <TabsTrigger value="no-followup" data-testid="tab-no-followup">
             No follow-up
-            {setAsideCount > 0 && (
+            {setAsideCount.plain > 0 && (
               <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 text-xs text-amber-600 dark:text-amber-400">
-                {setAsideCount}
+                {setAsideCount.plain}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="dispute" data-testid="tab-dispute">
+            Dispute
+            {setAsideCount.disputed > 0 && (
+              <span className="ml-1.5 rounded bg-orange-500/15 px-1.5 text-xs text-orange-600 dark:text-orange-400">
+                {setAsideCount.disputed}
               </span>
             )}
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dispute" className="outline-none">
+          <NoFollowupRegister
+            companies={companies}
+            overduePayments={overduePayments}
+            currentUserId={user?.id}
+            disputes
+            onChanged={loadData}
+          />
+        </TabsContent>
 
         <TabsContent value="no-followup" className="outline-none">
           <NoFollowupRegister
@@ -211,6 +285,27 @@ export function AdminOverviewPage() {
         <TabsContent value="history" className="outline-none">
           {/* Whole team by default; the filter narrows to one person. */}
           <FollowupHistoryView />
+        </TabsContent>
+
+        <TabsContent value="approvals" className="outline-none">
+          <DecisionApprovals onChanged={loadData} />
+        </TabsContent>
+
+        <TabsContent value="scores" className="outline-none">
+          <WeeklyScores coordinators={coordinators} />
+        </TabsContent>
+
+        <TabsContent value="proofs" className="outline-none">
+          <ProofReview />
+        </TabsContent>
+
+        <TabsContent value="robi" className="outline-none">
+          <PlanHistoryView
+            coordinators={coordinators}
+            companies={companies}
+            overduePayments={overduePayments}
+            followups={followups}
+          />
         </TabsContent>
 
         <TabsContent value="summary" className="space-y-6 outline-none">
@@ -375,6 +470,55 @@ export function AdminOverviewPage() {
                 <TableRow>
                   <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                     {isLoading ? 'Loading coordinators...' : 'No coordinator data available.'}
+                  </TableCell>
+                </TableRow>
+              )}
+              {!isLoading && otherOwnerStats.map(({ owner, totals }) => (
+                <TableRow key={owner.key} className={owner.inCrm ? undefined : 'bg-amber-500/5'} data-testid="other-owner-row">
+                  <TableCell className="font-medium text-foreground">
+                    <div className={owner.inCrm ? undefined : 'text-amber-700 dark:text-amber-400'}>{owner.name}</div>
+                    <div className="whitespace-nowrap text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
+                      {owner.inCrm ? 'Team leader / other login' : 'Not in CRM'}
+                    </div>
+                  </TableCell>
+                  <TableCell>{totals.accounts}</TableCell>
+                  <TableCell>
+                    {totals.overdueAccounts > 0 ? <span className="text-amber-500 font-medium">{totals.overdueAccounts}</span> : '0'}
+                  </TableCell>
+                  <TableCell>
+                    {totals.criticalAccounts > 0 ? <span className="text-rose-500 font-medium">{totals.criticalAccounts}</span> : '0'}
+                  </TableCell>
+                  <TableCell>{formatCurrency(totals.outstanding)}</TableCell>
+                  <TableCell colSpan={3}>
+                    {/* The accounts behind the figure, with every detail, on the screens that hold them. */}
+                    <div className="flex flex-wrap gap-3 text-xs">
+                      <button
+                        type="button"
+                        className="font-medium text-primary hover:underline"
+                        onClick={() => navigate(`/companies?owner=${encodeURIComponent(owner.key)}`)}
+                      >
+                        Active payments →
+                      </button>
+                      <button
+                        type="button"
+                        className="font-medium text-primary hover:underline"
+                        onClick={() => navigate(`/overdue?owner=${encodeURIComponent(owner.key)}`)}
+                      >
+                        Overdue →
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!isLoading && book.length > 0 && (
+                <TableRow className="border-t-2 border-border bg-muted/40 font-semibold" data-testid="breakdown-total">
+                  <TableCell>Total</TableCell>
+                  <TableCell>{stats.totalCompanies}</TableCell>
+                  <TableCell>{stats.totalOverdue}</TableCell>
+                  <TableCell>{summariseBook(book).criticalAccounts}</TableCell>
+                  <TableCell>{formatCurrency(stats.totalOutstanding)}</TableCell>
+                  <TableCell colSpan={3} className="text-xs font-normal text-muted-foreground">
+                    Matches the cards above
                   </TableCell>
                 </TableRow>
               )}

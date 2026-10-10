@@ -475,7 +475,7 @@ export function systemKpis(snapshot: KpiSnapshot): RoleKpi[] {
       value: String(heldBack),
       hint: heldBack
         ? 'Rows held back: the file names a coordinator the system does not know'
-        : 'Every row in the file has a coordinator the system knows',
+        : 'Every row in the file reaches the CRM; names not in the CRM import unassigned',
       icon: FileWarning,
       color: heldBack ? 'amber' : 'emerald',
       tone: heldBack ? 'warn' : 'good',
@@ -486,12 +486,12 @@ export function systemKpis(snapshot: KpiSnapshot): RoleKpi[] {
       title: 'Accounts with no owner',
       value: String(unowned.length),
       hint: unowned.length
-        ? `${formatCurrency(unownedValue, true)} on accounts with no coordinator`
+        ? `${formatCurrency(unownedValue, true)} on invoices under names not in the CRM`
         : 'Every open account has an owner',
       icon: Users,
       color: unowned.length ? 'rose' : 'emerald',
       tone: unowned.length ? 'bad' : 'good',
-      href: '/companies',
+      href: unowned.length ? '/companies?owner=not_in_crm' : '/companies',
     },
     {
       id: 'book-size',

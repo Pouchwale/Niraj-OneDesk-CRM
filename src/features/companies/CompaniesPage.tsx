@@ -15,11 +15,14 @@ import { DueDaysFilter } from '@/components/shared/DueDaysFilter'
 import { matchesDueRange, type DueFilterPreset } from '@/lib/due-filter'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Building2, AlertTriangle, Clock, IndianRupee, Search, Filter, ChevronDown, ChevronUp, ArrowUpDown, Users, RefreshCcw } from 'lucide-react'
+import { Building2, AlertTriangle, Clock, IndianRupee, Search, Filter, ChevronDown, ChevronUp, ArrowUpDown, RefreshCcw, Download } from 'lucide-react'
 import { differenceInDays, parseISO } from 'date-fns'
 import { formatCurrency } from '@/lib/utils'
 import { getCompanies, getCompanyStats, type CompanyStats } from '@/lib/companies-api'
-import { useAuth, getAssignableOwners, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
+import { useAuth, rowOwner } from '@/features/auth/AuthContext'
+import { OwnerFilter, OwnerName } from '@/components/shared/OwnerFilter'
+import { SetAsideMatches } from '@/components/shared/SetAsideMatches'
+import { OWNER_ALL, OWNER_NOT_IN_CRM, matchesOwner, ownerOptions } from '@/lib/owner'
 // The wizard carries the spreadsheet parser; load it the first time someone
 // actually uploads rather than with the page.
 import { CompanyDetailPanel } from './CompanyDetailPanel'
@@ -69,7 +72,16 @@ export function CompaniesPage() {
     else params.delete('status')
     setSearchParams(params, { replace: true })
   }
-  const [coordinatorFilter, setCoordinatorFilter] = useState('all')
+  // In the URL too, so the Overview's per-coordinator rows can open exactly
+  // the invoices they counted - including a name the file uses that has no login.
+  const coordinatorFilter = searchParams.get('owner') || OWNER_ALL
+  const setCoordinatorFilter = (next: string) => {
+    const params = new URLSearchParams(searchParams)
+    if (next && next !== OWNER_ALL) params.set('owner', next)
+    else params.delete('owner')
+    setSearchParams(params, { replace: true })
+  }
+  const ownerOfRow = (company: Company) => rowOwner(company)
   /** "Payment due" window: preset or a range the person defined. */
   const [dueFilter, setDueFilter] = useState<DueFilterPreset | null>(null)
   // The window lives in the URL, so a dashboard card or Robi can open the
@@ -85,8 +97,6 @@ export function CompaniesPage() {
   // Sort
   const [sortField, setSortField] = useState<keyof Company | 'days_overdue'>('name')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
-
-  const coordinators = useMemo(() => getAssignableOwners(), [])
 
   const fetchData = async () => {
     setIsLoading(true)
@@ -122,7 +132,8 @@ export function CompaniesPage() {
     return sortOrder === 'asc' ? <ChevronUp className="ml-2 h-3 w-3" /> : <ChevronDown className="ml-2 h-3 w-3" />
   }
 
-  const filteredAndSortedCompanies = useMemo(() => {
+  /** Every filter but the coordinator's: what the coordinator options count. */
+  const beforeOwnerFilter = useMemo(() => {
     return companies
       .filter((company) => {
         // Search filter
@@ -141,26 +152,19 @@ export function CompaniesPage() {
         
         /*
          * Active Payments is the work still to do, so the two kinds of closed
-         * account are out of it by default: an invoice that has been paid, and
-         * one set aside or declared bankrupt. A paid invoice can still be asked
-         * for in the status filter; a set-aside one never appears on this
-         * screen at all - its register on the Overview is where it is listed.
+         * account never appear here: an invoice that is paid - the Excel file
+         * no longer carries it, and the file is the truth - and one set aside
+         * or declared bankrupt, whose register on the Overview is where it is
+         * listed.
          */
         if (isSetAside(company)) {
           return false
-        } else if (statusFilter === 'paid') {
-          if (company.status !== 'paid') return false
         } else if (company.status === 'paid') {
           return false
         } else if (statusFilter !== 'all' && company.status !== statusFilter) {
           return false
         }
         
-        // Coordinator filter
-        if (coordinatorFilter !== 'all' && (company.assigned_coordinator_id || "") !== coordinatorFilter) {
-          return false
-        }
-
         // Payment-due window: days from today to the due date.
         if (dueFilter && !matchesDueRange(company.due_date, dueFilter)) {
           return false
@@ -173,9 +177,25 @@ export function CompaniesPage() {
 
         return true
       })
+  }, [companies, searchQuery, statusFilter, dueFilter, view])
+
+  const ownerChoices = useMemo(
+    () => ownerOptions(beforeOwnerFilter, rowOwner, (company) => company.total_amount || 0),
+    [beforeOwnerFilter]
+  )
+
+  const filteredAndSortedCompanies = useMemo(() => {
+    return beforeOwnerFilter
+      .filter((company) => matchesOwner(rowOwner(company), coordinatorFilter))
       .sort((a, b) => {
         let aValue: any = a[sortField as keyof Company]
         let bValue: any = b[sortField as keyof Company]
+
+        // By the name on screen, which for a name not in the CRM is the file's.
+        if (sortField === 'assigned_coordinator_id') {
+          aValue = rowOwner(a).name.toLowerCase()
+          bValue = rowOwner(b).name.toLowerCase()
+        }
 
         if (sortField === 'days_overdue') {
           const today = new Date()
@@ -191,7 +211,7 @@ export function CompaniesPage() {
         
         return aValue < bValue ? (isAsc ? -1 : 1) : (isAsc ? 1 : -1)
       })
-  }, [companies, searchQuery, statusFilter, coordinatorFilter, dueFilter, view, sortField, sortOrder])
+  }, [beforeOwnerFilter, coordinatorFilter, sortField, sortOrder])
 
   // In the second window the order is urgency, not the column the person
   // last sorted by: what needs deciding first sits at the top.
@@ -230,6 +250,47 @@ export function CompaniesPage() {
     () => (isNarrowed ? companyRowStats(displayRows) : stats),
     [isNarrowed, displayRows, stats]
   )
+
+  /** Everything listed - every filter applied - as a workbook, with a total. */
+  const [downloading, setDownloading] = useState(false)
+  const downloadList = async () => {
+    setDownloading(true)
+    try {
+      const { downloadWorkbook, fileStamp } = await import('@/features/snapshots/download')
+      const today = new Date()
+      const paise = (value: number) => Math.round((value || 0) * 100) / 100
+      const header = [
+        'Company Name', 'BP Code', 'Invoice No', 'Contact Person', 'Contact Number', 'Email', 'Payment Terms',
+        'Invoice Date', 'Due Date', 'Days Overdue', 'Amount (₹)', 'Coordinator', 'Coordinator in CRM', 'Status',
+      ]
+      let totalPaise = 0
+      const body = displayRows.map((company) => {
+        const owner = ownerOfRow(company)
+        const days = company.due_date ? differenceInDays(today, parseISO(company.due_date)) : null
+        totalPaise += Math.round((company.total_amount || 0) * 100)
+        return [
+          company.name, company.sap_bp_code ?? '', company.invoice_no ?? '', company.contact_person ?? '',
+          company.contact_number ?? '', company.email ?? '', company.payment_terms ?? '',
+          company.invoice_date ?? '', company.due_date ?? '', days !== null && days > 0 ? days : 0,
+          paise(company.total_amount), owner.name, owner.inCrm ? 'Yes' : 'No', company.status,
+        ]
+      })
+      const totals = ['TOTAL', `${displayRows.length} invoices`, '', '', '', '', '', '', '', '', totalPaise / 100, '', '', '']
+      const scope =
+        coordinatorFilter === OWNER_ALL
+          ? 'all coordinators'
+          : coordinatorFilter === OWNER_NOT_IN_CRM
+            ? 'unknown names'
+            : (ownerChoices.find((o) => o.key === coordinatorFilter)?.name ?? 'coordinator')
+      downloadWorkbook(`Active payments - ${scope} - ${fileStamp(today.toISOString())}.xlsx`.replace(/[\\/:*?"<>|]/g, '-'), [
+        { name: 'Active payments', rows: [header, ...body, totals] },
+      ])
+    } catch {
+      toast.error('Could not build the download.')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
@@ -302,7 +363,8 @@ export function CompaniesPage() {
               </p>
             )}
           </div>
-          <GlassCard className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center">
+          <GlassCard className="p-4 space-y-4">
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
             <div className="relative w-full md:w-96">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -324,25 +386,39 @@ export function CompaniesPage() {
                   <SelectItem value="upcoming">Upcoming</SelectItem>
                   <SelectItem value="overdue">Overdue</SelectItem>
                   <SelectItem value="critical">Critical</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
                 </SelectContent>
               </Select>
 
               <DueDaysFilter value={dueFilter} onChange={setDueFilter} userId={user?.id} />
 
-              <Select value={coordinatorFilter} onValueChange={setCoordinatorFilter}>
-                <SelectTrigger className="w-full sm:w-48">
-                  <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <SelectValue placeholder="Coordinator" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Coordinators</SelectItem>
-                  {coordinators.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Button
+                variant="outline"
+                onClick={downloadList}
+                disabled={downloading || displayRows.length === 0}
+                title="Download every invoice listed, with the filters applied"
+                data-testid="download-list"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Excel
+              </Button>
             </div>
+          </div>
+
+          <OwnerFilter
+            value={coordinatorFilter}
+            onChange={setCoordinatorFilter}
+            options={ownerChoices}
+            rowNoun="invoice"
+          />
+
+          {/* A search for a customer that is set aside says so, rather than finding nothing. */}
+          <SetAsideMatches
+            query={searchQuery}
+            companies={companies}
+            canResume={canManageTeam}
+            currentUserId={user?.id}
+            onChanged={fetchData}
+          />
           </GlassCard>
 
           {isLoading ? (
@@ -430,7 +506,7 @@ export function CompaniesPage() {
                               <span className="text-emerald-500">On time</span>
                             )}
                           </td>
-                          <td className="px-4 py-3">{getCoordinatorDisplayName((company.assigned_coordinator_id || ""))}</td>
+                          <td className="px-4 py-3"><OwnerName name={ownerOfRow(company).name} inCrm={ownerOfRow(company).inCrm} /></td>
                           <td className="px-4 py-3">
                             <Badge variant={getStatusBadgeVariant(company.status as string) as any} className="capitalize">
                               {company.status}
