@@ -17,6 +17,8 @@ import type { SyncDelta } from './companies-upload'
 import { formatCurrency } from './utils'
 import { ApiRequestError, apiGet, apiGetRaw } from './api-client'
 import { parseFile } from './file-parser'
+import { RFD_REQUIRED, autoMapRfdColumns, buildRfdRows, scoreRfdSheet } from './rfd-upload'
+import { demoCompanyStore } from './demo-companies'
 import {
   autoMapCompanyColumns,
   mapCompanyRows,
@@ -54,10 +56,11 @@ export async function getExcelStatus(): Promise<Record<ExcelBook, ExcelBookStatu
     return {
       companies: data.books?.companies ?? UNCONFIGURED('companies'),
       overdue: data.books?.overdue ?? UNCONFIGURED('overdue'),
+      rfd: data.books?.rfd ?? UNCONFIGURED('rfd'),
     }
   } catch {
     // No server behind the page (a static preview, say): nothing is connected.
-    return { companies: UNCONFIGURED('companies'), overdue: UNCONFIGURED('overdue') }
+    return { companies: UNCONFIGURED('companies'), overdue: UNCONFIGURED('overdue'), rfd: UNCONFIGURED('rfd') }
   }
 }
 
@@ -91,6 +94,7 @@ async function fetchWorkbook(book: ExcelBook): Promise<FetchedWorkbook> {
 const REQUIRED: Record<ExcelBook, readonly string[]> = {
   companies: ['company_name', 'coordinator_name', 'total_amount'],
   overdue: ['bp_code', 'customer_name', 'coordinator_name', 'balance_due'],
+  rfd: RFD_REQUIRED,
 }
 
 /** The ageing report's buckets: no invoice sheet carries these. */
@@ -110,6 +114,7 @@ const BUCKETS = ['due_0_30', 'due_31_60', 'due_61_90', 'due_91_120', 'due_121_pl
  * it, and count against the book they do not belong to.
  */
 export function scoreSheetFor(book: ExcelBook, headers: string[]): number {
+  if (book === 'rfd') return scoreRfdSheet(headers)
   const asCompany = autoMapCompanyColumns(headers) as Record<string, string | undefined>
   const asOverdue = autoMapOverdueColumns(headers) as Record<string, string | undefined>
 
@@ -140,6 +145,10 @@ export interface SkipBreakdown {
 
 export interface ExcelSyncResult {
   success: boolean
+  /** RFD: customers the sheet names that match no record in the CRM, so have no coordinator. */
+  unlinked?: string[]
+  /** RFD: lines the previous sync held, all replaced by this one. */
+  replaced?: number
   created: number
   updated: number
   /** Rows the validator refused. */
@@ -241,6 +250,33 @@ export async function syncBookFromExcel(
 
     const filename = `excel-sync: ${workbook.file.name}`
     const common = { filename, adminId: options.adminId, sheetName: parsed.sheetName }
+
+    // Ready for Dispatch: a snapshot of the sheet, linked to customers by name.
+    if (book === 'rfd') {
+      const mapping = autoMapRfdColumns(parsed.headers)
+      const missing = RFD_REQUIRED.filter((key) => !mapping[key])
+      if (missing.length > 0) return FAILED(columnMessage(missing, parsed.sheetName), workbook.modifiedAt)
+      const before = demoCompanyStore.getRfdRows().length
+      const { rows, unlinked } = buildRfdRows(
+        parsed.rows,
+        mapping,
+        demoCompanyStore.getAllCompanies(),
+        demoCompanyStore.getAllOverduePayments(),
+        new Date().toISOString()
+      )
+      await demoCompanyStore.replaceRfdRows(rows)
+      return {
+        success: true,
+        created: rows.length,
+        updated: 0,
+        skipped: 0,
+        filteredOut: parsed.rows.length - rows.length,
+        unlinked,
+        replaced: before,
+        modifiedAt: workbook.modifiedAt,
+        sheetName: common.sheetName,
+      }
+    }
 
     if (book === 'overdue') {
       const mapping = autoMapOverdueColumns(parsed.headers)
@@ -425,6 +461,14 @@ export function describeChanges(changes?: SyncDelta): string | null {
  */
 export function describeSync(result: ExcelSyncResult, book: ExcelBook): string {
   if (!result.success) return result.error ?? 'The sync failed.'
+
+  if (book === 'rfd') {
+    const lines = `${result.created.toLocaleString('en-IN')} line${result.created === 1 ? '' : 's'} with money pending`
+    const unlinked = result.unlinked?.length ?? 0
+    return unlinked
+      ? `${lines}. ${unlinked} customer${unlinked === 1 ? '' : 's'} not found in Active or Overdue Payments, so shown as Unknown.`
+      : `${lines}, every customer matched to a coordinator.`
+  }
 
   /*
    * The headline is what is different, not how many rows were written.

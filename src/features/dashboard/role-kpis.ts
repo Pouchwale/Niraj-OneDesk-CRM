@@ -40,7 +40,7 @@ import type { Commitment } from '@/lib/followups-api'
 import { formatCurrency } from '@/lib/utils'
 import { DAY_MS } from '@/lib/constants'
 import { normalizeBpCode } from '@/lib/bp-code'
-import { BOOK_LABEL, EXCEL_BOOKS } from '@shared/api'
+import { BOOK_LABEL } from '@shared/api'
 import type { SyncLog } from '@/lib/sync-log'
 import { isSetAside } from '@/lib/no-followup'
 
@@ -418,6 +418,9 @@ export function buildRoleKpis(snapshot: KpiSnapshot): RoleKpi[] {
  *     in no total and on nobody's list;
  *   - an account with no owner is nobody's job, and will not be chased.
  */
+/** The books money is read from; Ready for Dispatch is a work list, not a balance, so it doesn't decide freshness. */
+const MONEY_BOOKS = ['companies', 'overdue'] as const
+
 export function systemKpis(snapshot: KpiSnapshot): RoleKpi[] {
   /*
    * Read the two books the way every other card now reads them. This used to
@@ -429,19 +432,19 @@ export function systemKpis(snapshot: KpiSnapshot): RoleKpi[] {
   const ageing = ageingBook(snapshot)
 
   const log = snapshot.syncLog ?? {}
-  const stamps = EXCEL_BOOKS.map((each) => log[each]?.syncedAt).filter(Boolean) as string[]
-  const oldest = stamps.length === EXCEL_BOOKS.length ? stamps.slice().sort()[0] : null
+  const stamps = MONEY_BOOKS.map((each) => log[each]?.syncedAt).filter(Boolean) as string[]
+  const oldest = stamps.length === MONEY_BOOKS.length ? stamps.slice().sort()[0] : null
   // Measured from now, not from the end of today: a book synced ten minutes
    // ago read as nine hours old because the day still had nine hours left in it.
   const hoursSince = oldest
     ? Math.max(0, Math.floor((Date.now() - new Date(oldest).getTime()) / 3_600_000))
     : null
-  const neverSynced = EXCEL_BOOKS.filter((each) => !log[each]?.syncedAt)
-  const failed = EXCEL_BOOKS.filter((each) => log[each] && !log[each]!.success)
+  const neverSynced = MONEY_BOOKS.filter((each) => !log[each]?.syncedAt)
+  const failed = MONEY_BOOKS.filter((each) => log[each] && !log[each]!.success)
 
   // Rows the import held back because it did not recognise the coordinator.
   // This is money the business is owed that is in none of its own figures.
-  const heldBack = EXCEL_BOOKS.reduce((sum, each) => sum + (log[each]?.needsCoordinator ?? 0), 0)
+  const heldBack = MONEY_BOOKS.reduce((sum, each) => sum + (log[each]?.needsCoordinator ?? 0), 0)
 
   const unowned = snapshot.companies.filter(
     (company) => company.status !== 'paid' && !company.assigned_coordinator_id

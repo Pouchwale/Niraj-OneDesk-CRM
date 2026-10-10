@@ -101,7 +101,7 @@ export type AiChatEvent =
 
 /* ===================== Excel books ===================== */
 
-export const EXCEL_BOOKS = ['companies', 'overdue'] as const
+export const EXCEL_BOOKS = ['companies', 'overdue', 'rfd'] as const
 export type ExcelBook = (typeof EXCEL_BOOKS)[number]
 
 export function isExcelBook(value: unknown): value is ExcelBook {
@@ -112,12 +112,14 @@ export function isExcelBook(value: unknown): value is ExcelBook {
 export const BOOK_LABEL: Record<ExcelBook, string> = {
   companies: 'Active Payments',
   overdue: 'Overdue Payments',
+  rfd: 'Ready for Dispatch',
 }
 
 /** The setting that points at each book, named after the screen it feeds. */
 export const BOOK_PATH_ENV: Record<ExcelBook, string> = {
   companies: 'EXCEL_ACTIVE_PAYMENTS_PATH',
   overdue: 'EXCEL_OVERDUE_PAYMENTS_PATH',
+  rfd: 'EXCEL_RFD_PATH',
 }
 
 export interface ExcelBookStatus {

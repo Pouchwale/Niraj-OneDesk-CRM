@@ -53,6 +53,12 @@ SET ASIDE: NO FOLLOW-UP AND BANKRUPT
 - Searching Active or Overdue Payments for a set-aside customer shows "not listed here - set aside" with who, when and why.
 - The sync never changes a set-aside customer; a bankruptcy survives every sync.
 
+READY FOR DISPATCH (RFD)
+- The Ready for Dispatch page lists finished goods waiting in the warehouse with payment still pending, from the RFD workbook (SAP), highest pending amount first. It shows sales order, production order, item, quantity, RFD value, paid, pending, ready-since date and days waiting, with filters by age and coordinator and an Excel download.
+- Each line belongs to the coordinator who has that customer in Active or Overdue Payments, matched by company name; a customer not found there shows as Unknown.
+- Follow-ups on an RFD line are logged on the customer's Active or Overdue Payments record, so they count in follow-up history, Robi's tasks and scores. Mention the sales order in the note.
+- The team leader or administrator syncs it with "Sync now" on that page; the workbook itself is refreshed from SAP every morning at 09:30.
+
 ROBI'S DAILY PLAN
 - Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.
 - A task is done when the coordinator logs any follow-up on that customer that day - on any of its invoices or its overdue row (not the follow-up that created the task, such as the customer's own promise).

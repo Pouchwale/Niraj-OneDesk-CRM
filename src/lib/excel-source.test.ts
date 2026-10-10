@@ -132,8 +132,8 @@ describe('explainSkips', () => {
     ).toBe('No file at that path.')
   })
 
-  it('labels the two books the way the screens do', () => {
-    expect(BOOK_LABEL).toEqual({ companies: 'Active Payments', overdue: 'Overdue Payments' })
+  it('labels the books the way the screens do', () => {
+    expect(BOOK_LABEL).toEqual({ companies: 'Active Payments', overdue: 'Overdue Payments', rfd: 'Ready for Dispatch' })
   })
 })
 

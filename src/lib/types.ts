@@ -344,6 +344,43 @@ export interface AttendanceEntry {
   at: string
 }
 
+/**
+ * A line of finished goods ready for dispatch (the RFD sheet from SAP), with
+ * money still to come before it can go. The sheet names only the customer; the
+ * coordinator, BP code and the record follow-ups are logged against come from
+ * the customer's Active or Overdue Payments record, matched by name.
+ */
+export interface RfdRow {
+  id: string
+  customer_name: string
+  production_order: string | null
+  po_status: string | null
+  sales_order: string | null
+  item_code: string | null
+  item_name: string | null
+  item_group: string | null
+  planned_qty: number | null
+  rfd_qty: number | null
+  uom: string | null
+  so_rate: number | null
+  rfd_value: number
+  paid_1: number
+  paid_2: number
+  pending_value: number
+  warehouse: string | null
+  batches: number | null
+  /** yyyy-mm-dd */
+  ready_since: string | null
+  days: number | null
+  bp_code: string | null
+  assigned_coordinator_id: string | null
+  coordinator_name: string | null
+  /** The customer's record in the CRM, where follow-ups for this row are logged. */
+  anchor_type: FollowupEntityType | null
+  anchor_id: string | null
+  imported_at: string
+}
+
 export interface CoordinatorAlias {
   id: string
   coordinator_id: string

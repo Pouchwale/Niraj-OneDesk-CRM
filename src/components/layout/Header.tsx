@@ -11,6 +11,7 @@ interface HeaderProps {
 const PAGE_TITLES: [string, string][] = [
   ['/companies', 'Active Payments'],
   ['/overdue', 'Overdue Payments'],
+  ['/rfd', 'Ready for Dispatch'],
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
   ['/daily-entry', 'Daily Entry'],

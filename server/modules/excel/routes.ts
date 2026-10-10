@@ -20,7 +20,7 @@ export function excelRoutes(service: ExcelService, logger: Logger): Router {
     const book = req.query.book
     // The only thing a caller may choose is which configured book to read.
     if (!isExcelBook(book)) {
-      next(ApiError.badRequest('Ask for book=companies or book=overdue.'))
+      next(ApiError.badRequest('Ask for book=companies, book=overdue or book=rfd.'))
       return
     }
 

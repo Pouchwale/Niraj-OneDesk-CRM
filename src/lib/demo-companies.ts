@@ -1,4 +1,4 @@
-import type { AttendanceEntry, Company, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { AttendanceEntry, Company, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
@@ -373,6 +373,8 @@ export interface PersistedStore {
   decisionRequests?: DecisionRequest[]
   /** Coordinators on leave or a half day. Optional for older files. */
   attendance?: AttendanceEntry[]
+  /** Ready for Dispatch lines with money pending (the RFD sheet). Optional for older files. */
+  rfdRows?: RfdRow[]
 }
 
 /**
@@ -458,6 +460,7 @@ class DemoCompanyStore {
   proofRequests: ProofRequest[] = restored?.proofRequests ?? []
   decisionRequests: DecisionRequest[] = restored?.decisionRequests ?? []
   attendance: AttendanceEntry[] = restored?.attendance ?? []
+  rfdRows: RfdRow[] = restored?.rfdRows ?? []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
 
@@ -1279,6 +1282,7 @@ class DemoCompanyStore {
       proofRequests: this.proofRequests,
       decisionRequests: this.decisionRequests,
       attendance: this.attendance,
+      rfdRows: this.rfdRows,
     }
   }
 
@@ -1298,6 +1302,18 @@ class DemoCompanyStore {
     this.decisionRequests = this.decisionRequests.map((r) =>
       r.id === id && r.status === 'pending' ? { ...r, status, reviewedBy: by, reviewedAt: at, reviewNote: note ?? null } : r
     )
+  }
+
+  /* ===== Ready for Dispatch ===== */
+
+  getRfdRows(): RfdRow[] {
+    return [...this.rfdRows]
+  }
+
+  /** The RFD sheet is a snapshot: each sync replaces the whole list. */
+  replaceRfdRows(rows: RfdRow[]): void {
+    if (!Array.isArray(rows)) return
+    this.rfdRows = rows.filter((r) => r && typeof r.id === 'string')
   }
 
   /* ===== Who is in the office ===== */
@@ -1452,6 +1468,7 @@ class DemoCompanyStore {
     this.proofRequests = snapshot.proofRequests ?? []
     this.decisionRequests = snapshot.decisionRequests ?? []
     this.attendance = snapshot.attendance ?? []
+    this.rfdRows = snapshot.rfdRows ?? []
     this.refreshStatuses()
   }
 }

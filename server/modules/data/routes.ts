@@ -42,6 +42,7 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     proofRequests: (snapshot.proofRequests ?? []).filter((r) => r.coordinatorId === userId),
     decisionRequests: (snapshot.decisionRequests ?? []).filter((r) => r.requestedBy === userId),
     attendance: (snapshot.attendance ?? []).filter((a) => a.userId === userId),
+    rfdRows: (snapshot.rfdRows ?? []).filter((r) => r.assigned_coordinator_id === userId),
     // The import's own paperwork is the leader's business, not theirs.
     uploads: [],
     uploadErrors: [],

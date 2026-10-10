@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { LayoutDashboard, CalendarPlus, CalendarDays, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Target, Building2, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, CalendarPlus, CalendarDays, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Target, Building2, AlertTriangle, PackageCheck } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +19,7 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', show: true },
     { to: '/companies', icon: Building2, label: 'Active Payments', show: true },
     { to: '/overdue', icon: AlertTriangle, label: 'Overdue Payments', show: true },
+    { to: '/rfd', icon: PackageCheck, label: 'Ready for Dispatch', show: true },
     { to: '/admin/overview', icon: Users, label: 'Overview', show: canManageTeam },
     { to: '/daily-entry', icon: CalendarPlus, label: 'Daily Entry', show: isCoordinator },
     { to: '/my-entries', icon: CalendarDays, label: 'My Entries', show: isCoordinator },
