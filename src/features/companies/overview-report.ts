@@ -42,6 +42,10 @@ export interface OverviewReport {
   from: string
   to: string
   kpis: { label: string; value: string }[]
+  /** What the reader should act on: printed in a highlighted box. */
+  alerts: string[]
+  /** Facts about the report itself: who, how many, how long. */
+  details: { label: string; value: string }[]
   tables: ReportTable[]
 }
 
@@ -280,5 +284,30 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
     },
   ]
 
-  return { from, to, kpis, tables }
+  /* ----- what needs attention ----- */
+  const alerts: string[] = []
+  const waiting = input.decisionRequests.filter((d) => d.status === 'pending')
+  if (waiting.length) alerts.push(`${waiting.length} set-aside request${waiting.length === 1 ? '' : 's'} waiting for approval (Overview > Approvals), worth ${rupees(waiting.reduce((s, d) => s + d.amount, 0))}.`)
+  const toReview = proofs.filter((p) => p.status === 'submitted')
+  if (toReview.length) alerts.push(`${toReview.length} proof screenshot${toReview.length === 1 ? '' : 's'} not yet reviewed.`)
+  const missed = proofs.filter((p) => p.status === 'missed')
+  if (missed.length) alerts.push(`${missed.length} proof check${missed.length === 1 ? '' : 's'} missed: ${[...new Set(missed.map((p) => nameOf(p.coordinatorId)))].join(', ')}.`)
+  const idle = input.coordinators.filter(
+    (c) => tasks.some((t) => t.coordinatorId === c.id) && !followups.some((f) => f.coordinator_id === c.id)
+  )
+  if (idle.length) alerts.push(`No follow-ups logged in the period by ${idle.map((c) => c.full_name).join(', ')}, although Robi gave them tasks.`)
+  const low = input.coordinators
+    .map((c) => ({ c, avg: weekAverage(scoresOf(c.id)) }))
+    .filter((x) => x.avg !== null && x.avg <= -50 && !idle.includes(x.c))
+  if (low.length) alerts.push(`Average score of -50% or worse: ${low.map((x) => `${x.c.full_name} (${x.avg}%)`).join(', ')}.`)
+
+  const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
+  const details = [
+    { label: 'Period', value: from === to ? pretty(from) : `${pretty(from)} to ${pretty(to)}` },
+    { label: 'Days covered', value: String(days) },
+    { label: 'Coordinators', value: String(input.coordinators.length) },
+    { label: 'Customers with a follow-up', value: kpis[1].value },
+  ]
+
+  return { from, to, kpis, alerts, details, tables }
 }
