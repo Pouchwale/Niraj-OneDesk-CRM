@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { accountRefusal, decisionRequestRefusal, mayCall, type Book } from './operations'
+import { accountRefusal, decisionRequestRefusal, mayCall, quotationRefusal, type Book } from './operations'
 import type { Company, OverduePayment } from '../../../src/lib/types'
 
 const ME = 'coord-1'
@@ -99,5 +99,22 @@ describe('a coordinator asking for a decision', () => {
 
   it('has nothing to say about other operations', () => {
     expect(decisionRequestRefusal('coordinator', ME, 'addFollowup', [{}], book)).toBeNull()
+  })
+})
+
+describe('quotations', () => {
+  const held = [{ id: 'q1', coordinator_id: ME }, { id: 'q2', coordinator_id: HER }]
+  const coord = (method: string, args: unknown[]) => quotationRefusal('coordinator', ME, method, args, held)
+
+  it('lets a coordinator add and work only their own', () => {
+    expect(mayCall('coordinator', 'saveQuotation')).toBe(true)
+    expect(mayCall('coordinator', 'deleteQuotation')).toBe(false)
+    expect(mayCall('coordinator', 'importQuotations')).toBe(false)
+    expect(coord('saveQuotation', [{ id: 'new', coordinator_id: ME }])).toBeNull()
+    expect(coord('saveQuotation', [{ id: 'new', coordinator_id: HER }])).toMatch(/your own/)
+    expect(coord('saveQuotation', [{ id: 'q2', coordinator_id: ME }])).toMatch(/your own/)
+    expect(coord('addQuotationFollowup', ['q1', {}])).toBeNull()
+    expect(coord('addQuotationFollowup', ['q2', {}])).toMatch(/your own/)
+    expect(quotationRefusal('team_leader', 'admin-1', 'saveQuotation', [{ id: 'q2', coordinator_id: HER }], held)).toBeNull()
   })
 })

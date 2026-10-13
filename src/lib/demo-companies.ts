@@ -1,4 +1,4 @@
-import type { AttendanceEntry, Company, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { AttendanceEntry, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
@@ -375,6 +375,14 @@ export interface PersistedStore {
   attendance?: AttendanceEntry[]
   /** Ready for Dispatch lines with money pending (the RFD sheet). Optional for older files. */
   rfdRows?: RfdRow[]
+  /** Quotations, kept in the CRM since 13 Oct 2026. Optional for older files. */
+  quotations?: Quotation[]
+  /**
+   * Every quotation number in use, team-wide. Sent to a coordinator, who only
+   * holds their own quotations, so the next number suggested is never taken.
+   * Never saved by the server.
+   */
+  quotationNos?: string[]
 }
 
 /**
@@ -461,6 +469,8 @@ class DemoCompanyStore {
   decisionRequests: DecisionRequest[] = restored?.decisionRequests ?? []
   attendance: AttendanceEntry[] = restored?.attendance ?? []
   rfdRows: RfdRow[] = restored?.rfdRows ?? []
+  quotations: Quotation[] = restored?.quotations ?? []
+  quotationNos: string[] = []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
 
@@ -1283,6 +1293,7 @@ class DemoCompanyStore {
       decisionRequests: this.decisionRequests,
       attendance: this.attendance,
       rfdRows: this.rfdRows,
+      quotations: this.quotations,
     }
   }
 
@@ -1314,6 +1325,39 @@ class DemoCompanyStore {
   replaceRfdRows(rows: RfdRow[]): void {
     if (!Array.isArray(rows)) return
     this.rfdRows = rows.filter((r) => r && typeof r.id === 'string')
+  }
+
+  /* ===== Quotations ===== */
+
+  getQuotations(): Quotation[] {
+    return [...this.quotations]
+  }
+
+  /** Adds a quotation, or replaces the one with the same id. */
+  saveQuotation(quotation: Quotation): void {
+    if (!quotation?.id || !quotation.customer_name) return
+    const others = this.quotations.filter((q) => q.id !== quotation.id)
+    this.quotations = [...others, quotation]
+  }
+
+  addQuotationFollowup(id: string, entry: QuotationFollowup): void {
+    if (!entry?.at) return
+    this.quotations = this.quotations.map((q) =>
+      q.id === id ? { ...q, followups: [...(q.followups ?? []), entry], updated_at: entry.at, updated_by: entry.by } : q
+    )
+  }
+
+  deleteQuotation(id: string): void {
+    this.quotations = this.quotations.filter((q) => q.id !== id)
+  }
+
+  /** The old Quotation List, once: rows whose id is already here are left alone. */
+  importQuotations(rows: Quotation[]): number {
+    if (!Array.isArray(rows)) return 0
+    const have = new Set(this.quotations.map((q) => q.id))
+    const fresh = rows.filter((q) => q?.id && !have.has(q.id))
+    this.quotations = [...this.quotations, ...fresh]
+    return fresh.length
   }
 
   /* ===== Who is in the office ===== */
@@ -1469,6 +1513,8 @@ class DemoCompanyStore {
     this.decisionRequests = snapshot.decisionRequests ?? []
     this.attendance = snapshot.attendance ?? []
     this.rfdRows = snapshot.rfdRows ?? []
+    this.quotations = snapshot.quotations ?? []
+    this.quotationNos = snapshot.quotationNos ?? []
     this.refreshStatuses()
   }
 }

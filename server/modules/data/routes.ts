@@ -14,7 +14,7 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
-import { accountRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal } from './operations'
+import { accountRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string) {
@@ -43,6 +43,9 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     decisionRequests: (snapshot.decisionRequests ?? []).filter((r) => r.requestedBy === userId),
     attendance: (snapshot.attendance ?? []).filter((a) => a.userId === userId),
     rfdRows: (snapshot.rfdRows ?? []).filter((r) => r.assigned_coordinator_id === userId),
+    quotations: (snapshot.quotations ?? []).filter((q) => q.coordinator_id === userId),
+    // Numbers only, so a new quotation never reuses one another coordinator took.
+    quotationNos: (snapshot.quotations ?? []).map((q) => q.quotation_no).filter((n): n is string => !!n),
     // The import's own paperwork is the leader's business, not theirs.
     uploads: [],
     uploadErrors: [],
@@ -119,6 +122,12 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (planned) {
         logger.warn('data: plan change refused', { method, user: user.id, refusal: planned })
         next(ApiError.forbidden(planned))
+        return
+      }
+      const quote = quotationRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().quotations ?? [])
+      if (quote) {
+        logger.warn('data: quotation change refused', { method, user: user.id, refusal: quote })
+        next(ApiError.forbidden(quote))
         return
       }
       const proof = proofRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().proofRequests ?? [])

@@ -31,6 +31,7 @@ const AdminPanelPage = lazyPage(() => import('@/features/admin/AdminPanelPage'),
 const SettingsPage = lazyPage(() => import('@/features/settings/SettingsPage'), 'SettingsPage');
 const AdminOverviewPage = lazyPage(() => import('@/features/companies/AdminOverviewPage'), 'AdminOverviewPage');
 const RfdPage = lazyPage(() => import('@/features/rfd/RfdPage'), 'RfdPage');
+const QuotationsPage = lazyPage(() => import('@/features/quotations/QuotationsPage'), 'QuotationsPage');
 const WeeklyKpiPage = lazyPage(() => import('@/features/snapshots/WeeklyKpiPage'), 'WeeklyKpiPage');
 
 function RouteFallback() {
@@ -147,6 +148,7 @@ function AppContent() {
           } />
           <Route path="overdue" element={<OverdueDashboardPage />} />
           <Route path="rfd" element={<RfdPage />} />
+          <Route path="quotations" element={<QuotationsPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -70,6 +70,11 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   clearAttendance: 'team',
   // The RFD sheet, synced by the team leader's screen like the other books.
   replaceRfdRows: 'team',
+  // Quotations: a coordinator keeps their own (see quotationRefusal).
+  saveQuotation: 'own',
+  addQuotationFollowup: 'own',
+  deleteQuotation: 'team',
+  importQuotations: 'team',
   /*
    * The ageing-row-only forms of the two above, which a browser still open on
    * the previous version sends. Left with the team, since they carry no
@@ -147,6 +152,28 @@ export function proofRefusal(
       ? (args[0] as { coordinatorId?: unknown } | null)?.coordinatorId
       : requests.find((r) => r.id === args[0])?.coordinatorId
   return owner === userId ? null : 'You can only answer your own proof requests.'
+}
+
+/**
+ * Why a coordinator may not change this quotation, or null when they may:
+ * only their own, and they cannot hand one to somebody else.
+ */
+export function quotationRefusal(
+  role: AuthRole | undefined,
+  userId: string,
+  method: string,
+  args: unknown[],
+  quotations: { id: string; coordinator_id: string | null }[]
+): string | null {
+  if (method !== 'saveQuotation' && method !== 'addQuotationFollowup') return null
+  if (role === 'admin' || role === 'team_leader') return null
+  const id = method === 'saveQuotation' ? (args[0] as { id?: unknown } | null)?.id : args[0]
+  const held = quotations.find((q) => q.id === id)
+  if (held && held.coordinator_id !== userId) return 'You can only change your own quotations.'
+  if (method === 'saveQuotation' && (args[0] as { coordinator_id?: unknown } | null)?.coordinator_id !== userId) {
+    return 'A quotation you save must be your own.'
+  }
+  return null
 }
 
 /** True when this role may ask for that operation. */

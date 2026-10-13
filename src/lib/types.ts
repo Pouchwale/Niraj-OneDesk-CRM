@@ -381,6 +381,50 @@ export interface RfdRow {
   imported_at: string
 }
 
+/** Open: waiting on the customer. Closed: the order came (won). Lost: it did not. */
+export type QuotationStatus = 'open' | 'closed' | 'lost'
+
+export interface QuotationFollowup {
+  at: string
+  by: string
+  note: string
+}
+
+/**
+ * A quotation sent to a customer (since 13 Oct 2026; it used to live in the
+ * Quotation List workbook). Each coordinator keeps their own; the team leader
+ * and the administrator see everyone's.
+ */
+export interface Quotation {
+  id: string
+  /** The day the enquiry came in (yyyy-mm-dd). */
+  inquiry_date: string | null
+  coordinator_id: string | null
+  /** The name as the old sheet had it, for rows it could not match. */
+  coordinator_name: string | null
+  customer_name: string
+  concern_person: string | null
+  contact_number: string | null
+  /** Label, Sleeve, or Label / Sleeve. */
+  source: string | null
+  quotation_date: string | null
+  sales_employee: string | null
+  quotation_no: string | null
+  /** Follow-ups logged in the CRM, newest last. */
+  followups: QuotationFollowup[]
+  /** Follow-ups counted in the old sheet before the CRM took over. */
+  earlier_followups: number
+  closing_date: string | null
+  status: QuotationStatus
+  customer_type: 'new' | 'existing' | null
+  amount: number | null
+  lost_remark: string | null
+  created_at: string
+  created_by: string | null
+  updated_at: string
+  updated_by: string | null
+}
+
 export interface CoordinatorAlias {
   id: string
   coordinator_id: string

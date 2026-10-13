@@ -12,6 +12,7 @@ const PAGE_TITLES: [string, string][] = [
   ['/companies', 'Active Payments'],
   ['/overdue', 'Overdue Payments'],
   ['/rfd', 'Ready for Dispatch'],
+  ['/quotations', 'Quotations'],
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
   ['/daily-entry', 'Daily Entry'],

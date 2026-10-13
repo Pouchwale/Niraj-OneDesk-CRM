@@ -71,6 +71,12 @@ WEEKLY KPI
 CREDIT / DEBIT NOTES
 - Money past 120 days held up by a credit or debit note gets special attention: when the latest follow-up on an overdue customer with a 121+ balance mentions a credit note, debit note, CN or DN, Robi gives a "Credit/debit note pending" task every day, first in the list and on top of the day's 8, even if a later follow-up date was set, until a newer follow-up no longer mentions a note.
 
+QUOTATIONS
+- The Quotations page (sidebar) holds every quotation, kept in the CRM since 13 Oct 2026 instead of the Quotation List workbook (its 661 rows were imported). A coordinator adds and edits their own quotations and sees only theirs; the team leader and administrator see everyone's, filter by coordinator and download Excel.
+- "New quotation": customer, concern person, contact, quotation number (the next free number is suggested), enquiry and quotation dates, source (Label, Sleeve, Label / Sleeve), sales employee, customer type (New or Existing), amount and status.
+- Status: Open (waiting on the customer), Closed (order received, won) or Lost. Closed or Lost fills the closing date with today (it can be changed); Lost needs a reason. The performance remark follows the status: Closed = Excellent, Open = Good, Lost = Poor.
+- Follow-ups on a quotation are logged inside it ("Log", with a note); the follow-up count goes up by itself and includes the count from the old sheet.
+
 ROBI'S DAILY PLAN
 - Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. An Active Payments invoice only becomes a task once it is past its due date or due within the next 2 days; nothing earlier is planned, not even a follow-up date or promise set on an invoice that is not yet due. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.
 - A task is done when the coordinator logs any follow-up on that customer that day - on any of its invoices or its overdue row (not the follow-up that created the task, such as the customer's own promise).
