@@ -127,7 +127,7 @@ export function AccountDecisions({
   // A request already waiting: say so, and do not take a second one.
   const pending = pendingDecisionFor(target)
   if (pending) {
-    const label = pending.kind === 'bankrupt' ? 'Bankrupt' : pending.kind === 'dispute' ? 'Dispute' : 'No follow-up'
+    const label = pending.kind === 'bankrupt' ? 'Bankrupt' : pending.kind === 'dispute' ? 'Dispute' : pending.kind === 'export' ? 'Export client' : 'No follow-up'
     return (
       <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-sm" data-testid="account-decisions">
         <p className="font-semibold text-blue-700 dark:text-blue-400">Waiting for approval: {label}</p>
@@ -146,12 +146,12 @@ export function AccountDecisions({
       <div>
         <p className="text-sm font-medium">Still worth chasing?</p>
         <p className="text-xs text-muted-foreground">
-          If not, stop the follow-up, mark it as in dispute, or declare the company bankrupt — with the reason.
+          If not, stop the follow-up, mark it as in dispute or as an export client, or declare the company bankrupt — with the reason.
           Each takes this customer out of the lists and out of what is owed, in Active Payments and Overdue both
           {canManageTeam ? '.' : ' — once your team leader approves it.'}
         </p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {noFollowupControl}
         <NoFollowupControl
           entityType={entityType}
@@ -163,6 +163,18 @@ export function AccountDecisions({
           currentUserId={currentUserId}
           isAdmin={canManageTeam}
           kind="dispute"
+          onChanged={onChanged}
+        />
+        <NoFollowupControl
+          entityType={entityType}
+          entityId={entityId}
+          bpCode={bpCode}
+          name={name}
+          amount={amount}
+          record={record}
+          currentUserId={currentUserId}
+          isAdmin={canManageTeam}
+          kind="export"
           onChanged={onChanged}
         />
         <Button

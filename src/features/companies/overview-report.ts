@@ -9,7 +9,7 @@ import { customerLookup, openAccountKeys } from '@/features/assistant/daily-plan
 import { planHistory, RESULT_LABEL, type HistoryRow } from '@/features/assistant/plan-history'
 import { dailyScores, extraWork, weekAverage, type DayScore } from '@/features/assistant/scores'
 import { summariseHistory, type FollowupHistoryEntry } from '@/lib/followups-api'
-import { isDispute, isNoFollowup } from '@/lib/no-followup'
+import { isNoFollowup, setAsideKindOf, SET_ASIDE_LABEL } from '@/lib/no-followup'
 import type { AttendanceEntry, Company, DecisionRequest, Followup, OverduePayment, ProofRequest } from '@/lib/types'
 
 export interface ReportInput {
@@ -53,7 +53,7 @@ export interface OverviewReport {
 export const rupees = (n: number | null | undefined) => `Rs ${Math.round(n ?? 0).toLocaleString('en-IN')}`
 
 const MODE: Record<string, string> = { call: 'Call', whatsapp: 'WhatsApp', email: 'Email', in_person: 'In person', other: 'Other' }
-const KIND: Record<DecisionRequest['kind'], string> = { no_followup: 'No follow-up', dispute: 'Dispute', bankrupt: 'Bankrupt' }
+const KIND: Record<DecisionRequest['kind'], string> = { no_followup: 'No follow-up', dispute: 'Dispute', export: 'Export client', bankrupt: 'Bankrupt' }
 const PROOF: Record<ProofRequest['status'], string> = {
   pending: 'Waiting', submitted: 'To review', missed: 'Missed', approved: 'Approved', rejected: 'Rejected',
 }
@@ -139,12 +139,12 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
   }
   for (const c of input.companies) {
     if (c.bankrupt_declared_at) markAside(c.sap_bp_code ?? '', c.name, 'Bankrupt', c.bankrupt_declared_by, c.bankrupt_declared_at, c.bankrupt_note, c.total_amount ?? 0)
-    if (isNoFollowup(c)) markAside(c.sap_bp_code ?? '', c.name, isDispute(c) ? 'Dispute' : 'No follow-up', c.no_followup_by, c.no_followup_at, c.no_followup_note, c.total_amount ?? 0)
+    if (isNoFollowup(c)) markAside(c.sap_bp_code ?? '', c.name, SET_ASIDE_LABEL[setAsideKindOf(c)], c.no_followup_by, c.no_followup_at, c.no_followup_note, c.total_amount ?? 0)
   }
   for (const p of input.overduePayments) {
     const name = p.customer_name || p.bp_code
     if (p.bankrupt_declared_at) markAside(p.bp_code, name, 'Bankrupt', p.bankrupt_declared_by, p.bankrupt_declared_at, p.bankrupt_note, p.balance_due ?? 0)
-    if (isNoFollowup(p)) markAside(p.bp_code, name, isDispute(p) ? 'Dispute' : 'No follow-up', p.no_followup_by, p.no_followup_at, p.no_followup_note, p.balance_due ?? 0)
+    if (isNoFollowup(p)) markAside(p.bp_code, name, SET_ASIDE_LABEL[setAsideKindOf(p)], p.no_followup_by, p.no_followup_at, p.no_followup_note, p.balance_due ?? 0)
   }
 
   /* ----- headline figures ----- */
@@ -289,7 +289,7 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
         ]),
     },
     {
-      title: 'Customers set aside (Bankrupt, No follow-up, Dispute)',
+      title: 'Customers set aside (Bankrupt, No follow-up, Dispute, Export client)',
       note: 'Customers taken out of the lists in the period, with who decided and why.',
       head: ['Date', 'Type', 'Customer', 'BP code', 'Amount', 'By', 'Reason'],
       widths: { 0: 22, 1: 24, 3: 16, 4: 28, 5: 30 },

@@ -31,11 +31,31 @@ export interface NoFollowupFields {
   no_followup_by?: string | null
   /** Why — a dispute reference, an agreed hold, whatever was decided. */
   no_followup_note?: string | null
-  /** 'dispute' for an account in dispute; otherwise a plain no follow-up. */
-  no_followup_kind?: 'dispute' | null
+  /** 'dispute' for an account in dispute, 'export' for an export client; otherwise a plain no follow-up. */
+  no_followup_kind?: SetAsideKind | null
 }
 
 /** Set aside because the customer disputes the amount (listed in its own register). */
+/** The set-asides that keep their own register (since 7 and 13 Oct 2026). */
+export type SetAsideKind = 'dispute' | 'export'
+
+/** Which register a set-aside record belongs in. */
+export function setAsideKindOf(record: NoFollowupFields | null | undefined): 'plain' | SetAsideKind {
+  const kind = record?.no_followup_kind
+  return kind === 'dispute' || kind === 'export' ? kind : 'plain'
+}
+
+export const SET_ASIDE_LABEL: Record<'plain' | SetAsideKind, string> = {
+  plain: 'No follow-up',
+  dispute: 'Dispute',
+  export: 'Export client',
+}
+
+/** An export client: set aside because payment is handled outside this follow-up. */
+export function isExportClient(record: NoFollowupFields | null | undefined): boolean {
+  return isNoFollowup(record) && record?.no_followup_kind === 'export'
+}
+
 export function isDispute(record: NoFollowupFields | null | undefined): boolean {
   return isNoFollowup(record) && record?.no_followup_kind === 'dispute'
 }
@@ -46,12 +66,12 @@ export function isNoFollowup(record: NoFollowupFields | null | undefined): boole
 }
 
 /** The fields to write when somebody sets an account aside. */
-export function markNoFollowup(by: string, note?: string | null, kind?: 'dispute' | null): Required<NoFollowupFields> {
+export function markNoFollowup(by: string, note?: string | null, kind?: SetAsideKind | null): Required<NoFollowupFields> {
   return {
     no_followup_at: new Date().toISOString(),
     no_followup_by: by,
     no_followup_note: note?.trim() || null,
-    no_followup_kind: kind ?? null,
+    no_followup_kind: kind === 'dispute' || kind === 'export' ? kind : null,
   }
 }
 

@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { clearNoFollowup, deleteNoFollowup } from '@/lib/no-followup-api'
-import { isDispute, isNoFollowup } from '@/lib/no-followup'
+import { isNoFollowup, setAsideKindOf } from '@/lib/no-followup'
 import { normalizeBpCode } from '@/lib/bp-code'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Company, OverduePayment } from '@/lib/types'
@@ -32,6 +32,8 @@ interface Props {
   canManageTeam?: boolean
   /** The Dispute register: the same set-aside, recorded as a dispute. */
   disputes?: boolean
+  /** The Export clients register. */
+  exports?: boolean
   onChanged?: () => void
 }
 
@@ -64,12 +66,15 @@ interface SetAsideCustomer {
  * made: one customer usually has several invoices and an ageing row, and all of
  * them went aside together.
  */
-export function NoFollowupRegister({ companies, overduePayments, currentUserId, canManageTeam = true, disputes = false, onChanged }: Props) {
+export function NoFollowupRegister({ companies, overduePayments, currentUserId, canManageTeam = true, disputes = false, exports = false, onChanged }: Props) {
+  const wanted = exports ? 'export' : disputes ? 'dispute' : 'plain'
   const [busy, setBusy] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<SetAsideCustomer | null>(null)
 
   const setAside = useMemo<SetAsideCustomer[]>(() => {
     const byCustomer = new Map<string, SetAsideCustomer>()
+    const invoiceAmount = new Map<string, number>()
+    const ageingAmount = new Map<string, number>()
 
     const seat = (
       key: string,
@@ -83,7 +88,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
     }
 
     for (const company of companies) {
-      if (!isNoFollowup(company) || isDispute(company) !== disputes) continue
+      if (!isNoFollowup(company) || setAsideKindOf(company) !== wanted) continue
       const code = normalizeBpCode(company.sap_bp_code)
       const key = code ? `bp:${code}` : `company:${company.id}`
       const entry = seat(key, {
@@ -97,11 +102,11 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
         note: company.no_followup_note ?? null,
       })
       entry.invoices++
-      entry.amount += company.total_amount || 0
+      invoiceAmount.set(key, (invoiceAmount.get(key) ?? 0) + (company.total_amount || 0))
     }
 
     for (const row of overduePayments) {
-      if (!isNoFollowup(row) || isDispute(row) !== disputes) continue
+      if (!isNoFollowup(row) || setAsideKindOf(row) !== wanted) continue
       const code = normalizeBpCode(row.bp_code)
       const key = code ? `bp:${code}` : `ageing:${row.id}`
       const entry = seat(key, {
@@ -115,8 +120,13 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
         note: row.no_followup_note ?? null,
       })
       entry.ageingRows++
-      entry.amount += row.balance_due || 0
+      ageingAmount.set(key, (ageingAmount.get(key) ?? 0) + (row.balance_due || 0))
     }
+
+    // Once per customer: the ageing balance (net of credits and advances) where
+    // there is one, otherwise the open invoices. Adding both counted the same
+    // debt twice (since 13 Oct 2026; the Dashboard cards use the same rule).
+    for (const [key, entry] of byCustomer) entry.amount = ageingAmount.get(key) ?? invoiceAmount.get(key) ?? 0
 
     // Most recently set aside first: the ones still being talked about.
     return [...byCustomer.values()].sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
@@ -167,7 +177,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
     return (
       <GlassCard className="p-8 text-center" data-testid="no-followup-register">
         <BellOff className="mx-auto h-8 w-8 text-muted-foreground/50" />
-        <p className="mt-3 text-sm font-medium">{disputes ? 'No account is in dispute' : 'Nobody has been set aside'}</p>
+        <p className="mt-3 text-sm font-medium">{exports ? 'No export clients' : disputes ? 'No account is in dispute' : 'Nobody has been set aside'}</p>
         <p className="mt-1 text-xs text-muted-foreground">
           Accounts marked "No follow-up" leave the working lists and their balance leaves the
           outstanding total. They would all be listed here.
@@ -183,7 +193,7 @@ export function NoFollowupRegister({ companies, overduePayments, currentUserId, 
           <div>
             <p className="flex items-center gap-2 text-sm font-semibold">
               <BellOff className="h-4 w-4 text-amber-500" />
-              {disputes ? 'Set aside — in dispute' : 'Set aside — no follow-up'}
+              {exports ? 'Set aside — export clients' : disputes ? 'Set aside — in dispute' : 'Set aside — no follow-up'}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Not chased, and not counted in what is owed. Who decided each, and why.

@@ -30,7 +30,7 @@ import { OWNER_NONE_KEY, type Owner } from '@/lib/owner';
 import { CompanyDetailPanel } from './CompanyDetailPanel';
 import { FollowupHistoryView } from './FollowupHistoryView';
 import { NoFollowupRegister } from './NoFollowupRegister';
-import { isDispute, isNoFollowup, listBankruptCustomers } from '@/lib/no-followup';
+import { isNoFollowup, listBankruptCustomers, setAsideKindOf } from '@/lib/no-followup';
 import { normalizeBpCode } from '@/lib/bp-code';
 import { BankruptRegister } from '@/features/overdue/components/BankruptRegister';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -74,13 +74,15 @@ export function AdminOverviewPage() {
   const setAsideCount = useMemo(() => {
     const plain = new Set<string>();
     const disputed = new Set<string>();
+    const exported = new Set<string>();
+    const pick = (r: Parameters<typeof setAsideKindOf>[0]) => { const k = setAsideKindOf(r); return k === 'export' ? exported : k === 'dispute' ? disputed : plain; };
     for (const c of companies) {
-      if (isNoFollowup(c)) (isDispute(c) ? disputed : plain).add(normalizeBpCode(c.sap_bp_code) ?? `company:${c.id}`);
+      if (isNoFollowup(c)) pick(c).add(normalizeBpCode(c.sap_bp_code) ?? `company:${c.id}`);
     }
     for (const o of overduePayments) {
-      if (isNoFollowup(o)) (isDispute(o) ? disputed : plain).add(normalizeBpCode(o.bp_code) ?? `ageing:${o.id}`);
+      if (isNoFollowup(o)) pick(o).add(normalizeBpCode(o.bp_code) ?? `ageing:${o.id}`);
     }
-    return { plain: plain.size, disputed: disputed.size };
+    return { plain: plain.size, disputed: disputed.size, exported: exported.size };
   }, [companies, overduePayments]);
 
   const loadData = useCallback(async () => {
@@ -257,7 +259,25 @@ export function AdminOverviewPage() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="export" data-testid="tab-export">
+            Export clients
+            {setAsideCount.exported > 0 && (
+              <span className="ml-1.5 rounded bg-sky-500/15 px-1.5 text-xs text-sky-600 dark:text-sky-400">
+                {setAsideCount.exported}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="export" className="outline-none">
+          <NoFollowupRegister
+            companies={companies}
+            overduePayments={overduePayments}
+            currentUserId={user?.id}
+            exports
+            onChanged={loadData}
+          />
+        </TabsContent>
 
         <TabsContent value="dispute" className="outline-none">
           <NoFollowupRegister

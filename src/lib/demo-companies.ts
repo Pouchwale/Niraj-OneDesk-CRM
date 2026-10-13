@@ -1117,7 +1117,7 @@ class DemoCompanyStore {
    * the other still being chased and still adding to the total — which is
    * exactly the confusion the setting exists to remove.
    */
-  setNoFollowup(bpCode: string | null, entityId: string, by: string, note?: string | null, kind?: 'dispute' | null): number {
+  setNoFollowup(bpCode: string | null, entityId: string, by: string, note?: string | null, kind?: 'dispute' | 'export' | null): number {
     const fields = markNoFollowup(by, note, kind)
     let touched = 0
 

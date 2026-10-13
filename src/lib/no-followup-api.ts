@@ -14,7 +14,7 @@
  */
 
 import { demoCompanyStore } from './demo-companies'
-import { isNoFollowup } from './no-followup'
+import { isNoFollowup, type SetAsideKind } from './no-followup'
 import { CLEAR_NO_FOLLOWUP, markNoFollowup } from './no-followup'
 import { normalizeBpCode, sameBpCode } from './bp-code'
 import type { DecisionRequest } from './types'
@@ -39,7 +39,7 @@ export async function setNoFollowup(
   target: NoFollowupTarget,
   actorId: string,
   note?: string | null,
-  kind?: 'dispute' | null
+  kind?: SetAsideKind | null
 ): Promise<number> {
   const fields = markNoFollowup(actorId, note, kind)
 
@@ -48,7 +48,7 @@ export async function setNoFollowup(
     id: `audit-${Date.now()}`,
     entity_type: target.entityType,
     entity_id: target.entityId,
-    action: kind === 'dispute' ? 'set_dispute' : 'set_no_followup',
+    action: kind === 'dispute' ? 'set_dispute' : kind === 'export' ? 'set_export_client' : 'set_no_followup',
     actor_id: actorId,
     before: { no_followup_at: null },
     after: { ...fields, rows: touched },
@@ -219,7 +219,7 @@ export async function approveDecision(request: DecisionRequest, approverId: stri
   if (request.kind === 'bankrupt') {
     await declareCustomerBankrupt(target, request.requestedBy, request.reason)
   } else {
-    await setNoFollowup(target, request.requestedBy, request.reason, request.kind === 'dispute' ? 'dispute' : null)
+    await setNoFollowup(target, request.requestedBy, request.reason, request.kind === 'dispute' || request.kind === 'export' ? request.kind : null)
   }
   demoCompanyStore.reviewDecisionRequest(request.id, 'approved', approverId, new Date().toISOString())
   await whenSaved()

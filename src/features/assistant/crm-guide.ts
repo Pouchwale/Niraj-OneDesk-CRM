@@ -46,7 +46,7 @@ FOLLOW-UPS
 - Robi cannot log, edit or delete a follow-up, mark a payment received or change a status. The person does that on the account.
 
 SET ASIDE: NO FOLLOW-UP AND BANKRUPT
-- A coordinator can ask for No follow-up, Dispute or Bankrupt on their own account, with a reason of at least 5 characters; it waits in Overview > Approvals and nothing changes until the team leader or administrator approves it (it is then applied in the coordinator's name). The team leader and administrator decide directly, also with a reason, and only they can undo a decision.
+- A coordinator can ask for No follow-up, Dispute, Export client or Bankrupt on their own account, with a reason of at least 5 characters; it waits in Overview > Approvals and nothing changes until the team leader or administrator approves it (it is then applied in the coordinator's name). The team leader and administrator decide directly, also with a reason, and only they can undo a decision.
 - The "No follow-up" button on an account sets the customer aside: it leaves Active Payments, Overdue Payments and every total, and is listed only in Overview > No follow-up, with who did it, when and their note. "Resume follow-up" (team leader/administrator) brings it back - on the account, in the register, or from the notice that appears when you search for it.
 - The "Dispute" button does the same for a customer disputing the amount, with the reason; it is listed in Overview > Dispute.
 - "Declare bankrupt" on an account does the same for a company that has gone under, for all its invoices and its overdue row; it is listed in Overview > Bankrupt.
@@ -58,6 +58,11 @@ READY FOR DISPATCH (RFD)
 - Each line belongs to the coordinator who has that customer in Active or Overdue Payments, matched by company name; a customer not found there shows as Unknown.
 - Follow-ups on an RFD line are logged on the customer's Active or Overdue Payments record, so they count in follow-up history, Robi's tasks and scores. Mention the sales order in the note.
 - The team leader or administrator syncs it with "Sync now" on that page; the workbook itself is refreshed from SAP every morning at 09:30.
+
+EXPORT CLIENT AND SET-ASIDE AMOUNTS
+- "Export client" is a fourth set-aside next to No follow-up, Dispute and Bankrupt, for export (overseas) customers whose payment is handled outside this follow-up. It works like Dispute: reason required, a coordinator's request needs approval, and the customer leaves the lists, the totals and Robi's tasks. Overview > Export clients lists them.
+- The Dashboard shows four "Set aside" amount cards (No follow-up, Dispute, Export client, Bankrupt): the team leader and administrator see the whole team, a coordinator only their own customers. Each customer is counted once: their ageing balance where they have an Overdue row, otherwise their open invoices.
+- A coordinator's Dashboard also shows "My weekly progress": the Mon-Sat average score for each of the last 8 weeks, tasks done, extra work and leave days, and whether this week is ahead of or behind last week.
 
 ROBI'S DAILY PLAN
 - Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. An Active Payments invoice only becomes a task once it is past its due date or due within the next 2 days; nothing earlier is planned, not even a follow-up date or promise set on an invoice that is not yet due. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.

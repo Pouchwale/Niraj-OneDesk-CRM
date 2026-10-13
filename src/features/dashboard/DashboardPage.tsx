@@ -9,7 +9,8 @@ import { useDailyEntries } from '@/features/daily-logs/hooks/useDailyEntries';
 import { useAuth } from '@/features/auth/AuthContext';
 import { todayISO } from '@/lib/utils';
 import { useRoleKpis } from './hooks/useRoleKpis';
-import { MyScoreCard } from '@/features/assistant/ScoresView';
+import { MyScoreCard, MyWeeklyProgress } from '@/features/assistant/ScoresView';
+import { SetAsideKpis } from './SetAsideKpis';
 
 // Cute doodle elements for the empty space
 const DOODLES = [
@@ -120,6 +121,10 @@ export function DashboardPage() {
 
         {/* A coordinator's own score against Robi's daily plan. */}
         {user.role === 'coordinator' && <MyScoreCard userId={user.id} />}
+        {user.role === 'coordinator' && <MyWeeklyProgress userId={user.id} />}
+
+        {/* Money set aside: the team for the leader and admin, their own customers for a coordinator. */}
+        <SetAsideKpis teamView={user.role !== 'coordinator'} />
 
         {/* 2. The four figures chosen for whoever is signed in */}
         <div className="space-y-4">

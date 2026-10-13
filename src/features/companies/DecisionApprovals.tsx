@@ -20,6 +20,7 @@ import { cn, formatCurrency } from '@/lib/utils'
 const KIND: Record<DecisionRequest['kind'], { label: string; style: string }> = {
   no_followup: { label: 'No follow-up', style: 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-400' },
   dispute: { label: 'Dispute', style: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-400' },
+  export: { label: 'Export client', style: 'bg-sky-500/10 text-sky-700 border-sky-500/30 dark:text-sky-400' },
   bankrupt: { label: 'Bankrupt', style: 'bg-rose-500/10 text-rose-700 border-rose-500/30 dark:text-rose-400' },
 }
 
@@ -68,7 +69,7 @@ export function DecisionApprovals({ onChanged }: { onChanged?: () => void }) {
           <div>
             <h3 className="font-semibold leading-tight">Approvals</h3>
             <p className="text-xs text-muted-foreground">
-              Coordinators asking to mark a customer No follow-up, Dispute or Bankrupt. Approving applies it — the
+              Coordinators asking to mark a customer No follow-up, Dispute, Export client or Bankrupt. Approving applies it — the
               customer leaves the lists and the totals — in the coordinator's name with their reason.
             </p>
           </div>

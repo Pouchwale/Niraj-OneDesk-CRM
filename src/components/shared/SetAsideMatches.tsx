@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext';
 import { normalizeBpCode } from '@/lib/bp-code';
 import { clearNoFollowup } from '@/lib/no-followup-api';
-import { isBankrupt, isNoFollowup } from '@/lib/no-followup';
+import { isBankrupt, isNoFollowup, setAsideKindOf, SET_ASIDE_LABEL } from '@/lib/no-followup';
 import type { Company, OverduePayment } from '@/lib/types';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -31,6 +31,8 @@ interface Match {
   entityType: 'company' | 'overdue_payment';
   entityId: string;
   reason: 'no_followup' | 'bankrupt';
+  /** No follow-up, Dispute or Export client. */
+  label: string;
   by: string | null;
   at: string | null;
   note: string | null;
@@ -82,6 +84,7 @@ export function SetAsideMatches({ query, companies = [], overduePayments = [], c
         entityType,
         entityId: record.id,
         reason: noFollowup ? 'no_followup' : 'bankrupt',
+        label: noFollowup ? SET_ASIDE_LABEL[setAsideKindOf(record)] : 'Bankrupt',
         by: (noFollowup ? record.no_followup_by : record.bankrupt_declared_by) ?? null,
         at: (noFollowup ? record.no_followup_at : record.bankrupt_declared_at) ?? null,
         note: (noFollowup ? record.no_followup_note : record.bankrupt_note) ?? null,
@@ -130,7 +133,7 @@ export function SetAsideMatches({ query, companies = [], overduePayments = [], c
               {m.bpCode && <span className="ml-1.5 font-mono text-xs text-muted-foreground">{m.bpCode}</span>}
               <span className="ml-1.5 tabular-nums text-muted-foreground">· {formatCurrency(m.amount)}</span>
               <div className="text-xs text-muted-foreground">
-                {m.reason === 'no_followup' ? 'Marked No follow-up' : 'Declared bankrupt'}
+                {m.reason === 'no_followup' ? `Marked ${m.label}` : 'Declared bankrupt'}
                 {m.by && ` by ${getCoordinatorDisplayName(m.by)}`}
                 {m.at && ` on ${formatDate(m.at)}`}
                 {m.note ? <> — “{m.note}”</> : ' — no reason given'}

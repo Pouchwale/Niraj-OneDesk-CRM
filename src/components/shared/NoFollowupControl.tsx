@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BellOff, RotateCcw, Scale } from 'lucide-react'
+import { BellOff, Globe, RotateCcw, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { requestDecision, setNoFollowup, clearNoFollowup, type NoFollowupEntity } from '@/lib/no-followup-api'
-import { isNoFollowup, type NoFollowupFields } from '@/lib/no-followup'
+import { isNoFollowup, setAsideKindOf, SET_ASIDE_LABEL, type NoFollowupFields, type SetAsideKind } from '@/lib/no-followup'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
 interface Props {
@@ -30,8 +30,8 @@ interface Props {
   currentUserId?: string
   /** Team leader or admin: the only people who set aside, dispute or resume. */
   isAdmin?: boolean
-  /** 'dispute': the same set-aside, recorded as a dispute with its own register. */
-  kind?: 'dispute'
+  /** 'dispute' or 'export': the same set-aside, recorded with its own register. */
+  kind?: SetAsideKind
   onChanged: () => void
 }
 
@@ -66,7 +66,9 @@ export function NoFollowupControl({
   onChanged,
 }: Props) {
   const dispute = kind === 'dispute'
-  const label = dispute ? 'Dispute' : 'No follow-up'
+  const exportClient = kind === 'export'
+  const label = SET_ASIDE_LABEL[kind ?? 'plain']
+  const Icon = exportClient ? Globe : dispute ? Scale : BellOff
   const [isOpen, setIsOpen] = useState(false)
   const [note, setNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -80,7 +82,7 @@ export function NoFollowupControl({
     try {
       // A coordinator asks; the team leader or the administrator approves.
       if (!isAdmin) {
-        await requestDecision({ ...target, name, amount }, dispute ? 'dispute' : 'no_followup', currentUserId, note)
+        await requestDecision({ ...target, name, amount }, kind ?? 'no_followup', currentUserId, note)
         toast.success('Sent to your team leader for approval.', {
           description: `${name} stays in your lists until it is approved.`,
         })
@@ -90,7 +92,7 @@ export function NoFollowupControl({
         return
       }
       const rows = await setNoFollowup(target, currentUserId, note, kind ?? null)
-      toast.success(dispute ? `${name} is marked as in dispute.` : `${name} is set to no follow-up.`, {
+      toast.success(exportClient ? `${name} is marked as an export client.` : dispute ? `${name} is marked as in dispute.` : `${name} is set to no follow-up.`, {
         description:
           `${formatCurrency(amount)} is now excluded from what is owed` +
           (rows > 1 ? ', in Active Payments and Overdue both.' : '.'),
@@ -122,12 +124,20 @@ export function NoFollowupControl({
 
   if (isNoFollowup(record)) {
     const canResume = isAdmin
-    const isDisputed = record.no_followup_kind === 'dispute'
+    const held = setAsideKindOf(record)
+    const tone =
+      held === 'export'
+        ? 'border-sky-500/40 bg-sky-500/5'
+        : held === 'dispute'
+          ? 'border-orange-500/40 bg-orange-500/5'
+          : 'border-amber-500/30 bg-amber-500/5'
+    const ink = held === 'export' ? 'text-sky-600 dark:text-sky-400' : held === 'dispute' ? 'text-orange-600 dark:text-orange-400' : 'text-amber-600 dark:text-amber-400'
+    const HeldIcon = held === 'export' ? Globe : held === 'dispute' ? Scale : BellOff
     return (
-      <div className={`rounded-lg border p-4 ${isDisputed ? 'border-orange-500/40 bg-orange-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
-        <div className={`flex items-center gap-2 text-sm font-semibold ${isDisputed ? 'text-orange-600 dark:text-orange-400' : 'text-amber-600 dark:text-amber-400'}`}>
-          {isDisputed ? <Scale className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
-          {isDisputed ? 'In dispute' : 'No follow-up'}
+      <div className={`rounded-lg border p-4 ${tone}`}>
+        <div className={`flex items-center gap-2 text-sm font-semibold ${ink}`}>
+          <HeldIcon className="h-4 w-4" />
+          {held === 'export' ? 'Export client' : held === 'dispute' ? 'In dispute' : 'No follow-up'}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {record.no_followup_by
@@ -160,10 +170,10 @@ export function NoFollowupControl({
       <Button
         variant="outline"
         size="sm"
-        className={`w-full justify-start ${dispute ? 'text-orange-600 hover:text-orange-700 dark:text-orange-400' : 'text-amber-600 hover:text-amber-700 dark:text-amber-400'}`}
+        className={`w-full justify-start ${exportClient ? 'text-sky-600 hover:text-sky-700 dark:text-sky-400' : dispute ? 'text-orange-600 hover:text-orange-700 dark:text-orange-400' : 'text-amber-600 hover:text-amber-700 dark:text-amber-400'}`}
         onClick={() => setIsOpen(true)}
       >
-        {dispute ? <Scale className="mr-2 h-4 w-4" /> : <BellOff className="mr-2 h-4 w-4" />}
+        <Icon className="mr-2 h-4 w-4" />
         {label}
       </Button>
 
@@ -171,13 +181,15 @@ export function NoFollowupControl({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {dispute ? <Scale className="h-5 w-5 text-orange-500" /> : <BellOff className="h-5 w-5 text-amber-500" />}
-              {dispute ? `Mark ${name} as in dispute?` : `Stop following up ${name}?`}
+              <Icon className={`h-5 w-5 ${exportClient ? 'text-sky-500' : dispute ? 'text-orange-500' : 'text-amber-500'}`} />
+              {exportClient ? `Mark ${name} as an export client?` : dispute ? `Mark ${name} as in dispute?` : `Stop following up ${name}?`}
             </DialogTitle>
             <DialogDescription asChild>
               <div className="space-y-3 pt-2 text-sm">
                 <p>
-                  {dispute
+                  {exportClient
+                    ? 'Use this for an export (overseas) customer whose payment is handled outside this follow-up.'
+                    : dispute
                     ? 'Use this when the customer disputes the amount and chasing stops until it is resolved.'
                     : 'Use this when the balance is not worth chasing and should not be counted.'}
                 </p>

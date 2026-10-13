@@ -237,3 +237,75 @@ export function MyScoreCard({ userId }: { userId: string }) {
     </GlassCard>
   )
 }
+
+/** How many past weeks a coordinator sees on their Dashboard. */
+const PROGRESS_WEEKS = 8
+
+/**
+ * A coordinator's weekly scores, newest first, so they can see their progress:
+ * each week's average (Mon–Sat), tasks done, extra work and leave days. Read
+ * from the plans Robi keeps, so every past week stays available.
+ */
+export function MyWeeklyProgress({ userId }: { userId: string }) {
+  const today = todayISO()
+  const { scores, extra } = useScores([userId])
+  const weeks = Array.from({ length: PROGRESS_WEEKS }, (_, i) => {
+    const monday = addDaysISO(weekStart(today), -7 * i)
+    const days = weekDays(monday)
+    const week = days.map((d) => scores.get(`${userId}|${d}`))
+    const scored = week.filter((s): s is DayScore => !!s)
+    return {
+      monday,
+      current: i === 0,
+      average: weekAverage(week),
+      done: scored.reduce((n, s) => n + s.done, 0),
+      given: scored.reduce((n, s) => n + s.given, 0),
+      extra: days.reduce((n, d) => n + (extra.get(`${userId}|${d}`) ?? 0), 0),
+      leave: days.filter((d) => onLeave(userId, d)).length,
+    }
+  }).filter((w) => w.average !== null || w.extra || w.leave)
+
+  if (weeks.length === 0) return null
+  // This week against the week just before it, when both have a score.
+  const thisWeek = weeks.find((w) => w.current)
+  const lastWeek = weeks.find((w) => w.monday === addDaysISO(weekStart(today), -7))
+  const change = thisWeek?.average != null && lastWeek?.average != null ? thisWeek.average - lastWeek.average : null
+
+  return (
+    <GlassCard className="space-y-3 p-4 sm:p-5" data-testid="my-weekly-progress">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Target className="h-4 w-4 text-primary" />
+          <h3 className="font-semibold">My weekly progress</h3>
+          <span className="text-xs text-muted-foreground">Mon–Sat average, last {PROGRESS_WEEKS} weeks</span>
+        </div>
+        {change !== null && (
+          <span className={cn('text-xs font-medium', change > 0 ? 'text-emerald-600' : change < 0 ? 'text-rose-600' : 'text-muted-foreground')}>
+            {change > 0 ? `${change} points better than last week` : change < 0 ? `${-change} points behind last week` : 'Same as last week'}
+          </span>
+        )}
+      </div>
+      <div className="space-y-2">
+        {weeks.map((w) => (
+          <div key={w.monday} className="grid grid-cols-[92px_1fr_auto] items-center gap-3 text-sm">
+            <span className={cn('tabular-nums text-muted-foreground', w.current && 'font-semibold text-foreground')}>
+              {w.current ? 'This week' : formatDate(w.monday)}
+            </span>
+            <div className="h-2.5 overflow-hidden rounded-full bg-muted" title={w.average === null ? 'No score' : `${100 + w.average}% of Robi's tasks done`}>
+              <div
+                className={cn('h-full rounded-full', w.average === null ? '' : w.average === 0 ? 'bg-emerald-500' : w.average >= -20 ? 'bg-amber-500' : 'bg-rose-500')}
+                style={{ width: `${w.average === null ? 0 : 100 + w.average}%` }}
+              />
+            </div>
+            <span className="flex items-center gap-2 whitespace-nowrap">
+              <span className={cn('w-12 text-right font-semibold tabular-nums', scoreTone(w.average))}>{scoreLabel(w.average)}</span>
+              <span className="w-14 text-right text-[11px] tabular-nums text-muted-foreground">{w.given ? `${w.done}/${w.given}` : ''}</span>
+              <span className="w-16 text-[11px] text-sky-600 dark:text-sky-400">{w.extra ? `+${w.extra} extra` : ''}</span>
+              <span className="w-14 text-[11px] text-muted-foreground">{w.leave ? `${w.leave} leave` : ''}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
+  )
+}

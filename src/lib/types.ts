@@ -175,7 +175,7 @@ export interface OverduePayment {
   no_followup_by?: string | null
   no_followup_note?: string | null
   /** 'dispute' when set aside because the customer disputes the amount. */
-  no_followup_kind?: 'dispute' | null
+  no_followup_kind?: 'dispute' | 'export' | null
   extra_fields: Record<string, unknown>
   imported_at: string
   created_at: string
@@ -222,7 +222,7 @@ export interface Company {
   no_followup_by?: string | null
   no_followup_note?: string | null
   /** 'dispute' when set aside because the customer disputes the amount. */
-  no_followup_kind?: 'dispute' | null
+  no_followup_kind?: 'dispute' | 'export' | null
   /**
    * Declared bankrupt. Stamped on every invoice of a customer whose ageing row
    * was declared bankrupt, so Active Payments holds them out too.
@@ -319,7 +319,7 @@ export interface ProofRequest {
  */
 export interface DecisionRequest {
   id: string
-  kind: 'no_followup' | 'dispute' | 'bankrupt'
+  kind: 'no_followup' | 'dispute' | 'export' | 'bankrupt'
   entityType: FollowupEntityType
   entityId: string
   bpCode: string | null
