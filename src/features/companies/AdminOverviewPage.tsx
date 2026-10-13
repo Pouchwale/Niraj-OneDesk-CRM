@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PlanHistoryView } from '@/features/assistant/PlanHistoryView';
 import { ProofReview, useProofsToReview } from '@/features/assistant/ProofReview';
 import { WeeklyScores } from '@/features/assistant/ScoresView';
+import { Leaderboard } from '@/features/assistant/Leaderboard';
 import { DecisionApprovals, usePendingDecisions } from './DecisionApprovals';
 import { AttendanceView } from './AttendanceView';
 import { OverviewReportButton } from './OverviewReportButton';
@@ -222,6 +223,7 @@ export function AdminOverviewPage() {
               <span className="ml-1.5 rounded bg-blue-500/15 px-1.5 text-xs text-blue-600 dark:text-blue-400">{pendingDecisions}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="leaderboard" data-testid="tab-leaderboard">Leaderboard</TabsTrigger>
           <TabsTrigger value="scores" data-testid="tab-scores">Scores</TabsTrigger>
           <TabsTrigger value="robi" data-testid="tab-robi">Robi task history</TabsTrigger>
           <TabsTrigger value="proofs" data-testid="tab-proofs">
@@ -318,6 +320,10 @@ export function AdminOverviewPage() {
 
         <TabsContent value="approvals" className="outline-none">
           <DecisionApprovals onChanged={loadData} />
+        </TabsContent>
+
+        <TabsContent value="leaderboard" className="outline-none">
+          <Leaderboard coordinators={coordinators} />
         </TabsContent>
 
         <TabsContent value="scores" className="outline-none">

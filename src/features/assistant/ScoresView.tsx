@@ -16,7 +16,7 @@ import { planHistory } from './plan-history'
 import { dailyScores, extraWork, scoreLabel, scoreTone, weekAverage, weekDays, weekStart, type DayScore } from './scores'
 
 /** Every coordinator's day scores, and extra work per day, live from the shared records. */
-function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; extra: Map<string, number> } {
+export function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; extra: Map<string, number> } {
   const [version, setVersion] = useState(0)
   useEffect(() => subscribeToDemoStore(() => setVersion((v) => v + 1)), [])
   const key = coordinatorIds.join(',')
@@ -49,7 +49,7 @@ function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; e
 const dayName = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short' })
 
 /** On leave that day: shown as such and never scored (marked in Overview → Attendance). */
-const onLeave = (userId: string, date: string) => demoCompanyStore.getAttendance(userId, date)?.status === 'leave'
+export const onLeave = (userId: string, date: string) => demoCompanyStore.getAttendance(userId, date)?.status === 'leave'
 
 /** "+3 extra" under a day: customers followed up who were not on Robi's list. */
 function Extra({ n, credited }: { n?: number; credited?: number }) {

@@ -20,6 +20,8 @@ export type AssistantTaskKind =
    * done. Never raised as a nudge; only the plan adds these.
    */
   | 'overdue_followup'
+  /** Money past 120 days held up by a credit or debit note (note-pending.ts). */
+  | 'note_pending'
 
 /**
  * What the coordinator can do with a nudge. Deliberately nothing that writes a
@@ -68,6 +70,7 @@ export const TASK_PRIORITY: Record<AssistantTaskKind, number> = {
   payment_due_soon: 7,
   stale_contact: 8,
   overdue_followup: 9,
+  note_pending: 0,
 }
 
 /** A single turn in the on-screen conversation. */

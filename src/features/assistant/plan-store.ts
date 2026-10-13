@@ -19,6 +19,7 @@ import { addDaysISO, formatCurrency, formatDate, formatRelativeDate } from '@/li
 import { nextToFollowUp, type NextUp } from './next-up'
 import { pickProofTasks } from './proof'
 import { planForAttendance } from './attendance'
+import { isOnTop, notePendingItems } from './note-pending'
 import { buildAssistantTasks } from './rules'
 import {
   balanceLookup,
@@ -169,7 +170,19 @@ export function ensurePlan(
     })
     carried = carried.filter((item) => dueEnough(entityKeyOf(item)))
   }
+  // Money past 120 days held up by a credit or debit note: a task every day,
+  // first and on top of the eight, whatever the rest or follow-up dates say.
+  const notes = evidence?.overduePayments
+    ? notePendingItems(date, evidence.overduePayments, evidence.followups, evidence.customerOf)
+    : []
+  if (notes.length && evidence) {
+    const noted = new Set(notes.map((n) => evidence!.customerOf?.(entityKeyOf(n)!) ?? entityKeyOf(n)))
+    const other = (key: string | null) => !key || !noted.has(evidence!.customerOf?.(key) ?? key)
+    tasks = tasks.filter((task) => other(entityKeyOf(task)))
+    carried = carried.filter((item) => item.special !== 'note_pending' && other(entityKeyOf(item)))
+  }
   const active = makePlan(userId, date, tasks, carried, undefined, evidence?.customerOf, evidence?.balanceOf, evidence?.dueDateOf, evidence?.perHalf ?? PLAN_SIZE)
+  active.items = [...notes, ...active.items]
   // Four Active Payments tasks, then four Overdue Payments tasks: eight a day.
   if (evidence?.companies) active.items = [...active.items, ...activeFill(date, active.items, evidence)]
   const plan = evidence?.overduePayments
@@ -232,7 +245,7 @@ function activeFill(
   evidence: PlanEvidence,
   now: Date = new Date(),
   // Fresh tasks only: leftovers from earlier days sit on top of the day's four.
-  room: number = (evidence.perHalf ?? PLAN_SIZE) - planItems.filter((item) => item.entityType === 'company' && !item.carriedFrom).length,
+  room: number = (evidence.perHalf ?? PLAN_SIZE) - planItems.filter((item) => item.entityType === 'company' && !isOnTop(item)).length,
   statuses: string[] = ['overdue', 'critical'],
   /** Given, only invoices due on or before this date. */
   dueBy?: string
@@ -314,7 +327,7 @@ export function activeAllowed(date: string, evidence: Pick<PlanEvidence, 'compan
 export function topUp(userId: string, date: string, planItems: PlanItem[], evidence: PlanEvidence): PlanItem[] {
   const now = new Date()
   const added: PlanItem[] = []
-  const short = () => (evidence.perHalf ?? PLAN_SIZE) * 2 - [...planItems, ...added].filter((item) => !item.carriedFrom).length
+  const short = () => (evidence.perHalf ?? PLAN_SIZE) * 2 - [...planItems, ...added].filter((item) => !isOnTop(item)).length
   if (short() <= 0) return []
   if (evidence.companies) added.push(...activeFill(date, [...planItems, ...added], evidence, now, short()))
   if (short() > 0 && evidence.overduePayments) {

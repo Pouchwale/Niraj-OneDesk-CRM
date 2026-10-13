@@ -14,6 +14,7 @@
  */
 
 import { PLAN_SIZE, type DailyPlan, type PlanItem } from './daily-plan'
+import { isOnTop } from './note-pending'
 
 export type AttendanceStatus = 'leave' | 'half_day'
 
@@ -25,10 +26,10 @@ export const HALF_DAY_TASKS = PLAN_SIZE
  * already done, and undone fresh tasks in plan order until four are kept.
  */
 export function keepForHalfDay<T>(list: T[], itemOf: (t: T) => PlanItem, isDone: (t: T) => boolean): T[] {
-  const fresh = list.filter((t) => !itemOf(t).carriedFrom)
+  const fresh = list.filter((t) => !isOnTop(itemOf(t)))
   let room = HALF_DAY_TASKS - fresh.filter(isDone).length
   return list.filter((t) => {
-    if (itemOf(t).carriedFrom || isDone(t)) return true
+    if (isOnTop(itemOf(t)) || isDone(t)) return true
     if (room <= 0) return false
     room--
     return true

@@ -30,6 +30,11 @@ export interface PlanItem {
    */
   carriedFrom?: string
   /**
+   * 'note_pending': a credit/debit note task, given daily on top of the
+   * day's eight (note-pending.ts).
+   */
+  special?: 'note_pending'
+  /**
    * When this work was first handed out. A carried item keeps the moment it
    * was first planned, so a call made first thing the next morning - before
    * that day's plan exists - still completes it.

@@ -210,3 +210,32 @@ describe('Active Payments: only past due, or due within two days', () => {
     expect(planFor(TODAY, [notDue], [], followups, true).items).toHaveLength(0)
   })
 })
+
+describe('credit/debit notes on money past 120 days', () => {
+  const noted = (id: string, b121: number) => ({ ...ageing(id, b121), due_121_plus: b121 })
+  const note = (id: string, notes: string, at = '2026-10-06T10:00:00') =>
+    followup('overdue_payment', id, { notes, followup_date: at, created_at: `${at}.000Z`, next_reminder_date: '2026-10-30' })
+
+  it('gives a task every day, first and on top of the eight, even with a later follow-up date', () => {
+    const overdue = [noted('cn', 50000), ...['p', 'q', 'r', 's', 't'].map((id) => ageing(id))]
+    const companies = ['a', 'b', 'c', 'd'].map((id) => invoice(id))
+    const followups = [note('cn', 'Material rejected, need to issue C.N')]
+    const plan = planFor(TODAY, companies, overdue, followups, true)
+    expect(plan.items[0]).toMatchObject({ entityId: 'cn', kind: 'note_pending', special: 'note_pending' })
+    // Eight regular tasks besides it.
+    expect(plan.items.filter((i) => !i.special)).toHaveLength(8)
+    expect(plan.items.filter((i) => i.entityId === 'cn')).toHaveLength(1)
+  })
+
+  it('stops once a newer follow-up no longer mentions a note, and ignores money under 121 days', () => {
+    const young = { ...ageing('young'), due_121_plus: 0, due_91_120: 80000 }
+    const overdue = [noted('cn', 50000), young]
+    const followups = [
+      note('cn', 'Debit note received from customer'),
+      note('cn', 'Customer will pay on Friday', '2026-10-06T15:00:00'),
+      note('young', 'need CN'),
+    ]
+    const plan = planFor(TODAY, [], overdue, followups, true)
+    expect(plan.items.some((i) => i.kind === 'note_pending')).toBe(false)
+  })
+})
