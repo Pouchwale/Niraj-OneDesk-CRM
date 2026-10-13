@@ -215,17 +215,24 @@ export function AdminOverviewPage() {
   };
 
   return (
-    <div className="space-y-6">
+    // Wide screens: a console. The title bar and the section menu never move;
+    // only the section on the right scrolls. (Viewport less the 4rem header and
+    // the main area's 2rem padding top and bottom.) Narrow screens scroll whole.
+    <div className="space-y-6 lg:flex lg:h-[calc(100vh-8rem)] lg:flex-col lg:space-y-0">
       <PageHeader
         title="Coordinator Overview"
         subtitle="Team performance, activity, approvals and set-aside customers in one place"
+        className="lg:shrink-0"
       >
         <OverviewReportButton coordinators={coordinators} />
       </PageHeader>
 
-      <Tabs value={tab} onValueChange={setTab} orientation="vertical" className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <Tabs value={tab} onValueChange={setTab} orientation="vertical" className="flex flex-col gap-6 lg:min-h-0 lg:flex-1 lg:flex-row">
         <OverviewSideNav counts={navCounts} />
-        <div className="min-w-0 flex-1 space-y-6">
+        <div
+          className="min-w-0 flex-1 space-y-6 lg:overflow-y-auto lg:pb-6 lg:pr-2 scrollbar-thin"
+          data-testid="overview-content"
+        >
         <OverviewMobileNav value={tab} onChange={setTab} counts={navCounts} />
 
         <TabsContent value="export" className="outline-none">

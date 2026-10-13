@@ -92,14 +92,13 @@ function Count({ n, urgent }: { n: number; urgent?: boolean }) {
 /** Wide screens: the grouped side menu. */
 export function OverviewSideNav({ counts }: { counts: OverviewCounts }) {
   return (
-    // Stays put while the section beside it scrolls. The nav itself is the
-    // sticky box (a sticky child inside a content-height nav had no room to
-    // move); it scrolls on its own only on a screen too short to hold it.
+    // Stays put: only the section beside it scrolls (see AdminOverviewPage).
+    // It scrolls on its own only on a screen too short to hold it.
     <nav
       aria-label="Overview sections"
-      className="hidden w-52 shrink-0 lg:sticky lg:top-0 lg:block lg:max-h-[calc(100vh-8rem)] lg:self-start lg:overflow-y-auto"
+      className="hidden w-52 shrink-0 lg:block lg:max-h-full lg:self-start lg:overflow-y-auto"
     >
-      <div className="space-y-5 rounded-xl border border-border bg-card/60 p-3 backdrop-blur-sm">
+      <div className="space-y-4 rounded-xl border border-border bg-card/60 p-3 backdrop-blur-sm">
         {OVERVIEW_SECTIONS.map((section) => (
           <div key={section.group} className="space-y-1">
             <p className="px-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{section.group}</p>
@@ -113,7 +112,7 @@ export function OverviewSideNav({ counts }: { counts: OverviewCounts }) {
                   value={item.value}
                   data-testid={item.testId}
                   className={cn(
-                    'h-9 w-full cursor-pointer justify-start gap-2.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground transition-colors duration-200',
+                    'h-8 w-full cursor-pointer justify-start gap-2.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground transition-colors duration-200',
                     'hover:bg-muted hover:text-foreground',
                     'data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none data-[state=active]:backdrop-blur-none'
                   )}
