@@ -34,7 +34,8 @@ import { isNoFollowup, listBankruptCustomers, setAsideKindOf } from '@/lib/no-fo
 import { normalizeBpCode } from '@/lib/bp-code';
 import { BankruptRegister } from '@/features/overdue/components/BankruptRegister';
 import { useAuth } from '@/features/auth/AuthContext';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
+import { OverviewMobileNav, OverviewSideNav } from './OverviewNav';
 import { cn } from '@/lib/utils';
 import type { Company, Followup, OverduePayment } from '@/lib/types';
 import { demoCompanyStore } from '@/lib/demo-companies';
@@ -50,6 +51,7 @@ export function AdminOverviewPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [followupSummary, setFollowupSummary] = useState<Map<string, CompanyFollowupSummary>>(new Map());
   const { user } = useAuth();
+  const [showAllMissed, setShowAllMissed] = useState(false);
 
   // In the URL so Robi's "see history" link can open a tab directly.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -202,72 +204,29 @@ export function AdminOverviewPage() {
       .sort((a, b) => Number(b.owner.inCrm) - Number(a.owner.inCrm) || b.totals.outstanding - a.totals.outstanding);
   }, [book, coordinators]);
 
+  const MISSED_SHOWN = 8;
+  const navCounts = {
+    approvals: pendingDecisions,
+    proofs: proofsToReview,
+    noFollowup: setAsideCount.plain,
+    dispute: setAsideCount.disputed,
+    exported: setAsideCount.exported,
+    bankrupt: bankruptCount,
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Coordinator Overview"
-        subtitle="Cross-coordinator payment follow-up tracking"
+        subtitle="Team performance, activity, approvals and set-aside customers in one place"
       >
         <OverviewReportButton coordinators={coordinators} />
       </PageHeader>
 
-      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-        <TabsList className="h-auto flex-wrap">
-          <TabsTrigger value="summary">Summary</TabsTrigger>
-          <TabsTrigger value="history">Follow-up history</TabsTrigger>
-          <TabsTrigger value="attendance" data-testid="tab-attendance">Attendance</TabsTrigger>
-          <TabsTrigger value="approvals" data-testid="tab-approvals">
-            Approvals
-            {pendingDecisions > 0 && (
-              <span className="ml-1.5 rounded bg-blue-500/15 px-1.5 text-xs text-blue-600 dark:text-blue-400">{pendingDecisions}</span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="scores" data-testid="tab-scores">Scores</TabsTrigger>
-          <TabsTrigger value="robi" data-testid="tab-robi">Robi task history</TabsTrigger>
-          <TabsTrigger value="proofs" data-testid="tab-proofs">
-            Proof checks
-            {proofsToReview > 0 && (
-              <span className="ml-1.5 rounded bg-blue-500/15 px-1.5 text-xs text-blue-600 dark:text-blue-400">{proofsToReview}</span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="bankrupt">
-            Bankrupt
-            {bankruptCount > 0 && (
-              <span className="ml-1.5 rounded bg-rose-500/15 px-1.5 text-xs text-rose-600 dark:text-rose-400">
-                {bankruptCount}
-              </span>
-            )}
-          </TabsTrigger>
-          {/*
-            Beside bankruptcy because they are the two ways an account leaves
-            the working lists, and this is the one that also takes the money out
-            of the total - so it is the one more worth being able to review.
-          */}
-          <TabsTrigger value="no-followup" data-testid="tab-no-followup">
-            No follow-up
-            {setAsideCount.plain > 0 && (
-              <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 text-xs text-amber-600 dark:text-amber-400">
-                {setAsideCount.plain}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="dispute" data-testid="tab-dispute">
-            Dispute
-            {setAsideCount.disputed > 0 && (
-              <span className="ml-1.5 rounded bg-orange-500/15 px-1.5 text-xs text-orange-600 dark:text-orange-400">
-                {setAsideCount.disputed}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="export" data-testid="tab-export">
-            Export clients
-            {setAsideCount.exported > 0 && (
-              <span className="ml-1.5 rounded bg-sky-500/15 px-1.5 text-xs text-sky-600 dark:text-sky-400">
-                {setAsideCount.exported}
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={tab} onValueChange={setTab} orientation="vertical" className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <OverviewSideNav counts={navCounts} />
+        <div className="min-w-0 flex-1 space-y-6">
+        <OverviewMobileNav value={tab} onChange={setTab} counts={navCounts} />
 
         <TabsContent value="export" className="outline-none">
           <NoFollowupRegister
@@ -338,89 +297,43 @@ export function AdminOverviewPage() {
         </TabsContent>
 
         <TabsContent value="summary" className="space-y-6 outline-none">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 2xl:grid-cols-4">
         <KpiCard
           title="Total Accounts"
           value={stats.totalCompanies.toString()}
           icon={Building2}
-          delta="One line per customer"
-          deltaType="neutral"
+          hint="One line per customer"
         />
         <KpiCard
           title="Overdue Accounts"
           value={stats.totalOverdue.toString()}
           icon={AlertTriangle}
-          delta="Past their due date"
-          deltaType="down"
+          hint="Past their due date"
         />
         <KpiCard
-          title="Overdue Commitments"
+          title="Missed promises"
           value={stats.overdueCommitmentsCount.toString()}
           icon={Clock}
-          delta="Missed promises"
-          deltaType="down"
+          hint="Promises past their date"
         />
         <KpiCard
           title="Total Outstanding"
           value={formatCurrency(stats.totalOutstanding)}
           icon={IndianRupee}
-          delta={`${formatCurrency(stats.criticalAmount)} of it past 90 days`}
-          deltaType="down"
+          hint={`${formatCurrency(stats.criticalAmount)} of it past 90 days`}
         />
       </div>
 
-      {overdueCommitments.length > 0 && (
-        <GlassCard className="p-4 border-rose-500/30">
-          <div className="flex items-center space-x-2 mb-4">
-            <AlertCircle className="h-5 w-5 text-rose-500" />
-            <h3 className="text-lg font-semibold text-rose-500">Overdue Commitments Alert</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Company Name</TableHead>
-                  <TableHead>Coordinator</TableHead>
-                  <TableHead>Committed Date</TableHead>
-                  <TableHead>Committed Amount</TableHead>
-                  <TableHead>Days Overdue</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {overdueCommitments.map((commitment, idx) => (
-                  <TableRow 
-                    key={commitment.id || idx}
-                    className="cursor-pointer hover:bg-muted/30"
-                    onClick={() =>
-                      commitment.entity_type === 'company'
-                        ? setSelectedCompanyId(commitment.entity_id)
-                        : navigate(`/overdue?payment=${commitment.entity_id}`)
-                    }
-                  >
-                    <TableCell className="font-medium">{commitment.entity_name}</TableCell>
-                    <TableCell>{commitment.coordinator_name || '-'}</TableCell>
-                    <TableCell>{commitment.committed_date ? new Date(commitment.committed_date).toLocaleDateString() : '-'}</TableCell>
-                    <TableCell>{formatCurrency(commitment.committed_amount || 0)}</TableCell>
-                    <TableCell>
-                      <span className="text-rose-500 font-medium">
-                        {commitment.days_overdue} days
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </GlassCard>
-      )}
-
       <GlassCard className="p-4">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Users className="h-5 w-5 text-primary" />
-          Per-Coordinator Breakdown
-        </h3>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 text-base font-semibold">
+            <Users className="h-4 w-4 text-primary" />
+            Team breakdown
+          </h3>
+          <p className="text-xs text-muted-foreground">Accounts, money and today's Robi plan for each coordinator</p>
+        </div>
         
-        <div className="overflow-x-auto rounded-md border border-border/50">
+        <div className="overflow-x-auto rounded-md border border-border/50 [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
           <Table>
             <TableHeader className="bg-muted/50">
               <TableRow>
@@ -428,10 +341,10 @@ export function AdminOverviewPage() {
                 <TableHead>Accounts</TableHead>
                 <TableHead>Overdue</TableHead>
                 <TableHead>Critical</TableHead>
-                <TableHead>Outstanding Amount</TableHead>
-                <TableHead>Last Follow-Up</TableHead>
-                <TableHead>Overdue Commitments</TableHead>
-                <TableHead>Today's Plan</TableHead>
+                <TableHead>Outstanding</TableHead>
+                <TableHead>Last follow-up</TableHead>
+                <TableHead>Missed promises</TableHead>
+                <TableHead>Today's plan</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -439,10 +352,7 @@ export function AdminOverviewPage() {
                 coordinatorStats.map((stat) => (
                   <TableRow 
                     key={stat.id}
-                    className={cn(
-                      "transition-colors",
-                      stat.overdueCommitmentsCount > 0 ? "border-l-4 border-l-rose-500 bg-rose-500/5" : ""
-                    )}
+                    className="transition-colors duration-200 hover:bg-muted/30"
                   >
                     <TableCell className="font-medium text-foreground">{stat.name}</TableCell>
                     <TableCell>{stat.totalCompanies}</TableCell>
@@ -466,9 +376,9 @@ export function AdminOverviewPage() {
                     </TableCell>
                     <TableCell>
                       {stat.overdueCommitmentsCount > 0 ? (
-                        <Badge variant="destructive">{stat.overdueCommitmentsCount}</Badge>
+                        <span className="font-semibold tabular-nums text-rose-600 dark:text-rose-400">{stat.overdueCommitmentsCount}</span>
                       ) : (
-                        <Badge variant="secondary">0</Badge>
+                        <span className="text-muted-foreground">0</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -555,7 +465,63 @@ export function AdminOverviewPage() {
           </Table>
         </div>
       </GlassCard>
+      {overdueCommitments.length > 0 && (
+        <GlassCard className="p-4 sm:p-5" data-testid="missed-promises">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-rose-500" />
+              <h3 className="text-base font-semibold">Missed promises</h3>
+              <Badge variant="outline" className="tabular-nums">{overdueCommitments.length}</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">Payment dates customers gave that have passed, longest overdue first</p>
+          </div>
+          <div className="overflow-x-auto rounded-md border border-border/50">
+            <Table>
+              <TableHeader className="bg-muted/50">
+                <TableRow>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Coordinator</TableHead>
+                  <TableHead>Promised for</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Overdue by</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(showAllMissed ? overdueCommitments : overdueCommitments.slice(0, MISSED_SHOWN)).map((commitment, idx) => (
+                  <TableRow
+                    key={commitment.id || idx}
+                    className="cursor-pointer transition-colors duration-200 hover:bg-muted/40"
+                    onClick={() =>
+                      commitment.entity_type === 'company'
+                        ? setSelectedCompanyId(commitment.entity_id)
+                        : navigate(`/overdue?payment=${commitment.entity_id}`)
+                    }
+                  >
+                    <TableCell className="font-medium">{commitment.entity_name}</TableCell>
+                    <TableCell className="text-muted-foreground">{commitment.coordinator_name || '-'}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">
+                      {commitment.committed_date ? new Date(commitment.committed_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '-'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{commitment.committed_amount ? formatCurrency(commitment.committed_amount) : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums font-medium text-rose-600 dark:text-rose-400">{commitment.days_overdue} days</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {overdueCommitments.length > MISSED_SHOWN && (
+            <button
+              type="button"
+              className="mt-3 cursor-pointer text-sm font-medium text-primary hover:underline"
+              onClick={() => setShowAllMissed((v) => !v)}
+            >
+              {showAllMissed ? 'Show fewer' : `Show all ${overdueCommitments.length}`}
+            </button>
+          )}
+        </GlassCard>
+      )}
         </TabsContent>
+        </div>
       </Tabs>
 
       {selectedCompanyId && (
