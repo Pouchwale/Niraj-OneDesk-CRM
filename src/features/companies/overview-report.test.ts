@@ -44,6 +44,9 @@ describe('the Overview report', () => {
       })
     )
     expect(table(report, 'Follow-up log').rows).toHaveLength(2)
+    // No Robi list those days, so both customers contacted count as extra work.
+    expect(table(report, 'Extra work').rows).toHaveLength(2)
+    expect(table(report, 'Coordinator summary').rows[0][8]).toBe(2)
     expect(report.kpis.find((k) => k.label === 'Follow-ups logged')?.value).toBe('2')
     expect(report.kpis.find((k) => k.label === 'Payment promises')?.value).toBe('1 (Rs 25,000)')
     const summary = table(report, 'Coordinator summary').rows[0]
@@ -53,7 +56,7 @@ describe('the Overview report', () => {
   it('lists leave as Leave, never as a score', () => {
     const attendance: AttendanceEntry[] = [{ userId: 'coord-1', date: '2026-10-06', status: 'leave', by: 'admin-1', at: '2026-10-06T03:00:00Z' }]
     const report = buildOverviewReport(base({ attendance }))
-    expect(table(report, 'Daily scores').rows).toEqual([['06 Oct 2026', 'Pragati Patel', '-', '-', 'Leave']])
+    expect(table(report, 'Daily scores').rows).toEqual([['06 Oct 2026', 'Pragati Patel', '-', '-', '-', 'Leave']])
     expect(table(report, 'Attendance').rows).toEqual([['06 Oct 2026', 'Pragati Patel', 'Leave', 'Niki Patel']])
   })
 

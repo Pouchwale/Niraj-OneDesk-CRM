@@ -7,7 +7,7 @@
 import type { DailyPlan } from '@/features/assistant/daily-plan'
 import { customerLookup, openAccountKeys } from '@/features/assistant/daily-plan'
 import { planHistory, RESULT_LABEL, type HistoryRow } from '@/features/assistant/plan-history'
-import { dailyScores, weekAverage, type DayScore } from '@/features/assistant/scores'
+import { dailyScores, extraWork, weekAverage, type DayScore } from '@/features/assistant/scores'
 import { summariseHistory, type FollowupHistoryEntry } from '@/lib/followups-api'
 import { isDispute, isNoFollowup } from '@/lib/no-followup'
 import type { AttendanceEntry, Company, DecisionRequest, Followup, OverduePayment, ProofRequest } from '@/lib/types'
@@ -114,7 +114,14 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
     customerLookup(input.companies, input.overduePayments),
     (u, d) => leave.get(`${u}|${d}`) ?? null
   ).sort((a, b) => a.date.localeCompare(b.date) || nameOf(a.coordinatorId).localeCompare(nameOf(b.coordinatorId)))
-  const scores = dailyScores(tasks)
+  // Customers followed up outside Robi's list, once per customer per day.
+  const extra = extraWork(
+    input.plans.filter((p) => coordinatorIds.has(p.userId) && inPeriod(p.date, from, to)),
+    followups.filter((f) => coordinatorIds.has(f.coordinator_id)),
+    customerLookup(input.companies, input.overduePayments)
+  )
+  const extraOf = (userId: string) => [...extra.entries()].filter(([k]) => k.startsWith(`${userId}|`)).reduce((n, [, v]) => n + v.length, 0)
+  const scores = dailyScores(tasks, extra)
   const scoresOf = (userId: string) => [...scores.entries()].filter(([k]) => k.startsWith(`${userId}|`)).map(([, s]) => s)
 
   const proofs = input.proofRequests.filter((r) => coordinatorIds.has(r.coordinatorId) && inPeriod(r.date, from, to))
@@ -160,8 +167,8 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
   /* ----- tables ----- */
   const byCoordinator: ReportTable = {
     title: 'Coordinator summary',
-    head: ['Coordinator', 'Follow-ups', 'Calls', 'Emails', 'WhatsApp', 'Promises', 'Promised amount', 'Robi tasks done', 'Avg score', 'Proofs approved', 'Leave / half days'],
-    numeric: [1, 2, 3, 4, 5, 6, 8, 9],
+    head: ['Coordinator', 'Follow-ups', 'Calls', 'Emails', 'WhatsApp', 'Promises', 'Promised amount', 'Robi tasks done', 'Extra work', 'Avg score', 'Proofs approved', 'Leave / half days'],
+    numeric: [1, 2, 3, 4, 5, 6, 8, 9, 10],
     rows: input.coordinators.map((c) => {
       const mineF = followups.filter((f) => f.coordinator_id === c.id)
       const mineT = tasks.filter((t) => t.coordinatorId === c.id)
@@ -176,6 +183,7 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
         mineF.filter((f) => f.committed_date).length,
         rupees(mineF.reduce((s, f) => s + (f.committed_amount ?? 0), 0)),
         `${mineT.filter((t) => t.result === 'done').length} / ${mineT.length}`,
+        extraOf(c.id),
         scoreText(weekAverage(scoresOf(c.id))),
         `${mineP.filter((p) => p.status === 'approved').length} / ${mineP.length}`,
         `${away.filter((a) => a.status === 'leave').length} / ${away.filter((a) => a.status === 'half_day').length}`,
@@ -185,13 +193,15 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
 
   const scoreRows: (string | number)[][] = []
   for (const c of input.coordinators) {
-    const days = [...new Set([...scores.keys()].filter((k) => k.startsWith(`${c.id}|`)).map((k) => k.split('|')[1]))]
+    const days = [...new Set([...scores.keys(), ...extra.keys()].filter((k) => k.startsWith(`${c.id}|`)).map((k) => k.split('|')[1]))]
     const leaveDays = attendance.filter((a) => a.userId === c.id && a.status === 'leave').map((a) => a.date)
     for (const d of [...new Set([...days, ...leaveDays])].sort()) {
       const s: DayScore | undefined = scores.get(`${c.id}|${d}`)
       const status = leave.get(`${c.id}|${d}`)
-      if (status === 'leave') scoreRows.push([pretty(d), c.full_name, '-', '-', 'Leave'])
-      else if (s) scoreRows.push([pretty(d), c.full_name, s.done, s.given, `${scoreText(s.score)}${status === 'half_day' ? ' (half day)' : ''}`])
+      const more = extra.get(`${c.id}|${d}`)?.length ?? 0
+      if (status === 'leave') scoreRows.push([pretty(d), c.full_name, '-', '-', more || '-', 'Leave'])
+      else if (s) scoreRows.push([pretty(d), c.full_name, s.done, s.given, s.extra, `${scoreText(s.score)}${status === 'half_day' ? ' (half day)' : ''}`])
+      else if (more) scoreRows.push([pretty(d), c.full_name, '-', '-', more, 'No plan'])
     }
   }
 
@@ -199,10 +209,23 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
     byCoordinator,
     {
       title: 'Daily scores',
-      note: 'Score = tasks done out of tasks on Robi\'s list, shown as the gap from 100% (0% = all done, -20% = 80% done). Leave days are not scored.',
-      head: ['Date', 'Coordinator', 'Done', 'Tasks', 'Score'],
-      numeric: [2, 3, 4],
+      note: 'Score = tasks done out of tasks on Robi\'s list, shown as the gap from 100% (0% = all done, -20% = 80% done). Extra work (customers followed up outside the list) makes up for missed tasks, up to 0%. Leave days are not scored.',
+      head: ['Date', 'Coordinator', 'Done', 'Tasks', 'Extra', 'Score'],
+      numeric: [2, 3, 4, 5],
       rows: scoreRows,
+    },
+    {
+      title: "Extra work (outside Robi's list)",
+      note: "Customers followed up who were not on that day's Robi list, once per customer per day.",
+      head: ['Date', 'Coordinator', 'Customer', 'BP code', 'Mode', 'Notes'],
+      widths: { 0: 22, 1: 30, 3: 16, 4: 18 },
+      rows: [...extra.values()]
+        .flat()
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((f) => {
+          const a = account(f.entity_type, f.entity_id)
+          return [pretty(f.followup_date || f.created_at), nameOf(f.coordinator_id), a.name, a.bp, MODE[f.mode] ?? f.mode, [f.customer_response, f.notes].filter(Boolean).join(' - ')]
+        }),
     },
     {
       title: 'Follow-up log',

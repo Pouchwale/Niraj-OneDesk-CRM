@@ -13,10 +13,10 @@ import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { addDaysISO, cn, formatDate, todayISO } from '@/lib/utils'
 import { customerLookup, openAccountKeys } from './daily-plan'
 import { planHistory } from './plan-history'
-import { dailyScores, scoreLabel, scoreTone, weekAverage, weekDays, weekStart, type DayScore } from './scores'
+import { dailyScores, extraWork, scoreLabel, scoreTone, weekAverage, weekDays, weekStart, type DayScore } from './scores'
 
-/** Every coordinator's day scores, live from the shared records. */
-function useScores(coordinatorIds: string[]): Map<string, DayScore> {
+/** Every coordinator's day scores, and extra work per day, live from the shared records. */
+function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; extra: Map<string, number> } {
   const [version, setVersion] = useState(0)
   useEffect(() => subscribeToDemoStore(() => setVersion((v) => v + 1)), [])
   const key = coordinatorIds.join(',')
@@ -35,10 +35,13 @@ function useScores(coordinatorIds: string[]): Map<string, DayScore> {
       ])
     )
     const plans = demoCompanyStore.getDailyPlans().filter((p) => mine.has(p.userId))
-    const rows = planHistory(plans, demoCompanyStore.getAllFollowups(), todayISO(), owed, mine, customerLookup(companies, overdue), (u, d) =>
+    const followups = demoCompanyStore.getAllFollowups()
+    const customerOf = customerLookup(companies, overdue)
+    const rows = planHistory(plans, followups, todayISO(), owed, mine, customerOf, (u, d) =>
       demoCompanyStore.getAttendance(u, d)?.status ?? null
     )
-    return dailyScores(rows)
+    const extra = extraWork(plans, followups.filter((f) => mine.has(f.coordinator_id)), customerOf)
+    return { scores: dailyScores(rows, extra), extra: new Map([...extra].map(([k, v]) => [k, v.length])) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, key])
 }
@@ -48,15 +51,29 @@ const dayName = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateStrin
 /** On leave that day: shown as such and never scored (marked in Overview → Attendance). */
 const onLeave = (userId: string, date: string) => demoCompanyStore.getAttendance(userId, date)?.status === 'leave'
 
-function Cell({ s, today, leave }: { s?: DayScore; today: boolean; leave?: boolean }) {
-  if (leave) return <span className="text-xs text-muted-foreground" title="On leave: not scored">Leave</span>
-  if (!s) return <span className="text-muted-foreground">—</span>
+/** "+3 extra" under a day: customers followed up who were not on Robi's list. */
+function Extra({ n, credited }: { n?: number; credited?: number }) {
+  if (!n) return null
   return (
-    <span title={`${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}`}>
+    <div
+      className="text-[11px] font-medium text-sky-600 dark:text-sky-400"
+      title={`${n} customer${n === 1 ? '' : 's'} followed up outside Robi's list${credited ? `; ${credited} made up for missed tasks` : ''}`}
+    >
+      +{n} extra
+    </div>
+  )
+}
+
+function Cell({ s, today, leave, extra }: { s?: DayScore; today: boolean; leave?: boolean; extra?: number }) {
+  if (leave) return <span className="text-xs text-muted-foreground" title="On leave: not scored">Leave</span>
+  if (!s) return extra ? <Extra n={extra} /> : <span className="text-muted-foreground">—</span>
+  return (
+    <span title={`${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}${s.credited ? `, plus ${s.credited} extra counted` : ''}`}>
       <span className={cn('font-semibold tabular-nums', scoreTone(s.score))}>{scoreLabel(s.score)}</span>
       <span className="ml-1 text-[11px] text-muted-foreground tabular-nums">
         {s.done}/{s.given}
       </span>
+      <Extra n={s.extra} credited={s.credited} />
     </span>
   )
 }
@@ -66,13 +83,13 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
   const today = todayISO()
   const [monday, setMonday] = useState(() => weekStart(today))
   const days = weekDays(monday)
-  const scores = useScores(coordinators.map((c) => c.id))
+  const { scores, extra } = useScores(coordinators.map((c) => c.id))
 
   const table = coordinators.map((c) => {
     const week = days.map((d) => scores.get(`${c.id}|${d}`))
     return { id: c.id, name: c.full_name, week, average: weekAverage(week) }
   })
-  const rows = table.filter((r) => r.week.some(Boolean))
+  const rows = table.filter((r) => r.week.some(Boolean) || days.some((d) => extra.get(`${r.id}|${d}`)))
   const teamAverage = weekAverage(rows.flatMap((r) => r.week))
 
   const download = async () => {
@@ -80,13 +97,18 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
     const header = ['Coordinator', ...days.map((d) => `${dayName(d)} ${d}`), 'Weekly average']
     const body = rows.map((r) => [
       r.name,
-      ...r.week.map((s, i) => (onLeave(r.id, days[i]) ? 'Leave' : s ? `${s.score}% (${s.done}/${s.given})` : '—')),
+      ...r.week.map((s, i) => {
+        const more = extra.get(`${r.id}|${days[i]}`)
+        if (onLeave(r.id, days[i])) return 'Leave'
+        if (!s) return more ? `+${more} extra` : '—'
+        return `${s.score}% (${s.done}/${s.given}${s.extra ? `, +${s.extra} extra` : ''})`
+      }),
       r.average === null ? '—' : `${r.average}%`,
     ])
     const raw = [
-      ['Coordinator', 'Date', 'Done', 'Tasks given', 'Score %'],
+      ['Coordinator', 'Date', 'Done', 'Tasks given', 'Extra customers', 'Extra counted', 'Score %'],
       ...rows.flatMap((r) =>
-        days.flatMap((d, i) => (r.week[i] ? [[r.name, d, r.week[i]!.done, r.week[i]!.given, r.week[i]!.score]] : []))
+        days.flatMap((d, i) => (r.week[i] ? [[r.name, d, r.week[i]!.done, r.week[i]!.given, r.week[i]!.extra, r.week[i]!.credited, r.week[i]!.score]] : []))
       ),
     ]
     downloadWorkbook(`Coordinator scores - week of ${monday}.xlsx`, [
@@ -106,7 +128,8 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
             <h3 className="font-semibold leading-tight">Coordinator scores</h3>
             <p className="text-xs text-muted-foreground">
               Each day: tasks done ÷ tasks on Robi's list (8 fresh + any leftovers), shown as the gap from 100% —
-              0% is every task done, -20% is 80% done. Monday to Saturday; days with no plan, and leave days
+              0% is every task done, -20% is 80% done. Customers followed up outside Robi's list show as +extra and make
+              up for missed tasks, up to 0%. Monday to Saturday; days with no plan, and leave days
               marked in Attendance, show — or Leave and are left out of the average.
             </p>
           </div>
@@ -150,7 +173,7 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
                   <td className="whitespace-nowrap px-4 py-3 font-medium">{r.name}</td>
                   {r.week.map((s, i) => (
                     <td key={days[i]} className={cn('whitespace-nowrap px-3 py-3 text-center', days[i] === today && 'bg-primary/5')}>
-                      <Cell s={s} today={days[i] === today} leave={onLeave(r.id, days[i])} />
+                      <Cell s={s} today={days[i] === today} leave={onLeave(r.id, days[i])} extra={extra.get(`${r.id}|${days[i]}`)} />
                     </td>
                   ))}
                   <td className={cn('px-4 py-3 text-center text-base font-bold tabular-nums', scoreTone(r.average))}>{scoreLabel(r.average)}</td>
@@ -175,7 +198,8 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
 export function MyScoreCard({ userId }: { userId: string }) {
   const today = todayISO()
   const days = weekDays(weekStart(today))
-  const scores = useScores([userId])
+  const { scores, extra } = useScores([userId])
+  const extraThisWeek = days.reduce((n, d) => n + (extra.get(`${userId}|${d}`) ?? 0), 0)
   const week = days.map((d) => scores.get(`${userId}|${d}`))
   const todayScore = scores.get(`${userId}|${today}`)
   const average = weekAverage(week)
@@ -196,13 +220,16 @@ export function MyScoreCard({ userId }: { userId: string }) {
         <div className="rounded-lg border border-border/60 p-3">
           <p className="text-xs text-muted-foreground">This week</p>
           <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(average))}>{scoreLabel(average)}</p>
-          <p className="text-xs text-muted-foreground">Mon–Sat average</p>
+          <p className="text-xs text-muted-foreground">
+            Mon–Sat average{extraThisWeek ? ` · +${extraThisWeek} extra customer${extraThisWeek === 1 ? '' : 's'}` : ''}
+          </p>
         </div>
         <div className="col-span-2 flex items-end justify-between gap-1 rounded-lg border border-border/60 p-3">
           {days.map((d, i) => (
             <div key={d} className={cn('flex-1 text-center', d === today && 'font-semibold')}>
               <p className="text-[11px] text-muted-foreground">{dayName(d)}</p>
               <p className={cn('text-sm tabular-nums', scoreTone(week[i]?.score))}>{onLeave(userId, d) ? 'Leave' : scoreLabel(week[i]?.score)}</p>
+              <Extra n={extra.get(`${userId}|${d}`)} credited={week[i]?.credited} />
             </div>
           ))}
         </div>
