@@ -12,10 +12,10 @@
  * the ones her Excel formula gives. Only the old day's targets are used.
  */
 
-import type { OverduePayment } from '@/lib/types'
-import { isSetAside } from '@/lib/no-followup'
-import { calculateCollectionsKpi, type KpiInputRow } from '@/features/collections-kpi/kpi-calculator'
-import type { ScoreRow, SnapshotTableRow } from '@shared/snapshots'
+import type { OverduePayment } from '../../lib/types'
+import { isSetAside } from '../../lib/no-followup'
+import { calculateCollectionsKpi, type KpiInputRow } from '../collections-kpi/kpi-calculator'
+import type { ScoreRow, SnapshotTableRow } from '../../../shared/snapshots'
 
 /** The column names of the transformed day, exactly as Niki's sheet has them. */
 export const DAY_COLUMNS = [
@@ -184,6 +184,19 @@ export function scoreTwoDays(oldTable: SnapshotTableRow[], newTable: SnapshotTab
   }
 }
 
+/**
+ * The KPI score as the gap from 100% (since 13 Oct 2026), the same way the
+ * daily scores read: 80 is -20%, 100 is 0%. The calculation is unchanged;
+ * only how it is written.
+ */
+export function kpiGap(score: number): number {
+  return Math.round((score - 100) * 100) / 100 || 0
+}
+
+export function kpiGapLabel(score: number): string {
+  return `${kpiGap(score)}%`
+}
+
 /* ===================== Sheets for download ===================== */
 
 type Cell = string | number | null
@@ -210,7 +223,7 @@ export function resultSheet(rows: ScoreRow[]): Cell[][] {
   const sum = (pick: (row: ScoreRow) => number) => round2(rows.reduce((t, row) => t + pick(row), 0))
   return [
     [...RESULT_COLUMNS],
-    ...rows.map((r) => [r.coordinatorName, r.target30to120, r.achieve30to120, r.target120Plus, r.achieve120Plus, r.kpiScore]),
+    ...rows.map((r) => [r.coordinatorName, r.target30to120, r.achieve30to120, r.target120Plus, r.achieve120Plus, kpiGapLabel(r.kpiScore)]),
     ['Total', sum((r) => r.target30to120), sum((r) => r.achieve30to120), sum((r) => r.target120Plus), sum((r) => r.achieve120Plus), null],
   ]
 }

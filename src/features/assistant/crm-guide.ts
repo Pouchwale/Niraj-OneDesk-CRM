@@ -64,6 +64,10 @@ EXPORT CLIENT AND SET-ASIDE AMOUNTS
 - The Dashboard shows four "Set aside" amount cards (No follow-up, Dispute, Export client, Bankrupt): the team leader and administrator see the whole team, a coordinator only their own customers. Each customer is counted once: their ageing balance where they have an Overdue row, otherwise their open invoices.
 - A coordinator's Dashboard also shows "My weekly progress": the Mon-Sat average score for each of the last 8 weeks, tasks done, extra work and leave days, and whether this week is ahead of or behind last week.
 
+WEEKLY KPI
+- "Save today's data" (Overdue Payments and Weekly KPI, team leader/admin) freezes the Overdue book for the weekly score. Every Monday it is also saved automatically: from 10:00, as soon as that morning's Overdue sync is in, or at 13:00 with whatever data there is. Only one save per Monday; a manual save that day counts.
+- Weekly KPI compares two saved days. Its KPI score is written as the gap from 100%: 80 out of 100 shows as -20%, a full score as 0% (the same way as the daily scores). The Collections KPI page shows its score the same way.
+
 ROBI'S DAILY PLAN
 - Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. An Active Payments invoice only becomes a task once it is past its due date or due within the next 2 days; nothing earlier is planned, not even a follow-up date or promise set on an invoice that is not yet due. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.
 - A task is done when the coordinator logs any follow-up on that customer that day - on any of its invoices or its overdue row (not the follow-up that created the task, such as the customer's own promise).

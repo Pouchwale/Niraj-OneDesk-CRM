@@ -22,6 +22,7 @@ import { excelRoutes } from './modules/excel/routes'
 import { healthRoutes } from './modules/health/routes'
 import { createSnapshotStore, type SnapshotStore } from './modules/snapshots/store'
 import { snapshotRoutes } from './modules/snapshots/routes'
+import { startAutoSave } from './modules/snapshots/auto-save'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
 import { requireRole, requireSession } from './modules/auth/middleware'
@@ -42,6 +43,8 @@ export interface ApiDeps {
   accounts?: AccountStore
   /** The same, for the shared working dataset. */
   data?: DataStore
+  /** Save Monday's Overdue day by itself (Weekly KPI). On by default in production. */
+  weeklyAutoSave?: boolean
 }
 
 /**
@@ -73,13 +76,25 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   // The one copy of the CRM everybody shares.
   const data = deps.data ?? createDataStore(config.dataDir)
 
+  const snapshots = deps.snapshots ?? createSnapshotStore(config.snapshotDir)
+  // Weekly KPI's Monday day, saved without anyone pressing the button.
+  if (deps.weeklyAutoSave ?? config.isProduction) {
+    startAutoSave({
+      snapshots,
+      overduePayments: () => data.snapshot().overduePayments,
+      nameOf: (id) => accounts.roster().find((u) => u.id === id)?.full_name ?? id,
+      fileModifiedAt: () => excel.status('overdue').modifiedAt,
+      logger,
+    })
+  }
+
   // A saved day carries the whole Overdue book — a few hundred kilobytes — so
   // these routes read their own, larger bodies and sit before the 1 MB limit.
   router.use(
     '/snapshots',
     requireSession(accounts, sessions),
     requireRole('team_leader'),
-    snapshotRoutes(deps.snapshots ?? createSnapshotStore(config.snapshotDir), logger)
+    snapshotRoutes(snapshots, logger)
   )
   /*
    * The working dataset is mounted first, with a body limit of its own: a day's

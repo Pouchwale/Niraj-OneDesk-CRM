@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { kpiGapLabel } from '@/features/snapshots/transform';
 import { Upload, AlertTriangle, Calculator, FileSpreadsheet } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -158,7 +159,7 @@ export function CollectionsKpiPage() {
                     <td className="px-4 py-3 text-right">{formatCurrency(r.Achievement_30_120)}</td>
                     <td className="px-4 py-3 text-right">{formatCurrency(r.Target_121_Plus)}</td>
                     <td className="px-4 py-3 text-right">{formatCurrency(r.Achievement_121_Plus)}</td>
-                    <td className="px-4 py-3 text-right font-bold text-primary">{r.KPI_Score}</td>
+                    <td className="px-4 py-3 text-right font-bold text-primary" title={`${r.KPI_Score} of 100`}>{kpiGapLabel(r.KPI_Score)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -17,7 +17,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
-import { formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
+import { scoreTone } from '@/features/assistant/scores'
 import {
   deleteSavedDay,
   getSavedDay,
@@ -45,6 +46,8 @@ import {
   resultSheet,
   scoreTwoDays,
   totalOfDay,
+  kpiGap,
+  kpiGapLabel,
 } from './transform'
 import { downloadWorkbook, fileStamp } from './download'
 import { SaveTodayButton } from './SaveTodayButton'
@@ -122,7 +125,9 @@ function ResultTable({ result }: { result: ScoreResult }) {
               <td className="px-3 py-2 text-right tabular-nums">{rupees(r.achieve30to120)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{rupees(r.target120Plus)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{rupees(r.achieve120Plus)}</td>
-              <td className="px-3 py-2 text-right font-semibold tabular-nums">{r.kpiScore.toFixed(2)}</td>
+              <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', scoreTone(kpiGap(r.kpiScore)))} title={`${r.kpiScore.toFixed(2)} of 100`}>
+                {kpiGapLabel(r.kpiScore)}
+              </td>
             </tr>
           ))}
           <tr className="bg-muted/30 font-semibold">
@@ -310,7 +315,7 @@ export function WeeklyKpiPage() {
     <div className="space-y-6 pb-12">
       <PageHeader
         title="Weekly KPI"
-        subtitle="Save the Overdue data on a day, then compare two saved days to score each coordinator"
+        subtitle="Save the Overdue data on a day, then compare two saved days to score each coordinator. Every Monday is saved automatically from 10:00, once that morning's Overdue sync is in (by 13:00 at the latest)."
         icon={<CalendarRange className="h-6 w-6" />}
       >
         <SaveTodayButton variant="default" onSaved={load} />
