@@ -194,61 +194,18 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
   )
 }
 
-/** A coordinator's own score on their Dashboard: today so far, this week, and each day. */
-export function MyScoreCard({ userId }: { userId: string }) {
-  const today = todayISO()
-  const days = weekDays(weekStart(today))
-  const { scores, extra } = useScores([userId])
-  const extraThisWeek = days.reduce((n, d) => n + (extra.get(`${userId}|${d}`) ?? 0), 0)
-  const week = days.map((d) => scores.get(`${userId}|${d}`))
-  const todayScore = scores.get(`${userId}|${today}`)
-  const average = weekAverage(week)
-
-  return (
-    <GlassCard className="space-y-3 p-4 sm:p-5" data-testid="my-score">
-      <div className="flex items-center gap-2">
-        <Target className="h-4 w-4 text-primary" />
-        <h3 className="font-semibold">My score</h3>
-        <span className="text-xs text-muted-foreground">0% means every task on Robi's list done</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-border/60 p-3">
-          <p className="text-xs text-muted-foreground">Today so far</p>
-          <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(todayScore?.score))}>{onLeave(userId, today) ? 'Leave' : scoreLabel(todayScore?.score)}</p>
-          {todayScore && <p className="text-xs text-muted-foreground">{todayScore.done} of {todayScore.given} done</p>}
-        </div>
-        <div className="rounded-lg border border-border/60 p-3">
-          <p className="text-xs text-muted-foreground">This week</p>
-          <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(average))}>{scoreLabel(average)}</p>
-          <p className="text-xs text-muted-foreground">
-            Mon–Sat average{extraThisWeek ? ` · +${extraThisWeek} extra customer${extraThisWeek === 1 ? '' : 's'}` : ''}
-          </p>
-        </div>
-        <div className="col-span-2 flex items-end justify-between gap-1 rounded-lg border border-border/60 p-3">
-          {days.map((d, i) => (
-            <div key={d} className={cn('flex-1 text-center', d === today && 'font-semibold')}>
-              <p className="text-[11px] text-muted-foreground">{dayName(d)}</p>
-              <p className={cn('text-sm tabular-nums', scoreTone(week[i]?.score))}>{onLeave(userId, d) ? 'Leave' : scoreLabel(week[i]?.score)}</p>
-              <Extra n={extra.get(`${userId}|${d}`)} credited={week[i]?.credited} />
-            </div>
-          ))}
-        </div>
-      </div>
-    </GlassCard>
-  )
-}
-
 /**
- * A coordinator's week on their Dashboard, one week at a time: ‹ › step back
- * through earlier weeks. Each day's score (done/given, extra work, leave), the
- * week's Mon–Sat average, and how it compares with the week before. Read from
- * the plans Robi keeps, so every past week stays available.
+ * A coordinator's own score on their Dashboard, one week at a time: ‹ › step
+ * back through earlier weeks (to the first week with a plan). This week shows
+ * today so far; an earlier week shows its tasks done. Then the week's Mon–Sat
+ * average against the week before, and each day.
  */
-export function MyWeeklyProgress({ userId }: { userId: string }) {
+export function MyScoreCard({ userId }: { userId: string }) {
   const today = todayISO()
   const thisMonday = weekStart(today)
   const [monday, setMonday] = useState(thisMonday)
   const { scores, extra } = useScores([userId])
+  const isThisWeek = monday === thisMonday
 
   const weekOf = (start: string) => {
     const days = weekDays(start)
@@ -264,9 +221,9 @@ export function MyWeeklyProgress({ userId }: { userId: string }) {
     }
   }
   const shown = weekOf(monday)
-  const before = weekOf(addDaysISO(monday, -7))
-  const change = shown.average !== null && before.average !== null ? shown.average - before.average : null
-  // The first week with a plan, so ‹ stops where the history starts.
+  const before = weekOf(addDaysISO(monday, -7)).average
+  const change = shown.average !== null && before !== null ? shown.average - before : null
+  const todayScore = scores.get(`${userId}|${today}`)
   const firstPlan = demoCompanyStore
     .getDailyPlans()
     .filter((p) => p.userId === userId)
@@ -274,67 +231,62 @@ export function MyWeeklyProgress({ userId }: { userId: string }) {
   const canGoBack = firstPlan !== null && monday > weekStart(firstPlan)
 
   return (
-    <GlassCard className="space-y-4 p-4 sm:p-5" data-testid="my-weekly-progress">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <GlassCard className="space-y-3 p-4 sm:p-5" data-testid="my-score">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Target className="h-4 w-4 text-primary" />
-          <h3 className="font-semibold">My weekly progress</h3>
+          <h3 className="font-semibold">My score</h3>
+          <span className="hidden text-xs text-muted-foreground sm:inline">0% means every task on Robi's list done</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setMonday(addDaysISO(monday, -7))} disabled={!canGoBack} aria-label="Previous week">
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setMonday(addDaysISO(monday, -7))} disabled={!canGoBack} aria-label="Previous week">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="min-w-[170px] text-center text-sm font-medium tabular-nums" data-testid="progress-week">
-            {monday === thisMonday ? 'This week' : `${formatDate(shown.days[0])} – ${formatDate(shown.days[5])}`}
+          <span className="min-w-[150px] text-center text-xs font-medium tabular-nums" data-testid="score-week">
+            {isThisWeek ? 'This week' : `${formatDate(shown.days[0])} – ${formatDate(shown.days[5])}`}
           </span>
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setMonday(addDaysISO(monday, 7))} disabled={monday >= thisMonday} aria-label="Next week">
+          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setMonday(addDaysISO(monday, 7))} disabled={isThisWeek} aria-label="Next week">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
       </div>
-
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-border/60 p-3">
-          <p className="text-xs text-muted-foreground">Week score</p>
-          <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(shown.average))}>{scoreLabel(shown.average)}</p>
-          <p className="text-xs text-muted-foreground">Mon–Sat average</p>
-        </div>
-        <div className="rounded-lg border border-border/60 p-3">
-          <p className="text-xs text-muted-foreground">Robi tasks done</p>
-          <p className="mt-1 text-2xl font-bold tabular-nums">{shown.given ? `${shown.done}/${shown.given}` : '—'}</p>
-          <p className="text-xs text-sky-600 dark:text-sky-400">{shown.extra ? `+${shown.extra} extra customers` : 'No extra work'}</p>
-        </div>
-        <div className="col-span-2 rounded-lg border border-border/60 p-3">
-          <p className="text-xs text-muted-foreground">Against the week before</p>
-          <p
-            className={cn(
-              'mt-1 text-lg font-semibold',
-              change === null ? 'text-muted-foreground' : change > 0 ? 'text-emerald-600' : change < 0 ? 'text-rose-600' : ''
-            )}
-          >
-            {change === null ? 'Nothing to compare' : change > 0 ? `${change} points better` : change < 0 ? `${-change} points behind` : 'The same'}
-          </p>
-          <p className="text-xs text-muted-foreground">Week before: {scoreLabel(before.average)}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-        {shown.days.map((d, i) => (
-          <div key={d} className={cn('rounded-lg border border-border/60 p-2 text-center', d === today && 'border-primary/50 bg-primary/5')}>
-            <p className="text-[11px] text-muted-foreground">
-              {dayName(d)} {new Date(`${d}T00:00:00`).getDate()}
-            </p>
-            {onLeave(userId, d) ? (
-              <p className="mt-1 text-sm text-muted-foreground">Leave</p>
-            ) : (
-              <>
-                <p className={cn('mt-1 text-sm font-semibold tabular-nums', scoreTone(shown.week[i]?.score))}>{scoreLabel(shown.week[i]?.score)}</p>
-                <p className="text-[11px] tabular-nums text-muted-foreground">{shown.week[i] ? `${shown.week[i]!.done}/${shown.week[i]!.given}` : ''}</p>
-              </>
-            )}
-            <Extra n={extra.get(`${userId}|${d}`)} credited={shown.week[i]?.credited} />
+        {isThisWeek ? (
+          <div className="rounded-lg border border-border/60 p-3">
+            <p className="text-xs text-muted-foreground">Today so far</p>
+            <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(todayScore?.score))}>{onLeave(userId, today) ? 'Leave' : scoreLabel(todayScore?.score)}</p>
+            {todayScore && <p className="text-xs text-muted-foreground">{todayScore.done} of {todayScore.given} done</p>}
           </div>
-        ))}
+        ) : (
+          <div className="rounded-lg border border-border/60 p-3">
+            <p className="text-xs text-muted-foreground">Robi tasks done</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{shown.given ? `${shown.done}/${shown.given}` : '—'}</p>
+            <p className="text-xs text-muted-foreground">that week</p>
+          </div>
+        )}
+        <div className="rounded-lg border border-border/60 p-3">
+          <p className="text-xs text-muted-foreground">{isThisWeek ? 'This week' : 'Week score'}</p>
+          <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(shown.average))}>{scoreLabel(shown.average)}</p>
+          <p
+            className={cn('text-xs', change === null ? 'text-muted-foreground' : change > 0 ? 'text-emerald-600' : change < 0 ? 'text-rose-600' : 'text-muted-foreground')}
+            title={`Week before: ${scoreLabel(before)}`}
+          >
+            {change === null ? 'Mon–Sat average' : change > 0 ? `${change} points better than the week before` : change < 0 ? `${-change} points behind the week before` : 'Same as the week before'}
+          </p>
+          {shown.extra > 0 && <p className="text-xs text-sky-600 dark:text-sky-400">+{shown.extra} extra customer{shown.extra === 1 ? '' : 's'}</p>}
+        </div>
+        <div className="col-span-2 flex items-end justify-between gap-1 rounded-lg border border-border/60 p-3">
+          {shown.days.map((d, i) => (
+            <div key={d} className={cn('flex-1 text-center', d === today && 'font-semibold')}>
+              <p className="text-[11px] text-muted-foreground">
+                {dayName(d)} {new Date(`${d}T00:00:00`).getDate()}
+              </p>
+              <p className={cn('text-sm tabular-nums', scoreTone(shown.week[i]?.score))}>{onLeave(userId, d) ? 'Leave' : scoreLabel(shown.week[i]?.score)}</p>
+              {shown.week[i] && <p className="text-[10px] tabular-nums text-muted-foreground">{shown.week[i]!.done}/{shown.week[i]!.given}</p>}
+              <Extra n={extra.get(`${userId}|${d}`)} credited={shown.week[i]?.credited} />
+            </div>
+          ))}
+        </div>
       </div>
     </GlassCard>
   )
