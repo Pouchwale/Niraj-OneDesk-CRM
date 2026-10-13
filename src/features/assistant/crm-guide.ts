@@ -60,7 +60,7 @@ READY FOR DISPATCH (RFD)
 - The team leader or administrator syncs it with "Sync now" on that page; the workbook itself is refreshed from SAP every morning at 09:30.
 
 ROBI'S DAILY PLAN
-- Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.
+- Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. An Active Payments invoice only becomes a task once it is past its due date or due within the next 2 days; nothing earlier is planned, not even a follow-up date or promise set on an invoice that is not yet due. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.
 - A task is done when the coordinator logs any follow-up on that customer that day - on any of its invoices or its overdue row (not the follow-up that created the task, such as the customer's own promise).
 - "Later" sets a task aside for the day. Anything not done comes back at the top of the next day's plan, on top of that day's 8 new tasks, reworded with that day's facts.
 - There is no extra work after the plan: once the day's tasks are done, Robi adds nothing more that day.

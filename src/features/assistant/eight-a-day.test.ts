@@ -132,8 +132,8 @@ describe('the Active Payments half is filled even when nobody has gone quiet', (
       followup('company', id, { followup_date: `${TODAY}T09:00:00`, created_at: id === 'rung' ? `${TODAY}T09:00:00.000Z` : '2026-10-05T09:00:00.000Z' })
     )
     const plan = planFor(TODAY, companies, [], followups, true)
-    // Called two days ago with no next date, or today: resting. Only the invoice not yet due is left.
-    expect(plan.items.map((i) => i.entityId)).toEqual(['later'])
+    // Called two days ago with no next date, or today: resting. The invoice due in December is not work yet.
+    expect(plan.items.map((i) => i.entityId)).toEqual([])
   })
 })
 
@@ -170,13 +170,16 @@ describe('eight for everyone who has eight customers to ring', () => {
   }))
   const overdue = ['p', 'q', 'r', 's'].map((id) => ageing(id))
 
-  it('makes up a short Overdue half from Active Payments, invoices not yet due included', () => {
+  it('makes up a short Overdue half from Active Payments, past due or due within two days only', () => {
     // Every overdue customer has a later follow-up date: none of them today.
     const followups = overdue.map((o) => followup('overdue_payment', o.id, { next_reminder_date: '2026-10-20' }))
-    const plan = planFor(TODAY, companies, overdue, followups, true)
+    const soon = companies.map((c, n) => (n >= 5 && n < 8 ? { ...c, due_date: '2026-10-09', status: 'upcoming' as const } : c))
+    const plan = planFor(TODAY, soon, overdue, followups, true)
+    // 5 past due + 3 due on 9 Oct (two days away); the two due in December wait.
     expect(plan.items).toHaveLength(8)
     expect(plan.items.every((i) => i.entityType === 'company')).toBe(true)
-    expect(new Set(plan.items.map((i) => i.entityId)).size).toBe(8)
+    expect(plan.items.map((i) => i.entityId)).not.toContain('i')
+    expect(plan.items.map((i) => i.entityId)).not.toContain('j')
   })
 
   it('makes up a short Active half from Overdue Payments', () => {
@@ -190,5 +193,20 @@ describe('eight for everyone who has eight customers to ring', () => {
     const followups = companies.map((c) => followup('company', c.id, { next_reminder_date: '2026-10-20' }))
     const plan = planFor(TODAY, companies, overdue, followups, true)
     expect(plan.items.map((i) => i.entityId).sort()).toEqual(['p', 'q', 'r', 's'])
+  })
+})
+
+describe('Active Payments: only past due, or due within two days', () => {
+  const due = (id: string, date: string) => ({ ...invoice(id), due_date: date, status: 'upcoming' as const })
+
+  it('plans an invoice due in two days, not one due in three', () => {
+    const plan = planFor(TODAY, [due('in2', '2026-10-09'), due('in3', '2026-10-10'), invoice('past')], [], [], true)
+    expect(plan.items.map((i) => i.entityId).sort()).toEqual(['in2', 'past'])
+  })
+
+  it('ignores a date the coordinator set on an invoice not yet due', () => {
+    const notDue = due('later', '2026-11-30')
+    const followups = [followup('company', 'later', { followup_date: '2026-09-20T10:00:00', created_at: '2026-09-20T10:00:00.000Z', next_reminder_date: TODAY })]
+    expect(planFor(TODAY, [notDue], [], followups, true).items).toHaveLength(0)
   })
 })

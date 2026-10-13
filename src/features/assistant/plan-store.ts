@@ -15,7 +15,7 @@
 import type { Company, Followup, OverduePayment } from '@/lib/types'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import { isSetAside } from '@/lib/no-followup'
-import { formatCurrency, formatDate, formatRelativeDate } from '@/lib/utils'
+import { addDaysISO, formatCurrency, formatDate, formatRelativeDate } from '@/lib/utils'
 import { nextToFollowUp, type NextUp } from './next-up'
 import { pickProofTasks } from './proof'
 import { planForAttendance } from './attendance'
@@ -159,12 +159,15 @@ export function ensurePlan(
   }
 
   // Nobody waiting for a later date, or resting after a recent call, is planned.
+  // Active Payments only once the invoice is past due or due within two days.
   if (evidence) {
     const resting = waitingCustomers(evidence.followups, date, evidence.customerOf, true)
+    const dueEnough = activeAllowed(date, evidence)
     tasks = tasks.filter((task) => {
       const key = entityKeyOf(task)
-      return !key || !resting.has(evidence!.customerOf?.(key) ?? key)
+      return !key || (!resting.has(evidence!.customerOf?.(key) ?? key) && dueEnough(key))
     })
+    carried = carried.filter((item) => dueEnough(entityKeyOf(item)))
   }
   const active = makePlan(userId, date, tasks, carried, undefined, evidence?.customerOf, evidence?.balanceOf, evidence?.dueDateOf, evidence?.perHalf ?? PLAN_SIZE)
   // Four Active Payments tasks, then four Overdue Payments tasks: eight a day.
@@ -230,7 +233,9 @@ function activeFill(
   now: Date = new Date(),
   // Fresh tasks only: leftovers from earlier days sit on top of the day's four.
   room: number = (evidence.perHalf ?? PLAN_SIZE) - planItems.filter((item) => item.entityType === 'company' && !item.carriedFrom).length,
-  statuses: string[] = ['overdue', 'critical']
+  statuses: string[] = ['overdue', 'critical'],
+  /** Given, only invoices due on or before this date. */
+  dueBy?: string
 ): PlanItem[] {
   if (room <= 0) return []
   const customer = (entityKey: string) => evidence.customerOf?.(entityKey) ?? entityKey
@@ -246,6 +251,7 @@ function activeFill(
 
   const candidates = (evidence.companies ?? [])
     .filter((c) => statuses.includes(c.status) && !isSetAside(c))
+    .filter((c) => !dueBy || (c.due_date !== null && c.due_date !== undefined && c.due_date.slice(0, 10) <= dueBy))
     .filter((c) => (c.total_amount ?? 0) >= PLAN_MIN_AMOUNT)
     .sort(
       (a, b) =>
@@ -277,6 +283,27 @@ function activeFill(
   return picked
 }
 
+/** Days ahead of its due date an Active Payments invoice becomes work (since 13 Oct 2026). */
+export const ACTIVE_DUE_WINDOW_DAYS = 2
+
+/**
+ * Whether an Active Payments task may be planned: the invoice is past due, or
+ * due within two days. Nothing earlier, whatever raised it - a quiet spell, a
+ * date the coordinator set, a promise. Overdue Payments rows always pass.
+ */
+export function activeAllowed(date: string, evidence: Pick<PlanEvidence, 'companies' | 'dueDateOf'>) {
+  const dueBy = addDaysISO(date, ACTIVE_DUE_WINDOW_DAYS)
+  const byId = new Map((evidence.companies ?? []).map((c) => [c.id, c]))
+  return (key: string | null): boolean => {
+    if (!key || !key.startsWith('company:')) return true
+    const invoice = byId.get(key.slice('company:'.length))
+    if (invoice?.status === 'paid') return false
+    const due = invoice?.due_date ?? evidence.dueDateOf?.(key) ?? null
+    if (due) return due.slice(0, 10) <= dueBy
+    return invoice ? invoice.status === 'overdue' || invoice.status === 'critical' : true
+  }
+}
+
 /**
  * Eight fresh tasks a day for everyone who has eight customers to ring. When
  * one half comes up short - every overdue customer waiting for a later date,
@@ -304,7 +331,8 @@ export function topUp(userId: string, date: string, planItems: PlanItem[], evide
     added.push(...picks.map((pick) => overdueItem(pick, `overdue:${date}:${pick.id}`, now.toISOString())))
   }
   if (short() > 0 && evidence.companies) {
-    added.push(...activeFill(date, [...planItems, ...added], evidence, now, short(), ['current', 'upcoming']))
+    // Not yet due: only what falls due within two days.
+    added.push(...activeFill(date, [...planItems, ...added], evidence, now, short(), ['current', 'upcoming'], addDaysISO(date, ACTIVE_DUE_WINDOW_DAYS)))
   }
   return added
 }
