@@ -156,7 +156,11 @@ export function buildRfdRows(
 
   for (const row of rows) {
     const customer = text(cell(row, 'customer_name'))
-    const pending = num(cell(row, 'pending_value')) ?? 0
+    // SAP fills the pending value for pouches only; labels and sleeves (FGLA,
+    // FGSL) come blank, so there it is the RFD value less what has been paid.
+    const pending =
+      num(cell(row, 'pending_value')) ??
+      (num(cell(row, 'rfd_value')) ?? 0) - (num(cell(row, 'paid_1')) ?? 0) - (num(cell(row, 'paid_2')) ?? 0)
     if (!customer || pending <= 0) continue
     const anchor = find(customer)
     if (!anchor) unlinked.add(customer)

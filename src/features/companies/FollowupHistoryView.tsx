@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, MessageCircle, Mail, Phone, Users, FileText, Search, History } from 'lucide-react'
 
 import { GlassCard } from '@/components/shared/GlassCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StickyScrollbar } from '@/components/shared/StickyScrollbar'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -63,6 +64,7 @@ const RANGES = [
  * logged the follow-up, so a trail stays with the person who made the calls.
  */
 export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAside = false }: FollowupHistoryViewProps) {
+  const tableScroller = useRef<HTMLDivElement>(null)
   const [entries, setEntries] = useState<FollowupHistoryEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -225,7 +227,8 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
         ))}
       </div>
 
-      <GlassCard className="p-4 sm:p-6">
+      {/* overflow-visible: a clipping card would stop the table's scrollbar from pinning to the screen. */}
+      <GlassCard className="overflow-visible p-4 sm:p-6">
         {error ? (
           <p className="py-10 text-center text-sm text-rose-500">{error}</p>
         ) : isLoading ? (
@@ -238,7 +241,7 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
           />
         ) : (
           <div className="rounded-lg border border-border">
-            <Table>
+            <Table containerRef={tableScroller} containerClassName="scrollbar-none">
               <TableHeader>
                 <TableRow>
                   <TableHead>{show === 'latest' ? 'Last contact' : 'Date'}</TableHead>
@@ -315,6 +318,8 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
                 })}
               </TableBody>
             </Table>
+            {/* Offsets cancel the scrolling pane's bottom padding, so the bar sits on the screen's edge. */}
+            <StickyScrollbar target={tableScroller} className="-bottom-4 md:-bottom-6" />
           </div>
         )}
       </GlassCard>

@@ -51,6 +51,22 @@ describe('the RFD sheet', () => {
     expect(unlinked).toEqual(['Nobody We Know Ltd'])
   })
 
+  it('works out the pending value where SAP leaves it blank, as it does for labels and sleeves', () => {
+    const { rows } = buildRfdRows(
+      [
+        line('Sinochem India Company Pvt Ltd', null),
+        line('Sinochem India Company Pvt Ltd', null, { 'Sales Order No.': '30001', 'FG Item Code': 'FGSL0101', 'Payment Amount 1': 618 }),
+        line('Sinochem India Company Pvt Ltd', null, { 'Sales Order No.': '30002', 'RFD Value': 0 }),
+      ],
+      mapping,
+      [],
+      [overdue],
+      '2026-10-13T10:00:00.000Z'
+    )
+    expect(rows.map((r) => r.pending_value)).toEqual([2618, 2000])
+    expect(rows.every((r) => r.assigned_coordinator_id === 'coord-3')).toBe(true)
+  })
+
   it('gives every FGPO line to Avani Patel, and other items to the customer coordinator', () => {
     const users = (name: string) => (name === 'Avani Patel' ? 'coord-11' : null)
     const { rows } = buildRfdRows(
