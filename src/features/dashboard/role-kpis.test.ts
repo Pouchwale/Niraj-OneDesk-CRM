@@ -79,7 +79,6 @@ function snapshot(role: UserRole, overrides: Partial<KpiSnapshot> = {}): KpiSnap
     commitments: [],
     companies: [],
     overduePayments: [],
-    entries: [],
     coordinatorCount: 7,
     ...overrides,
   }

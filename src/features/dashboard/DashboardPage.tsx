@@ -5,9 +5,7 @@ import {
 } from 'lucide-react';
 import { KpiCard } from '@/components/shared/KpiCard';
 import { GreetingBanner } from '@/components/shared/GreetingBanner';
-import { useDailyEntries } from '@/features/daily-logs/hooks/useDailyEntries';
 import { useAuth } from '@/features/auth/AuthContext';
-import { todayISO } from '@/lib/utils';
 import { useRoleKpis } from './hooks/useRoleKpis';
 import { MyScoreCard } from '@/features/assistant/ScoresView';
 import { SetAsideKpis } from './SetAsideKpis';
@@ -76,11 +74,7 @@ const MOTIVATIONAL_MESSAGES = [
 export function DashboardPage() {
   const { user } = useAuth();
   const { kpis, sectionTitle, isLoading } = useRoleKpis();
-  const { getEntryByDate } = useDailyEntries();
 
-  // Local calendar date: toISOString() would resolve to UTC and, in IST, report
-  // yesterday's entry as today's.
-  const userTodayEntry = user ? getEntryByDate(user.id, todayISO()) : null;
 
   const randomMessage = React.useMemo(() => {
     return MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)];
@@ -102,8 +96,6 @@ export function DashboardPage() {
         <div className="space-y-4">
           <GreetingBanner 
             user={user} 
-            todaySubmitted={!!userTodayEntry} 
-            todayStatus={userTodayEntry?.overall_status}
           />
           <motion.div 
             initial={{ opacity: 0, y: -10 }}

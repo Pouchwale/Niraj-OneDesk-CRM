@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { LayoutDashboard, CalendarPlus, CalendarDays, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Target, Building2, AlertTriangle, PackageCheck, FileText } from 'lucide-react';
+import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Building2, AlertTriangle, PackageCheck, FileText } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { cn } from '@/lib/utils';
 
@@ -13,7 +13,7 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: SidebarProps) => {
-  const { isAdmin, isCoordinator, canManageTeam } = useAuth();
+  const { isAdmin, canManageTeam } = useAuth();
 
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', show: true },
@@ -22,12 +22,8 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
     { to: '/rfd', icon: PackageCheck, label: 'Ready for Dispatch', show: true },
     { to: '/quotations', icon: FileText, label: 'Quotations', show: true },
     { to: '/admin/overview', icon: Users, label: 'Overview', show: canManageTeam },
-    { to: '/daily-entry', icon: CalendarPlus, label: 'Daily Entry', show: isCoordinator },
-    { to: '/my-entries', icon: CalendarDays, label: 'My Entries', show: isCoordinator },
     { to: '/otif', icon: BarChart3, label: 'OTIF Analytics', show: canManageTeam },
-    { to: '/team-activity', icon: Users, label: 'Team Activity', show: canManageTeam },
     { to: '/weekly-kpi', icon: CalendarRange, label: 'Weekly KPI', show: canManageTeam },
-    { to: '/collections-kpi', icon: Target, label: 'Collections KPI', show: canManageTeam },
     { to: '/settings', icon: Settings, label: 'Settings', show: canManageTeam },
     { to: '/admin/users', icon: ShieldCheck, label: 'Admin Panel', show: isAdmin },
   ];

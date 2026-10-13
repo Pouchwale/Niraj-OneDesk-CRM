@@ -14,7 +14,7 @@
 
 import type { OverduePayment } from '../../lib/types'
 import { isSetAside } from '../../lib/no-followup'
-import { calculateCollectionsKpi, type KpiInputRow } from '../collections-kpi/kpi-calculator'
+import { calculateCollectionsKpi, type KpiInputRow } from './kpi-calculator'
 import type { ScoreRow, SnapshotTableRow } from '../../../shared/snapshots'
 
 /** The column names of the transformed day, exactly as Niki's sheet has them. */

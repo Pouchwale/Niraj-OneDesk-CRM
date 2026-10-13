@@ -20,8 +20,7 @@ SCREENS (left-hand menu)
 - Active Payments: one row per open invoice, from the Excel sheet "CRM ACTIVE PAYMENT". Search, Status filter, Due-date filter, coordinator buttons (leader/admin), Excel download. Click a row to open the account panel.
 - Overdue Payments: one row per customer from the ageing report, the Excel sheet "CRM OverDue": Total Due and the buckets 0-30, 31-60, 61-90, 91-120 and 121+ days. The Ageing breakdown panel at the top totals each bucket; click a bucket to list its companies. Search, Status filter, Due-date filter, coordinator buttons (leader/admin), Excel download.
 - Overview (leader/admin): tabs Summary (per-coordinator breakdown), Follow-up history, Robi task history, Proof checks, Bankrupt register, No follow-up register, Dispute register.
-- Daily Entry and My Entries (coordinators): the daily activity log - calls, emails, orders, payments - and its history.
-- Team Activity, Weekly KPI, Collections KPI, OTIF Analytics (leader/admin): team performance from daily entries, weekly coordinator scores from saved days, collection performance, and on-time-in-full delivery analytics.
+- Weekly KPI and OTIF Analytics (leader/admin): weekly coordinator scores from saved Overdue days, and on-time-in-full delivery analytics. (Daily Entry, My Entries, Team Activity and Collections KPI were removed on 13 Oct 2026.)
 - Settings (leader/admin): Thresholds, Team Management, Coordinator Aliases, Import History, Upload History.
 - Admin Panel (administrator): add, edit and remove users and their logins.
 
@@ -66,7 +65,7 @@ EXPORT CLIENT AND SET-ASIDE AMOUNTS
 
 WEEKLY KPI
 - "Save today's data" (Overdue Payments and Weekly KPI, team leader/admin) freezes the Overdue book for the weekly score. Every Monday it is also saved automatically: from 10:00, as soon as that morning's Overdue sync is in, or at 13:00 with whatever data there is. Only one save per Monday; a manual save that day counts.
-- Weekly KPI compares two saved days. Its KPI score is written as the gap from 100%: 80 out of 100 shows as -20%, a full score as 0% (the same way as the daily scores). The Collections KPI page shows its score the same way.
+- Weekly KPI compares two saved days. Its KPI score is written as the gap from 100%: 80 out of 100 shows as -20%, a full score as 0% (the same way as the daily scores).
 
 CREDIT / DEBIT NOTES
 - Money past 120 days held up by a credit or debit note gets special attention: when the latest follow-up on an overdue customer with a 121+ balance mentions a credit note, debit note, CN or DN, Robi gives a "Credit/debit note pending" task every day, first in the list and on top of the day's 8, even if a later follow-up date was set, until a newer follow-up no longer mentions a note.

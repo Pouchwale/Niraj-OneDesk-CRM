@@ -219,7 +219,7 @@ describe('Active Payments first, then rounds of overdue accounts', () => {
     const nudge = composeNudge({
       role: 'coordinator', userId: 'coord-1', firstName: 'Pragati', today: DAY, minutesNow: 13 * 60,
       screen: 'dashboard', focused: null, tasks: [], plan: resolved,
-      followups: [], companies: [], overduePayments: [], dailyEntryLogged: null,
+      followups: [], companies: [], overduePayments: [],
     })
     expect(nudge?.text).toBe('Active Payments tasks done — here are 1 overdue accounts to follow up next.')
     expect(nudge?.key).toBe(`plan-round:${DAY}:1`)

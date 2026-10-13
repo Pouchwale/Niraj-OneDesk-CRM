@@ -12,7 +12,6 @@ import { Badge } from '@/components/ui/badge'
 import { cn, todayISO } from '@/lib/utils'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import { useAuth, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
-import { useDailyEntries } from '@/features/daily-logs/hooks/useDailyEntries'
 import { sendReminder, sendReminders } from '@/lib/reminders'
 import { seesAllAccounts } from '@/lib/users/roles'
 
@@ -200,7 +199,6 @@ export function AssistantWidget() {
   const team = useTeamPlans(isLeader)
   const screen = useScreen()
   const focused = useFocusedRecord()
-  const { getEntryByDate } = useDailyEntries()
 
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<AssistantMessage[]>([])
@@ -275,7 +273,6 @@ export function AssistantWidget() {
   /* ===== Speaking up ===== */
 
   const today = todayISO()
-  const dailyEntryLogged = isCoordinator && user ? !!getEntryByDate(user.id, today) : null
 
   useEffect(() => {
     if (!user || open || isLoading || (isLeader && team.isLoading)) return
@@ -293,7 +290,6 @@ export function AssistantWidget() {
       followups: isLeader ? team.followups : followups,
       companies: isLeader ? team.companies : companies,
       overduePayments: isLeader ? team.overduePayments : overduePayments,
-      dailyEntryLogged,
       team: isLeader ? team.team : undefined,
       brokenPromises: isLeader ? team.brokenPromises : undefined,
       coordinatorName: (id) => (id ? getCoordinatorDisplayName(id) : 'Unassigned'),
@@ -309,7 +305,7 @@ export function AssistantWidget() {
   }, [
     user, open, isLoading, isLeader, team.isLoading, team.followups, team.companies,
     team.overduePayments, team.team, team.brokenPromises, clock, today, screen, focused,
-    tasks, plan, followups, companies, overduePayments, dailyEntryLogged,
+    tasks, plan, followups, companies, overduePayments,
   ])
 
   useEffect(() => {

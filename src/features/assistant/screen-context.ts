@@ -15,12 +15,8 @@ export type Screen =
   | 'companies'
   | 'overdue'
   | 'overview'
-  | 'daily-entry'
-  | 'my-entries'
-  | 'team-activity'
   | 'otif'
   | 'settings'
-  | 'collections-kpi'
   | 'admin'
   | 'other'
 
@@ -31,12 +27,8 @@ export function screenFromPath(pathname: string): Screen {
   if (path.startsWith('/overdue')) return 'overdue'
   if (path.startsWith('/admin/overview')) return 'overview'
   if (path.startsWith('/admin')) return 'admin'
-  if (path.startsWith('/daily-entry')) return 'daily-entry'
-  if (path.startsWith('/my-entries')) return 'my-entries'
-  if (path.startsWith('/team')) return 'team-activity'
   if (path.startsWith('/otif')) return 'otif'
   if (path.startsWith('/settings')) return 'settings'
-  if (path.startsWith('/collections-kpi')) return 'collections-kpi'
   return 'other'
 }
 

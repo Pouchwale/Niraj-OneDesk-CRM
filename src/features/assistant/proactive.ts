@@ -52,16 +52,11 @@ export interface NudgeInput {
   followups: Followup[]
   companies: Company[]
   overduePayments: OverduePayment[]
-  /** Null when the person does not file a daily entry. */
-  dailyEntryLogged: boolean | null
   /** Leader only. */
   team?: TeamPlan[]
   brokenPromises?: OverdueCommitment[]
   coordinatorName?: (id: string | null) => string
 }
-
-/** When the daily-entry reminder starts, in minutes since midnight (4:30 pm). */
-const ENTRY_REMINDER_AT = 16 * 60 + 30
 
 function partOfDay(minutesNow: number): string {
   const hour = Math.floor(minutesNow / 60)
@@ -78,7 +73,7 @@ function deepLink(item: { entityType?: string; entityId?: string }): string | nu
 /* ===== Coordinator ===== */
 
 function coordinatorNudge(input: NudgeInput): Nudge | null {
-  const { plan, today } = input
+  const { plan } = input
 
   // Nothing is said over an open account's panel (see composeNudge).
 
@@ -108,22 +103,6 @@ function coordinatorNudge(input: NudgeInput): Nudge | null {
       detail: 'Every overdue account worth a call has been followed up. I will have tomorrow\'s plan ready when you sign in.',
       tone: 'success',
       actions: [],
-      daily: true,
-    }
-  }
-
-  // 2. Daily entry not filed and the afternoon is getting on.
-  if (
-    input.dailyEntryLogged === false &&
-    input.minutesNow >= ENTRY_REMINDER_AT &&
-    input.screen !== 'daily-entry'
-  ) {
-    return {
-      key: `daily-entry:${today}`,
-      text: `It is past 4:30 and today's activity log is still empty.`,
-      detail: 'Two minutes now saves a chase from the team leader later.',
-      tone: 'warn',
-      actions: [{ kind: 'navigate', to: '/daily-entry', label: 'Log it now' }],
       daily: true,
     }
   }

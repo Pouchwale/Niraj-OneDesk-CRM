@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useAuth, getAllCoordinators } from '@/features/auth/AuthContext'
-import { useDailyEntries } from '@/features/daily-logs/hooks/useDailyEntries'
 import { todayISO } from '@/lib/utils'
 import { getFollowupCommitments, type Commitment } from '@/lib/followups-api'
 import type { Company, OverduePayment } from '@/lib/types'
@@ -36,7 +35,6 @@ export function useRoleKpis(): {
   isLoading: boolean
 } {
   const { user } = useAuth()
-  const { entries } = useDailyEntries()
 
   const [records, setRecords] = useState<Snapshot>(EMPTY)
   const [isLoading, setIsLoading] = useState(true)
@@ -77,13 +75,12 @@ export function useRoleKpis(): {
       today: todayISO(),
       userId: user.id,
       role: user.role,
-      entries,
       coordinatorCount: getAllCoordinators().length,
       // Only the administrator reads this, but it costs nothing to carry.
       syncLog: readSyncLog(),
       ...records,
     })
-  }, [user, entries, records])
+  }, [user, records])
 
   return {
     kpis,

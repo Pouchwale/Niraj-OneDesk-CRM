@@ -6,8 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import type { DeskId, TeamModule, UserRole } from '@/lib/types'
-import { DESK_OPTIONS } from '@/features/daily-logs/desk-layouts'
+import type { TeamModule, UserRole } from '@/lib/types'
 import { ASSIGNABLE_ROLES, ROLE_BLURB, ROLE_LABEL, takesTeam } from '@/lib/users/roles'
 import {
   createUser,
@@ -243,30 +242,6 @@ export function UserFormDialog({ open, onOpenChange, user }: UserFormDialogProps
                     <SelectItem value="Pouchwale">Team Pouchwale</SelectItem>
                   </SelectContent>
                 </Select>
-              )}
-
-            {takesTeam(draft.role) &&
-              draft.module === 'Pouchwale' &&
-              field(
-                'desk',
-                'Desk',
-                <Select
-                  value={draft.desk ?? 'none'}
-                  onValueChange={(value) => set('desk', value === 'none' ? null : (value as DeskId))}
-                >
-                  <SelectTrigger id="user-desk">
-                    <SelectValue placeholder="Shared form" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Shared form (no desk)</SelectItem>
-                    {DESK_OPTIONS.map((desk) => (
-                      <SelectItem key={desk.value} value={desk.value}>
-                        {desk.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>,
-                'Decides which daily-entry form they fill in.'
               )}
           </div>
 

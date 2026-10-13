@@ -104,7 +104,6 @@ function input(overrides: Partial<NudgeInput> = {}): NudgeInput {
     followups: [],
     companies: [],
     overduePayments: [] as OverduePayment[],
-    dailyEntryLogged: null,
     ...overrides,
   }
 }
@@ -178,19 +177,6 @@ describe('the robot on a coordinator\'s screen', () => {
     expect(nudge?.tone).toBe('success')
     expect(nudge?.key).toBe(`plan-complete:${TODAY}`)
     expect(nudge?.daily).toBe(true)
-  })
-
-  it('chases the daily entry after half past four', () => {
-    const early = composeNudge(input({ dailyEntryLogged: false, minutesNow: 15 * 60 }))
-    expect(early).toBeNull()
-
-    const late = composeNudge(input({ dailyEntryLogged: false, minutesNow: 16 * 60 + 45, screen: 'companies' }))
-    expect(late?.text).toContain('activity log is still empty')
-    expect(late?.actions[0]).toMatchObject({ kind: 'navigate', to: '/daily-entry' })
-
-    // Not while they are on the entry form already, and not once it is filed.
-    expect(composeNudge(input({ dailyEntryLogged: false, minutesNow: 17 * 60, screen: 'daily-entry' }))).toBeNull()
-    expect(composeNudge(input({ dailyEntryLogged: true, minutesNow: 17 * 60, screen: 'companies' }))).toBeNull()
   })
 
   it('points at the next planned item on the screen it belongs to', () => {

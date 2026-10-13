@@ -1,19 +1,16 @@
 import React from 'react';
 import { ROLE_LABEL, seesAllAccounts } from '@/lib/users/roles'
 import { motion } from 'motion/react';
-import { Shield, Sparkles, ArrowRight, Calendar, Clock } from 'lucide-react';
+import { Shield, Calendar, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/shared/GlassCard';
-import { StatusBadge } from '@/components/shared/StatusBadge';
 import { useNavigate } from 'react-router-dom';
 import { useNow } from '@/hooks/useNow';
 import type { Profile } from '@/lib/types';
 
 interface GreetingBannerProps {
   user: Profile;
-  todaySubmitted?: boolean;
-  todayStatus?: 'green' | 'red' | 'leave';
 }
 
 export function getTimeBasedGreeting(
@@ -46,7 +43,7 @@ export function getTimeBasedGreeting(
   return { greeting, icon, subtitle };
 }
 
-export function GreetingBanner({ user, todaySubmitted, todayStatus }: GreetingBannerProps) {
+export function GreetingBanner({ user }: GreetingBannerProps) {
   const navigate = useNavigate();
   const firstName = user.full_name.split(' ')[0] || user.full_name;
   // A live clock: the time, the date and the greeting all follow it, so the
@@ -107,31 +104,7 @@ export function GreetingBanner({ user, todaySubmitted, todayStatus }: GreetingBa
 
           {/* Action callout for Coordinators / Admin */}
           <div className="shrink-0 flex items-center gap-3">
-            {user.role === 'coordinator' ? (
-              todaySubmitted ? (
-                <div className="flex items-center gap-3 bg-muted/60 p-3 rounded-2xl border border-border">
-                  <div className="text-xs text-muted-foreground">Today's Log:</div>
-                  <StatusBadge status={todayStatus || 'green'} />
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => navigate('/daily-entry')}
-                    className="text-xs ml-2"
-                  >
-                    Edit Log
-                  </Button>
-                </div>
-              ) : (
-                <Button 
-                  onClick={() => navigate('/daily-entry')}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium px-5 py-2.5 rounded-xl shadow-lg shadow-primary/20 transition-all flex items-center gap-2 group"
-                >
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  Log Today's Activity
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              )
-            ) : (
+            {user.role === 'coordinator' ? null : (
               <Button
                 onClick={() => navigate('/otif')}
                 variant="outline"

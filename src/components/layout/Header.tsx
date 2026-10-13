@@ -15,11 +15,7 @@ const PAGE_TITLES: [string, string][] = [
   ['/quotations', 'Quotations'],
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
-  ['/daily-entry', 'Daily Entry'],
-  ['/my-entries', 'My Entries'],
   ['/otif', 'OTIF Analytics'],
-  ['/collections-kpi', 'Collections KPI'],
-  ['/team-activity', 'Team Activity'],
   ['/team', 'Team Overview'],
   ['/settings', 'Settings'],
 ];

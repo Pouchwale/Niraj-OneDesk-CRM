@@ -11,8 +11,6 @@ import { onStorageFailure } from '@/lib/demo-companies';
 import { onSharedDataError } from '@/lib/shared-data';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
-import { DailyEntryPage } from '@/features/daily-logs/DailyEntryPage';
-import { MyEntriesPage } from '@/features/daily-logs/MyEntriesPage';
 import { OverdueDashboardPage } from '@/features/overdue/OverdueDashboardPage';
 import { CompaniesPage } from '@/features/companies/CompaniesPage'
 import { CoordinatorCompaniesPage } from '@/features/companies/CoordinatorCompaniesPage'
@@ -25,8 +23,6 @@ import { Loader2 } from 'lucide-react';
 const lazyPage = <T extends Record<string, unknown>>(load: () => Promise<T>, key: keyof T) =>
   lazy(() => load().then((m) => ({ default: m[key] as React.ComponentType })));
 const OtifDashboardPage = lazyPage(() => import('@/features/otif/OtifDashboardPage'), 'OtifDashboardPage');
-const CollectionsKpiPage = lazyPage(() => import('@/features/collections-kpi/CollectionsKpiPage'), 'CollectionsKpiPage');
-const TeamActivityPage = lazyPage(() => import('@/features/team/TeamActivityPage'), 'TeamActivityPage');
 const AdminPanelPage = lazyPage(() => import('@/features/admin/AdminPanelPage'), 'AdminPanelPage');
 const SettingsPage = lazyPage(() => import('@/features/settings/SettingsPage'), 'SettingsPage');
 const AdminOverviewPage = lazyPage(() => import('@/features/companies/AdminOverviewPage'), 'AdminOverviewPage');
@@ -110,40 +106,14 @@ function AppContent() {
           <Route path="admin/overview" element={<ProtectedRoute requiredRole="team_leader"><AdminOverviewPage /></ProtectedRoute>} />
           <Route path="weekly-kpi" element={<ProtectedRoute requiredRole="team_leader"><WeeklyKpiPage /></ProtectedRoute>} />
           <Route path="admin/users" element={<ProtectedRoute requiredRole="admin"><AdminPanelPage /></ProtectedRoute>} />
-          {/* Coordinator-only, with no administrator override: an admin has no
-              desk, and a stray entry filed against the owner account would be
-              counted in nobody's team. */}
-          <Route path="daily-entry" element={
-            <ProtectedRoute requiredRole="coordinator" exclusive>
-              <DailyEntryPage />
-            </ProtectedRoute>
-          } />
-          <Route path="my-entries" element={
-            <ProtectedRoute requiredRole="coordinator" exclusive>
-              <MyEntriesPage />
-            </ProtectedRoute>
-          } />
           <Route path="otif" element={
             <ProtectedRoute requiredRole="team_leader">
               <OtifDashboardPage />
             </ProtectedRoute>
           } />
-          <Route path="team-activity" element={
-            <ProtectedRoute requiredRole="team_leader">
-              <TeamActivityPage />
-            </ProtectedRoute>
-          } />
-          {/* The two team pages were merged; keep old links working. */}
-          <Route path="team/gp3" element={<Navigate to="/team-activity" replace />} />
-          <Route path="team/pouchwale" element={<Navigate to="/team-activity" replace />} />
           <Route path="settings" element={
             <ProtectedRoute requiredRole="team_leader">
               <SettingsPage />
-            </ProtectedRoute>
-          } />
-          <Route path="collections-kpi" element={
-            <ProtectedRoute requiredRole="team_leader">
-              <CollectionsKpiPage />
             </ProtectedRoute>
           } />
           <Route path="overdue" element={<OverdueDashboardPage />} />

@@ -75,7 +75,6 @@ export interface KpiSnapshot {
   companies: Company[]
   /** Balances from the uploaded ageing report, which is what most rows arrive as. */
   overduePayments: OverduePayment[]
-  entries: DailyEntry[]
   /** Head count used for the team-compliance figure. */
   coordinatorCount: number
   /**
