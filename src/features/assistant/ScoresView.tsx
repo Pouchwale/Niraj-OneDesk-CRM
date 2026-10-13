@@ -238,71 +238,101 @@ export function MyScoreCard({ userId }: { userId: string }) {
   )
 }
 
-/** How many past weeks a coordinator sees on their Dashboard. */
-const PROGRESS_WEEKS = 8
-
 /**
- * A coordinator's weekly scores, newest first, so they can see their progress:
- * each week's average (Mon–Sat), tasks done, extra work and leave days. Read
- * from the plans Robi keeps, so every past week stays available.
+ * A coordinator's week on their Dashboard, one week at a time: ‹ › step back
+ * through earlier weeks. Each day's score (done/given, extra work, leave), the
+ * week's Mon–Sat average, and how it compares with the week before. Read from
+ * the plans Robi keeps, so every past week stays available.
  */
 export function MyWeeklyProgress({ userId }: { userId: string }) {
   const today = todayISO()
+  const thisMonday = weekStart(today)
+  const [monday, setMonday] = useState(thisMonday)
   const { scores, extra } = useScores([userId])
-  const weeks = Array.from({ length: PROGRESS_WEEKS }, (_, i) => {
-    const monday = addDaysISO(weekStart(today), -7 * i)
-    const days = weekDays(monday)
+
+  const weekOf = (start: string) => {
+    const days = weekDays(start)
     const week = days.map((d) => scores.get(`${userId}|${d}`))
     const scored = week.filter((s): s is DayScore => !!s)
     return {
-      monday,
-      current: i === 0,
+      days,
+      week,
       average: weekAverage(week),
       done: scored.reduce((n, s) => n + s.done, 0),
       given: scored.reduce((n, s) => n + s.given, 0),
       extra: days.reduce((n, d) => n + (extra.get(`${userId}|${d}`) ?? 0), 0),
-      leave: days.filter((d) => onLeave(userId, d)).length,
     }
-  }).filter((w) => w.average !== null || w.extra || w.leave)
-
-  if (weeks.length === 0) return null
-  // This week against the week just before it, when both have a score.
-  const thisWeek = weeks.find((w) => w.current)
-  const lastWeek = weeks.find((w) => w.monday === addDaysISO(weekStart(today), -7))
-  const change = thisWeek?.average != null && lastWeek?.average != null ? thisWeek.average - lastWeek.average : null
+  }
+  const shown = weekOf(monday)
+  const before = weekOf(addDaysISO(monday, -7))
+  const change = shown.average !== null && before.average !== null ? shown.average - before.average : null
+  // The first week with a plan, so ‹ stops where the history starts.
+  const firstPlan = demoCompanyStore
+    .getDailyPlans()
+    .filter((p) => p.userId === userId)
+    .reduce<string | null>((first, p) => (!first || p.date < first ? p.date : first), null)
+  const canGoBack = firstPlan !== null && monday > weekStart(firstPlan)
 
   return (
-    <GlassCard className="space-y-3 p-4 sm:p-5" data-testid="my-weekly-progress">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <GlassCard className="space-y-4 p-4 sm:p-5" data-testid="my-weekly-progress">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Target className="h-4 w-4 text-primary" />
           <h3 className="font-semibold">My weekly progress</h3>
-          <span className="text-xs text-muted-foreground">Mon–Sat average, last {PROGRESS_WEEKS} weeks</span>
         </div>
-        {change !== null && (
-          <span className={cn('text-xs font-medium', change > 0 ? 'text-emerald-600' : change < 0 ? 'text-rose-600' : 'text-muted-foreground')}>
-            {change > 0 ? `${change} points better than last week` : change < 0 ? `${-change} points behind last week` : 'Same as last week'}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setMonday(addDaysISO(monday, -7))} disabled={!canGoBack} aria-label="Previous week">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="min-w-[170px] text-center text-sm font-medium tabular-nums" data-testid="progress-week">
+            {monday === thisMonday ? 'This week' : `${formatDate(shown.days[0])} – ${formatDate(shown.days[5])}`}
           </span>
-        )}
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setMonday(addDaysISO(monday, 7))} disabled={monday >= thisMonday} aria-label="Next week">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
-      <div className="space-y-2">
-        {weeks.map((w) => (
-          <div key={w.monday} className="grid grid-cols-[92px_1fr_auto] items-center gap-3 text-sm">
-            <span className={cn('tabular-nums text-muted-foreground', w.current && 'font-semibold text-foreground')}>
-              {w.current ? 'This week' : formatDate(w.monday)}
-            </span>
-            <div className="h-2.5 overflow-hidden rounded-full bg-muted" title={w.average === null ? 'No score' : `${100 + w.average}% of Robi's tasks done`}>
-              <div
-                className={cn('h-full rounded-full', w.average === null ? '' : w.average === 0 ? 'bg-emerald-500' : w.average >= -20 ? 'bg-amber-500' : 'bg-rose-500')}
-                style={{ width: `${w.average === null ? 0 : 100 + w.average}%` }}
-              />
-            </div>
-            <span className="flex items-center gap-2 whitespace-nowrap">
-              <span className={cn('w-12 text-right font-semibold tabular-nums', scoreTone(w.average))}>{scoreLabel(w.average)}</span>
-              <span className="w-14 text-right text-[11px] tabular-nums text-muted-foreground">{w.given ? `${w.done}/${w.given}` : ''}</span>
-              <span className="w-16 text-[11px] text-sky-600 dark:text-sky-400">{w.extra ? `+${w.extra} extra` : ''}</span>
-              <span className="w-14 text-[11px] text-muted-foreground">{w.leave ? `${w.leave} leave` : ''}</span>
-            </span>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-lg border border-border/60 p-3">
+          <p className="text-xs text-muted-foreground">Week score</p>
+          <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(shown.average))}>{scoreLabel(shown.average)}</p>
+          <p className="text-xs text-muted-foreground">Mon–Sat average</p>
+        </div>
+        <div className="rounded-lg border border-border/60 p-3">
+          <p className="text-xs text-muted-foreground">Robi tasks done</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{shown.given ? `${shown.done}/${shown.given}` : '—'}</p>
+          <p className="text-xs text-sky-600 dark:text-sky-400">{shown.extra ? `+${shown.extra} extra customers` : 'No extra work'}</p>
+        </div>
+        <div className="col-span-2 rounded-lg border border-border/60 p-3">
+          <p className="text-xs text-muted-foreground">Against the week before</p>
+          <p
+            className={cn(
+              'mt-1 text-lg font-semibold',
+              change === null ? 'text-muted-foreground' : change > 0 ? 'text-emerald-600' : change < 0 ? 'text-rose-600' : ''
+            )}
+          >
+            {change === null ? 'Nothing to compare' : change > 0 ? `${change} points better` : change < 0 ? `${-change} points behind` : 'The same'}
+          </p>
+          <p className="text-xs text-muted-foreground">Week before: {scoreLabel(before.average)}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {shown.days.map((d, i) => (
+          <div key={d} className={cn('rounded-lg border border-border/60 p-2 text-center', d === today && 'border-primary/50 bg-primary/5')}>
+            <p className="text-[11px] text-muted-foreground">
+              {dayName(d)} {new Date(`${d}T00:00:00`).getDate()}
+            </p>
+            {onLeave(userId, d) ? (
+              <p className="mt-1 text-sm text-muted-foreground">Leave</p>
+            ) : (
+              <>
+                <p className={cn('mt-1 text-sm font-semibold tabular-nums', scoreTone(shown.week[i]?.score))}>{scoreLabel(shown.week[i]?.score)}</p>
+                <p className="text-[11px] tabular-nums text-muted-foreground">{shown.week[i] ? `${shown.week[i]!.done}/${shown.week[i]!.given}` : ''}</p>
+              </>
+            )}
+            <Extra n={extra.get(`${userId}|${d}`)} credited={shown.week[i]?.credited} />
           </div>
         ))}
       </div>
