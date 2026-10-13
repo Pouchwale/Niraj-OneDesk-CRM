@@ -37,6 +37,21 @@ export type RfdMapping = Partial<Record<Field, string>>
 
 export const RFD_REQUIRED: Field[] = ['customer_name', 'pending_value']
 
+/**
+ * Item categories that always go to one coordinator, whoever the customer
+ * belongs to (since 13 Oct 2026): every FGPO (FG-Pouch) line is Avani Patel's.
+ * Everything else follows the customer's coordinator, matched by name.
+ */
+export const RFD_CATEGORY_OWNERS: { itemPrefix: string; coordinator: string }[] = [
+  { itemPrefix: 'FGPO', coordinator: 'Avani Patel' },
+]
+
+/** The coordinator a line's item category belongs to, if any. */
+export function categoryOwner(itemCode: string | null): string | null {
+  const code = (itemCode ?? '').trim().toUpperCase()
+  return RFD_CATEGORY_OWNERS.find((o) => code.startsWith(o.itemPrefix))?.coordinator ?? null
+}
+
 const loose = (h: string) => h.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
 
 /** Which sheet column feeds each field; exact names first, so "RFD Value" never takes "Pending RFD Value". */
@@ -129,7 +144,9 @@ export function buildRfdRows(
   mapping: RfdMapping,
   companies: Company[],
   overduePayments: OverduePayment[],
-  importedAt: string
+  importedAt: string,
+  /** A coordinator's user id from their full name. */
+  userIdByName: (name: string) => string | null | undefined = () => null
 ): { rows: RfdRow[]; unlinked: string[] } {
   const find = anchorFinder(companies, overduePayments)
   const cell = (row: Record<string, unknown>, field: Field) => (mapping[field] ? row[mapping[field]!] : null)
@@ -143,6 +160,11 @@ export function buildRfdRows(
     if (!customer || pending <= 0) continue
     const anchor = find(customer)
     if (!anchor) unlinked.add(customer)
+
+    // FGPO and the like go to their category's coordinator; the rest to the customer's.
+    const itemCode = text(cell(row, 'item_code'))
+    const byCategory = categoryOwner(itemCode)
+    const categoryId = byCategory ? userIdByName(byCategory) ?? null : null
 
     const base = [cell(row, 'production_order'), cell(row, 'sales_order'), cell(row, 'item_code'), cell(row, 'warehouse')].map((v) => text(v) ?? '-').join(':')
     const n = (seen.get(base) ?? 0) + 1
@@ -170,8 +192,8 @@ export function buildRfdRows(
       ready_since: normalizeDate(cell(row, 'ready_since')),
       days: num(cell(row, 'days')),
       bp_code: anchor?.bp ?? null,
-      assigned_coordinator_id: anchor?.coordinatorId ?? null,
-      coordinator_name: anchor?.coordinatorName ?? null,
+      assigned_coordinator_id: byCategory ? categoryId : anchor?.coordinatorId ?? null,
+      coordinator_name: byCategory ?? anchor?.coordinatorName ?? null,
       anchor_type: anchor?.type ?? null,
       anchor_id: anchor?.id ?? null,
       imported_at: importedAt,

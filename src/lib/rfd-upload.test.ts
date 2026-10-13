@@ -51,6 +51,19 @@ describe('the RFD sheet', () => {
     expect(unlinked).toEqual(['Nobody We Know Ltd'])
   })
 
+  it('gives every FGPO line to Avani Patel, and other items to the customer coordinator', () => {
+    const users = (name: string) => (name === 'Avani Patel' ? 'coord-11' : null)
+    const { rows } = buildRfdRows(
+      [
+        line('Sinochem India Company Pvt Ltd', 2618, { 'FG Item Code': 'FGPO6444' }),
+        line('Sinochem India Company Pvt Ltd', 1000, { 'FG Item Code': 'FGLA3464', 'Sales Order No.': '30009' }),
+      ],
+      mapping, [], [overdue], 'now', users
+    )
+    expect(rows[0]).toMatchObject({ assigned_coordinator_id: 'coord-11', coordinator_name: 'Avani Patel', anchor_id: 'ovd-1' })
+    expect(rows[1]).toMatchObject({ assigned_coordinator_id: 'coord-3' })
+  })
+
   it('gives repeated lines their own ids', () => {
     const { rows } = buildRfdRows([line('A Ltd', 10), line('A Ltd', 20)], mapping, [], [], 'now')
     expect(new Set(rows.map((r) => r.id)).size).toBe(2)

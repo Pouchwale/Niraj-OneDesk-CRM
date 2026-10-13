@@ -19,6 +19,7 @@ import { ApiRequestError, apiGet, apiGetRaw } from './api-client'
 import { parseFile } from './file-parser'
 import { RFD_REQUIRED, autoMapRfdColumns, buildRfdRows, scoreRfdSheet } from './rfd-upload'
 import { demoCompanyStore } from './demo-companies'
+import { findUserIdByName } from '@/features/auth/AuthContext'
 import {
   autoMapCompanyColumns,
   mapCompanyRows,
@@ -262,7 +263,8 @@ export async function syncBookFromExcel(
         mapping,
         demoCompanyStore.getAllCompanies(),
         demoCompanyStore.getAllOverduePayments(),
-        new Date().toISOString()
+        new Date().toISOString(),
+        findUserIdByName
       )
       await demoCompanyStore.replaceRfdRows(rows)
       return {
