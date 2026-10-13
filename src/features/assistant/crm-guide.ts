@@ -68,9 +68,8 @@ WEEKLY KPI
 - "Save today's data" (Overdue Payments and Weekly KPI, team leader/admin) freezes the Overdue book for the weekly score. Every Monday it is also saved automatically: from 10:00, as soon as that morning's Overdue sync is in, or at 13:00 with whatever data there is. Only one save per Monday; a manual save that day counts.
 - Weekly KPI compares two saved days. Its KPI score is written as the gap from 100%: 80 out of 100 shows as -20%, a full score as 0% (the same way as the daily scores). The Collections KPI page shows its score the same way.
 
-CREDIT / DEBIT NOTES AND THE LEADERBOARD
+CREDIT / DEBIT NOTES
 - Money past 120 days held up by a credit or debit note gets special attention: when the latest follow-up on an overdue customer with a 121+ balance mentions a credit note, debit note, CN or DN, Robi gives a "Credit/debit note pending" task every day, first in the list and on top of the day's 8, even if a later follow-up date was set, until a newer follow-up no longer mentions a note.
-- Overview > Leaderboard (team leader and administrator) ranks coordinators for a week by their week score, live, with growth against the week before (in points), Robi tasks done, extra work, follow-ups and promises. Use the arrows to see earlier weeks.
 
 ROBI'S DAILY PLAN
 - Every morning Robi gives each coordinator 8 tasks: 4 from Active Payments and 4 from Overdue Payments. An Active Payments invoice only becomes a task once it is past its due date or due within the next 2 days; nothing earlier is planned, not even a follow-up date or promise set on an invoice that is not yet due. Only balances of Rs 1,000 or more, one per customer, the highest amount first and then the oldest. A customer whose latest follow-up set a next follow-up or promise date in the future is left out until that date; a customer followed up without a next date is left out for 5 days, so the same call is not handed out day after day.
