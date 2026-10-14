@@ -22,7 +22,7 @@ import { useTeamPlans } from './useTeamPlans'
 import { greetedToday, markGreeted } from './assistant-state'
 import { composeNudge, type Nudge, type NudgeAction } from './proactive'
 import { useFocusedRecord, useScreen } from './screen-context'
-import { RobotAvatar, type RobotMood } from './RobotAvatar'
+import { RobiScreen, TypingDots, type RobotMood } from './DotFace'
 import { planProgressLine, type ResolvedPlan, type ResolvedPlanItem } from './daily-plan'
 import type { TeamPlan } from './plan-store'
 import type { AssistantAction, AssistantMessage, AssistantTask } from './types'
@@ -206,6 +206,16 @@ export function AssistantWidget() {
   const [question, setQuestion] = useState('')
   const [planOpen, setPlanOpen] = useState(true)
   const [nudge, setNudge] = useState<Nudge | null>(null)
+  /** The launcher is hovered: Robi smiles. */
+  const [launcherHover, setLauncherHover] = useState(false)
+  /** Robi hops once when it has something new to say. */
+  const [hop, setHop] = useState(false)
+  useEffect(() => {
+    if (!nudge) return
+    setHop(true)
+    const id = window.setTimeout(() => setHop(false), 950)
+    return () => window.clearTimeout(id)
+  }, [nudge?.key])
   /** Ticks once a minute so time-of-day remarks can fire while the app sits open. */
   const [clock, setClock] = useState(() => Date.now())
 
@@ -486,6 +496,8 @@ export function AssistantWidget() {
   const handleAsk = async (typed?: string) => {
     const asked = (typed ?? question).trim()
     if (!asked || isThinking) return
+    // A conversation needs the room: fold the plan away (one tap brings it back).
+    setPlanOpen(false)
 
     // Earlier turns go with the question so Robi can follow "and why?".
     const history = messages
@@ -614,13 +626,20 @@ export function AssistantWidget() {
 
   if (!user) return null
 
-  const mood: RobotMood = nudge
-    ? 'talking'
-    : isThinking
-      ? 'thinking'
+  const onLeave = isCoordinator && demoCompanyStore.getAttendance(user.id, todayISO())?.status === 'leave'
+  const mood: RobotMood = isThinking
+    ? 'thinking'
+    : nudge
+      ? nudge.tone === 'warn'
+        ? 'alert'
+        : nudge.tone === 'success'
+          ? 'happy'
+          : 'talking'
       : plan?.complete
         ? 'happy'
-        : 'idle'
+        : onLeave
+          ? 'sleepy'
+          : 'idle'
 
   const statusLine = isLoading
     ? 'Checking your accounts...'
@@ -638,52 +657,45 @@ export function AssistantWidget() {
             : 'Ask me anything'
           : 'Ask me anything'
 
+  const toneRing =
+    nudge?.tone === 'warn' ? 'ring-amber-400/60' : nudge?.tone === 'success' ? 'ring-emerald-400/60' : 'ring-border'
+
   return (
     <>
-      {/* ===== A remark about what is on screen ===== */}
+      {/* ===== A remark about what is on screen: a speech bubble from Robi ===== */}
       <AnimatePresence>
         {!open && nudge && (
           <motion.div
             key={nudge.key}
-            initial={{ opacity: 0, y: 12, scale: 0.96 }}
+            initial={{ opacity: 0, y: 14, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            transition={{ type: 'spring', stiffness: 360, damping: 26 }}
+            style={{ transformOrigin: 'bottom right' }}
             // Above an open account panel and clickable through its overlay:
             // the remark is usually about the record that panel shows.
-            className="pointer-events-auto fixed bottom-24 right-4 z-[60] w-[min(340px,calc(100vw-2rem))] sm:right-6"
+            className="pointer-events-auto fixed bottom-[6.5rem] right-4 z-[60] w-[min(340px,calc(100vw-2rem))] sm:right-6"
             role="status"
             aria-live="polite"
             data-testid="robi-bubble"
             data-robi=""
           >
-            <div
-              className={cn(
-                'relative rounded-2xl border bg-background p-3.5 shadow-xl',
-                nudge.tone === 'warn'
-                  ? 'border-amber-500/50'
-                  : nudge.tone === 'success'
-                    ? 'border-emerald-500/50'
-                    : 'border-border'
-              )}
-            >
+            <div className={cn('relative rounded-3xl rounded-br-md bg-background p-4 shadow-2xl ring-1', toneRing)}>
               <div className="flex items-start gap-3">
-                <div className="shrink-0 text-primary">
-                  <RobotAvatar mood="talking" size={30} />
-                </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm leading-relaxed text-foreground">{nudge.text}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">{ROBOT_NAME}</p>
+                  <p className="mt-0.5 text-sm leading-relaxed text-foreground">{nudge.text}</p>
                   {nudge.detail && (
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{nudge.detail}</p>
                   )}
                   {nudge.actions.length > 0 && (
-                    <div className="mt-2.5 flex flex-wrap gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {nudge.actions.map((action, index) => (
                         <Button
                           key={`${action.kind}-${index}`}
                           size="sm"
                           variant={index === 0 && action.kind !== 'snooze_task' ? 'default' : 'outline'}
-                          className="h-8"
+                          className="h-8 rounded-full px-3.5"
                           onClick={() => runNudgeAction(action)}
                         >
                           {action.label}
@@ -695,21 +707,11 @@ export function AssistantWidget() {
                 <button
                   onClick={() => setNudge(null)}
                   aria-label="Dismiss"
-                  className="-mr-1 -mt-1 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="-mr-1.5 -mt-1.5 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <div
-                className={cn(
-                  'absolute -bottom-1.5 right-7 h-3 w-3 rotate-45 border-b border-r bg-background',
-                  nudge.tone === 'warn'
-                    ? 'border-amber-500/50'
-                    : nudge.tone === 'success'
-                      ? 'border-emerald-500/50'
-                      : 'border-border'
-                )}
-              />
             </div>
           </motion.div>
         )}
@@ -719,40 +721,50 @@ export function AssistantWidget() {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.96 }}
+            initial={{ opacity: 0, y: 28, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+            transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+            style={{ transformOrigin: 'bottom right' }}
             className={cn(
-              'pointer-events-auto fixed z-[60] flex flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl',
-              'bottom-24 right-4 w-[calc(100vw-2rem)] max-w-[420px] h-[min(640px,calc(100vh-8rem))]',
+              'pointer-events-auto fixed z-[60] flex flex-col overflow-hidden rounded-[28px] border border-border/70 bg-background shadow-2xl',
+              'bottom-[6.5rem] right-4 w-[calc(100vw-2rem)] max-w-[420px] h-[min(660px,calc(100vh-8.5rem))]',
               'sm:right-6'
             )}
             role="dialog"
             aria-label="Follow-up assistant"
             data-robi=""
           >
-            <div className="flex items-center gap-3 border-b border-border bg-muted/30 px-4 py-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <RobotAvatar mood={mood} size={30} />
+            {/* Robi's screen: the face, the name, what it is doing. */}
+            <div className="robi-screen relative flex items-center gap-3.5 px-4 pb-4 pt-4 text-white">
+              <div className="rounded-2xl bg-white/5 p-1 ring-1 ring-white/10">
+                <RobiScreen mood={mood} size={56} interactive />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold leading-none">{ROBOT_NAME}</div>
-                <div className="mt-1 truncate text-xs text-muted-foreground" data-testid="robi-status">
-                  {statusLine}
-                  {aiReady && !aiKeyError && <span title="Replies are written by the AI from the live records"> · AI on</span>}
-                  {aiReady && aiKeyError && (
-                    <span className="text-destructive" title={aiKeyError}>
-                      {' '}
-                      · AI off: key rejected
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-semibold leading-none tracking-tight">{ROBOT_NAME}</span>
+                  {aiReady && !aiKeyError && (
+                    <span
+                      className="rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-200"
+                      title="Replies are written by the AI from the live records"
+                    >
+                      AI on
                     </span>
                   )}
+                  {aiReady && aiKeyError && (
+                    <span className="rounded-full bg-rose-400/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-200" title={aiKeyError}>
+                      AI off
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1.5 truncate text-xs text-white/70" data-testid="robi-status">
+                  {statusLine}
                 </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
                 aria-label="Close assistant"
-                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="rounded-full p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -781,63 +793,79 @@ export function AssistantWidget() {
               />
             )}
 
-            <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn('flex', message.from === 'coordinator' ? 'justify-end' : 'justify-start')}
-                >
-                  <div
-                    className={cn(
-                      'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm',
-                      message.from === 'coordinator'
-                        ? 'rounded-br-sm bg-primary text-primary-foreground'
-                        : 'rounded-bl-sm bg-muted text-foreground'
+            <div ref={scrollRef} className="flex-1 space-y-3.5 overflow-y-auto bg-muted/20 px-4 py-4" aria-live="polite">
+              {messages.map((message, index) => {
+                const mine = message.from === 'coordinator'
+                // Robi's face beside the last of its replies in a row, where the eye lands.
+                const showFace = !mine && messages[index + 1]?.from !== 'assistant'
+                return (
+                  <div key={message.id} className={cn('flex items-end gap-2', mine ? 'justify-end' : 'justify-start')}>
+                    {!mine && (
+                      <div className="w-7 shrink-0">{showFace && <RobiScreen mood="idle" size={28} />}</div>
                     )}
-                  >
-                    <p className="whitespace-pre-wrap leading-relaxed">
-                      {message.from === 'assistant' ? splitSuggestions(message.text).text : message.text}
-                    </p>
-                    {message.detail && (
-                      <p className="mt-1.5 text-xs opacity-75 leading-relaxed">{message.detail}</p>
-                    )}
-                    {message.draft && (
-                      <DraftCard
-                        draft={message.draft}
-                        state={message.sendState}
-                        onSend={(wording) => void sendDraft(message.id, wording)}
-                        onCancel={() =>
-                          setMessages((m) => m.map((x) => (x.id === message.id ? { ...x, sendState: 'cancelled' } : x)))
-                        }
-                      />
-                    )}
-                    {message.suggestions && message.suggestions.length > 0 && (
-                      <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="robi-suggestions">
-                        {message.suggestions.map((suggestion) => (
-                          <button
-                            key={suggestion}
-                            type="button"
-                            disabled={isThinking}
-                            onClick={() => void handleAsk(suggestion)}
-                            className="rounded-full border border-primary/30 bg-background px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
-                          >
-                            {suggestion}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <div
+                      className={cn(
+                        'max-w-[82%] rounded-3xl px-4 py-2.5 text-sm shadow-sm',
+                        mine
+                          ? 'rounded-br-md bg-primary text-primary-foreground'
+                          : 'rounded-bl-md bg-background text-foreground ring-1 ring-border/70'
+                      )}
+                    >
+                      <p className="whitespace-pre-wrap leading-relaxed">
+                        {message.from === 'assistant' ? splitSuggestions(message.text).text : message.text}
+                      </p>
+                      {message.detail && (
+                        <p className="mt-1.5 text-xs leading-relaxed opacity-75">{message.detail}</p>
+                      )}
+                      {message.draft && (
+                        <DraftCard
+                          draft={message.draft}
+                          state={message.sendState}
+                          onSend={(wording) => void sendDraft(message.id, wording)}
+                          onCancel={() =>
+                            setMessages((m) => m.map((x) => (x.id === message.id ? { ...x, sendState: 'cancelled' } : x)))
+                          }
+                        />
+                      )}
+                      {message.suggestions && message.suggestions.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5" data-testid="robi-suggestions">
+                          {message.suggestions.map((suggestion) => (
+                            <button
+                              key={suggestion}
+                              type="button"
+                              disabled={isThinking}
+                              onClick={() => void handleAsk(suggestion)}
+                              className="rounded-full bg-primary/10 px-3 py-1.5 text-left text-xs font-medium text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {isThinking && (
+                <div className="flex items-end gap-2">
+                  <div className="w-7 shrink-0">
+                    <RobiScreen mood="thinking" size={28} />
+                  </div>
+                  <div className="rounded-3xl rounded-bl-md bg-background px-4 py-3.5 shadow-sm ring-1 ring-border/70">
+                    <TypingDots />
                   </div>
                 </div>
-              ))}
+              )}
             </div>
 
-            <div className="border-t border-border bg-muted/20 p-3 space-y-2">
+            <div className="space-y-2 border-t border-border/70 bg-background p-3">
               {activeTask && (
                 <div className="flex flex-wrap gap-2">
                   {activeTask.actions.map((action) => (
                     <Button
                       key={action.intent}
                       size="sm"
+                      className="rounded-full"
                       variant={action.tone === 'primary' ? 'default' : 'outline'}
                       onClick={() => handleAction(activeTask, action)}
                     >
@@ -850,7 +878,7 @@ export function AssistantWidget() {
               {/* Always available: the robot answers questions as well as
                   pointing at work. */}
               <form
-                className="flex items-center gap-2"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 p-1 pl-4 transition-colors focus-within:border-primary/60 focus-within:bg-background"
                 onSubmit={(event) => {
                   event.preventDefault()
                   void handleAsk()
@@ -860,22 +888,19 @@ export function AssistantWidget() {
                   ref={inputRef}
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
-                  placeholder="Ask me anything — a customer, an invoice, what is owed…"
-                  className="h-9 text-sm"
+                  placeholder="Ask Robi about a customer, an invoice…"
+                  aria-label="Ask Robi"
+                  className="h-9 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
                   disabled={isThinking}
                 />
                 <Button
                   type="submit"
                   size="icon"
-                  className="h-9 w-9 shrink-0"
+                  className="h-9 w-9 shrink-0 rounded-full"
                   disabled={isThinking || !question.trim()}
                   aria-label="Ask the assistant"
                 >
-                  {isThinking ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
+                  {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
               </form>
             </div>
@@ -883,24 +908,35 @@ export function AssistantWidget() {
         )}
       </AnimatePresence>
 
-      {/* ===== The robot itself ===== */}
+      {/* ===== Robi itself ===== */}
       <motion.button
         onClick={() => setOpen((v) => !v)}
-        whileTap={{ scale: 0.94 }}
+        onHoverStart={() => setLauncherHover(true)}
+        onHoverEnd={() => setLauncherHover(false)}
+        whileHover={{ scale: 1.05, rotate: -3 }}
+        whileTap={{ scale: 0.9, rotate: 0 }}
+        transition={{ type: 'spring', stiffness: 420, damping: 18 }}
         aria-label={open ? 'Hide follow-up assistant' : 'Open follow-up assistant'}
         title={open ? `Hide ${ROBOT_NAME}` : `Talk to ${ROBOT_NAME}`}
         className={cn(
-          'pointer-events-auto fixed bottom-6 right-4 z-[60] flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-colors sm:right-6',
-          'bg-primary text-primary-foreground hover:bg-primary/90',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+          'pointer-events-auto fixed bottom-6 right-4 z-[60] rounded-[22px] sm:right-6',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          !open && 'robi-launcher',
+          hop && !open && 'robi-hop'
         )}
         data-robi=""
       >
-        {open ? <ChevronDown className="h-6 w-6" /> : <RobotAvatar mood={mood} size={36} />}
+        {open ? (
+          <span className="robi-screen flex h-16 w-16 items-center justify-center rounded-[22px] text-cyan-100">
+            <ChevronDown className="h-6 w-6" />
+          </span>
+        ) : (
+          <RobiScreen mood={mood} size={64} interactive hovered={launcherHover} />
+        )}
 
         {!open && pending > 0 && (
           <Badge
-            className="absolute -right-1 -top-1 h-6 min-w-6 justify-center rounded-full border-2 border-background bg-rose-500 px-1.5 text-xs text-white hover:bg-rose-500"
+            className="absolute -right-1.5 -top-1.5 h-6 min-w-6 justify-center rounded-full border-2 border-background bg-rose-500 px-1.5 text-xs text-white hover:bg-rose-500"
             aria-label={`${pending} follow-ups pending`}
           >
             {pending > 9 ? '9+' : pending}
@@ -922,46 +958,67 @@ interface PlanSectionProps {
   onUnskip: (taskId: string) => void
 }
 
-function PlanSection({ plan, expanded, onToggle, onOpen, onSkip, onUnskip }: PlanSectionProps) {
+/** A small ring that fills as the day's tasks are done. */
+function ProgressRing({ done, total }: { done: number; total: number }) {
+  const r = 15
+  const c = 2 * Math.PI * r
+  const share = total > 0 ? done / total : 0
+  const complete = total > 0 && done === total
   return (
-    <div className="border-b border-border bg-muted/20" data-testid="robi-plan">
+    <svg viewBox="0 0 40 40" className="h-10 w-10 shrink-0 -rotate-90" aria-hidden="true">
+      <circle cx="20" cy="20" r={r} fill="none" strokeWidth="4" className="stroke-muted" />
+      <circle
+        cx="20"
+        cy="20"
+        r={r}
+        fill="none"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - share)}
+        className={cn('transition-[stroke-dashoffset] duration-500', complete ? 'stroke-emerald-500' : 'stroke-primary')}
+      />
+    </svg>
+  )
+}
+
+function PlanSection({ plan, expanded, onToggle, onOpen, onSkip, onUnskip }: PlanSectionProps) {
+  const complete = plan.done === plan.total
+  return (
+    <div className="border-b border-border/70 bg-background" data-testid="robi-plan">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         aria-expanded={expanded}
       >
-        <ListChecks className="h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold">Today's plan</span>
-        <span
-          className={cn(
-            'ml-auto text-xs tabular-nums',
-            // Green for work actually done, not for a list that emptied itself.
-            plan.done === plan.total
-              ? 'font-medium text-emerald-700 dark:text-emerald-400'
-              : 'text-muted-foreground'
-          )}
-        >
-          {plan.done}/{plan.total} done
-        </span>
+        <div className="relative">
+          <ProgressRing done={plan.done} total={plan.total} />
+          <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums">
+            {plan.total > 0 ? Math.round((plan.done / plan.total) * 100) : 0}%
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Today's plan</p>
+          <p
+            className={cn(
+              'text-xs tabular-nums',
+              // Green for work actually done, not for a list that emptied itself.
+              complete ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'
+            )}
+          >
+            {plan.done}/{plan.total} done{complete ? ' · all done' : ` · ${plan.open} to go`}
+          </p>
+        </div>
         {expanded ? (
           <ChevronUp className="h-4 w-4 text-muted-foreground" />
         ) : (
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         )}
       </button>
-      <div className="mx-4 h-1 overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn(
-            'h-full rounded-full transition-all',
-            plan.done === plan.total ? 'bg-emerald-500' : 'bg-primary'
-          )}
-          style={{ width: `${Math.round((plan.done / plan.total) * 100)}%` }}
-        />
-      </div>
       {expanded && (
-        <ul className="max-h-52 space-y-1 overflow-y-auto px-3 pb-3 pt-2">
-          {/* Work still to do first, so a new overdue round is not buried under finished tasks. */}
+        <ul className="max-h-56 space-y-1.5 overflow-y-auto px-3 pb-3">
+          {/* Work still to do first, so a new task is not buried under finished ones. */}
           {[...plan.items]
             .sort((a, b) => Number(a.status !== 'open' && a.status !== 'skipped') - Number(b.status !== 'open' && b.status !== 'skipped'))
             .map((item) => (
@@ -1006,7 +1063,7 @@ function PlanRow({
   return (
     <li
       className={cn(
-        'flex items-start gap-2.5 rounded-xl px-2 py-1.5',
+        'flex items-start gap-2.5 rounded-2xl border border-border/60 bg-muted/30 px-3 py-2.5 transition-colors hover:bg-muted/60',
         item.status !== 'open' && item.status !== 'skipped' && 'opacity-60'
       )}
       data-status={item.status}
@@ -1037,10 +1094,10 @@ function PlanRow({
       <div className="flex shrink-0 items-center gap-1">
         {item.status === 'open' && (
           <>
-            <Button size="sm" className="h-7 px-2.5 text-xs" onClick={onOpen}>
+            <Button size="sm" className="h-7 rounded-full px-3 text-xs" onClick={onOpen}>
               Open
             </Button>
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onSkip}>
+            <Button size="sm" variant="ghost" className="h-7 rounded-full px-2.5 text-xs" onClick={onSkip}>
               Later
             </Button>
           </>
@@ -1085,18 +1142,23 @@ function TeamSection({
   const rows = [...team].sort((a, b) => b.plan.open - a.plan.open || b.plan.total - a.plan.total)
 
   return (
-    <div className="border-b border-border bg-muted/20" data-testid="robi-team">
+    <div className="border-b border-border/70 bg-background" data-testid="robi-team">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         aria-expanded={expanded}
       >
-        <Users className="h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold">Team today</span>
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {total > 0 ? `${done}/${total} done` : 'nothing planned'}
-        </span>
+        <div className="relative">
+          <ProgressRing done={done} total={total} />
+          <Users className="absolute inset-0 m-auto h-3.5 w-3.5 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Team today</p>
+          <p className="text-xs tabular-nums text-muted-foreground">
+            {total > 0 ? `${done}/${total} done across ${withPlans.length} coordinators` : 'nothing planned'}
+          </p>
+        </div>
         {expanded ? (
           <ChevronUp className="h-4 w-4 text-muted-foreground" />
         ) : (
@@ -1109,7 +1171,7 @@ function TeamSection({
             {rows.map((member) => (
               <li key={member.coordinatorId} className="group flex items-center gap-3 text-sm">
                 <span className="w-28 truncate">{member.name}</span>
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                   {member.plan.total > 0 && (
                     <div
                       className={cn('h-full rounded-full', member.plan.open === 0 ? 'bg-emerald-500' : 'bg-primary')}
