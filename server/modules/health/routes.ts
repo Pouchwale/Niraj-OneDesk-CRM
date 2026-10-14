@@ -8,13 +8,21 @@
  * of rotation while people are using the rest of it.
  */
 
+import type { MirrorStatus } from '../pg-mirror/mirror'
 import { Router } from 'express'
 import { EXCEL_BOOKS, type HealthResponse, type ReadyResponse } from '../../../shared/api'
 import type { ServerConfig } from '../../config'
 import type { AiService } from '../ai/service'
 import type { ExcelService } from '../excel/service'
 
-export function healthRoutes(config: ServerConfig, ai: AiService, excel: ExcelService, version: string): Router {
+export function healthRoutes(
+  config: ServerConfig,
+  ai: AiService,
+  excel: ExcelService,
+  version: string,
+  /** The PostgreSQL copy, when one is kept. */
+  pgStatus: () => MirrorStatus | null = () => null
+): Router {
   const router = Router()
   const startedAt = Date.now()
 
@@ -55,7 +63,19 @@ export function healthRoutes(config: ServerConfig, ai: AiService, excel: ExcelSe
       })
     }
 
-    const body: ReadyResponse = { ready: checks.every((check) => check.ok), checks }
+    // The CRM is ready whatever the copy's state: it never waits for PostgreSQL.
+    const ready = checks.every((check) => check.ok)
+    const pg = pgStatus()
+    if (pg) {
+      checks.push({
+        name: 'postgres',
+        ok: pg.connected,
+        detail: pg.connected
+          ? `copy up to date${pg.lastSyncAt ? ` (${pg.lastSyncAt})` : ''}`
+          : pg.lastError ?? 'connecting',
+      })
+    }
+    const body: ReadyResponse = { ready, checks }
     res.status(body.ready ? 200 : 503).json(body)
   })
 

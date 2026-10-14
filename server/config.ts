@@ -69,6 +69,8 @@ const schema = z.object({
   AUTH_SECRET: z.string().optional(),
   /** How long a session lasts without use. */
   SESSION_HOURS: z.coerce.number().positive().max(720).default(12),
+  /** A PostgreSQL database kept as a live copy of the CRM data. Optional. */
+  DATABASE_URL: z.string().optional(),
 })
 
 export interface AiConfig {
@@ -105,6 +107,8 @@ export interface ServerConfig {
   /** An operator's own signing secret, where one is set. */
   sessionSecret: string | undefined
   sessionHours: number
+  /** PostgreSQL copy of the CRM data; off when not set. */
+  databaseUrl: string | undefined
   /** Settings that look like ours but are read by nobody: almost always typos. */
   unknownExcelKeys: string[]
 }
@@ -230,6 +234,7 @@ export function loadConfig(env: RawEnv = process.env): ServerConfig {
     dataDir: resolve(trimmed(value.DATA_DIR) ?? '.crm-data'),
     sessionSecret: trimmed(value.AUTH_SECRET),
     sessionHours: value.SESSION_HOURS,
+    databaseUrl: trimmed(value.DATABASE_URL),
     unknownExcelKeys: unknownExcelKeys(env),
   }
 }

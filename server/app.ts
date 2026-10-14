@@ -23,6 +23,7 @@ import { healthRoutes } from './modules/health/routes'
 import { createSnapshotStore, type SnapshotStore } from './modules/snapshots/store'
 import { snapshotRoutes } from './modules/snapshots/routes'
 import { startAutoSave } from './modules/snapshots/auto-save'
+import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
 import { requireRole, requireSession } from './modules/auth/middleware'
@@ -45,6 +46,8 @@ export interface ApiDeps {
   data?: DataStore
   /** Save Monday's Overdue day by itself (Weekly KPI). On by default in production. */
   weeklyAutoSave?: boolean
+  /** Keep the PostgreSQL copy in step. On by default in production when DATABASE_URL is set. */
+  pgMirror?: boolean
 }
 
 /**
@@ -88,6 +91,26 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
     })
   }
 
+  // The PostgreSQL copy of everything, kept in step every few seconds.
+  let pgStatus: (() => MirrorStatus) | null = null
+  if (config.databaseUrl && (deps.pgMirror ?? config.isProduction)) {
+    const listResults = () =>
+      snapshots.listResults().map((m) => snapshots.getResult(m.id)).filter((r): r is NonNullable<typeof r> => r !== null)
+    const listDays = () => snapshots.listDays().map((m) => ({ ...m, table: snapshots.getDay(m.id)?.table }))
+    pgStatus = startPgMirror({
+      databaseUrl: config.databaseUrl,
+      logger,
+      source: () => ({ store: data.snapshot(), users: accounts.roster(), kpiDays: listDays(), kpiResults: listResults() }),
+      signature: () =>
+        [
+          data.version(),
+          JSON.stringify(accounts.roster().map((u) => [u.id, u.updated_at, u.role, u.full_name])),
+          snapshots.listDays().map((d) => d.id).join(','),
+          snapshots.listResults().map((r) => r.id).join(','),
+        ].join('|'),
+    }).status
+  }
+
   // A saved day carries the whole Overdue book — a few hundred kilobytes — so
   // these routes read their own, larger bodies and sit before the 1 MB limit.
   router.use(
@@ -113,7 +136,7 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
 
   router.use(express.json({ limit: '1mb' }))
 
-  router.use(healthRoutes(config, ai, excel, deps.version ?? 'dev'))
+  router.use(healthRoutes(config, ai, excel, deps.version ?? 'dev', () => pgStatus?.() ?? null))
   // Only the model route is rate limited: it is the one that costs money.
   // The budget guards the route that spends money. Asking whether a key is
   // configured costs nothing, and metering it only made the assistant report
