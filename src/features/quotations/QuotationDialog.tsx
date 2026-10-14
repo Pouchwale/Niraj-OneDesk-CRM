@@ -77,8 +77,8 @@ export function QuotationDialog({
       ? 'Enter the customer.'
       : form.status === 'lost' && form.lost_remark.trim().length < 3
         ? 'Say why it was lost.'
-        : form.amount && !(Number(form.amount) >= 0)
-          ? 'The amount must be a number.'
+        : form.status === 'closed' && !(Number(form.amount) > 0)
+          ? 'Enter the order amount for a closed quotation.'
           : null
 
   const save = async () => {
@@ -103,7 +103,8 @@ export function QuotationDialog({
       closing_date: form.status === 'open' ? null : form.closing_date || today,
       status: form.status,
       customer_type: (form.customer_type as Quotation['customer_type']) || null,
-      amount: form.amount && amount > 0 ? amount : null,
+      // Only a closed (won) quotation carries an amount: the order value.
+      amount: form.status === 'closed' && amount > 0 ? amount : null,
       lost_remark: form.status === 'lost' ? form.lost_remark.trim() : form.lost_remark.trim() || null,
       created_at: quotation?.created_at ?? at,
       created_by: quotation?.created_by ?? currentUserId,
@@ -185,7 +186,6 @@ export function QuotationDialog({
               <option value="new">New</option>
             </select>
           </div>
-          {field('Amount (Rs)', 'amount', { inputMode: 'decimal' })}
           <div className="space-y-1">
             <Label htmlFor="q-status">Status</Label>
             <select id="q-status" className={selectClass} value={form.status} onChange={(e) => set('status', e.target.value)} disabled={!canEdit}>
@@ -196,6 +196,7 @@ export function QuotationDialog({
               ))}
             </select>
           </div>
+          {form.status === 'closed' && field('Order amount (Rs)', 'amount', { inputMode: 'decimal' })}
           {form.status !== 'open' && field('Closing date', 'closing_date', { type: 'date' })}
           {canManageTeam && (
             <div className="space-y-1">
