@@ -120,7 +120,6 @@ export function BankruptRegister({ payments, companies = [], currentUserId, canM
               <TableHead>Customer</TableHead>
               <TableHead>Ageing balance</TableHead>
               <TableHead>Active Payments</TableHead>
-              <TableHead>Coordinator</TableHead>
               <TableHead>Declared by</TableHead>
               <TableHead>Reason</TableHead>
               <TableHead className="text-right">Undo</TableHead>
@@ -136,7 +135,11 @@ export function BankruptRegister({ payments, companies = [], currentUserId, canM
                       {entry.name}
                       <ExternalLink className="ml-1.5 inline h-3 w-3 text-muted-foreground" />
                     </button>
-                    {entry.bpCode && <div className="font-mono text-xs text-muted-foreground">{entry.bpCode}</div>}
+                    <div className="text-xs text-muted-foreground">
+                      {entry.bpCode && <span className="font-mono">{entry.bpCode}</span>}
+                      {entry.bpCode && ' · '}
+                      {entry.coordinatorId ? getCoordinatorDisplayName(entry.coordinatorId) : 'Unassigned'}
+                    </div>
                   </TableCell>
                   <TableCell className="font-medium text-rose-500">
                     {entry.ageingBalance === null ? (
@@ -156,9 +159,6 @@ export function BankruptRegister({ payments, companies = [], currentUserId, canM
                     ) : (
                       '—'
                     )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {entry.coordinatorId ? getCoordinatorDisplayName(entry.coordinatorId) : 'Unassigned'}
                   </TableCell>
                   <TableCell>
                     {entry.by ? getCoordinatorDisplayName(entry.by) : '-'}

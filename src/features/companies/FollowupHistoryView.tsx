@@ -241,13 +241,28 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
           />
         ) : (
           <div className="rounded-lg border border-border">
-            <Table containerRef={tableScroller} containerClassName="scrollbar-none">
+            {/*
+              Fixed layout: the columns share the width there is, so the table
+              always fits and nothing scrolls sideways. Related details sit
+              together in one cell (who under when, mode under outcome, amount
+              under the promise date) instead of a column each.
+            */}
+            <Table
+              containerRef={tableScroller}
+              containerClassName="scrollbar-none"
+              className="table-fixed [&_td]:px-3 [&_td]:py-3 [&_td]:align-top [&_th]:h-10 [&_th]:px-3"
+            >
+              <colgroup>
+                <col className="w-[15%]" />
+                <col className="w-[26%]" />
+                <col className="w-[15%]" />
+                <col className="w-[14%]" />
+                <col className="w-[30%]" />
+              </colgroup>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{show === 'latest' ? 'Last contact' : 'Date'}</TableHead>
-                  {showWhoFilter && <TableHead>Coordinator</TableHead>}
+                  <TableHead>{show === 'latest' ? 'Last contact' : 'Date'}{showWhoFilter ? ' · by' : ''}</TableHead>
                   <TableHead>Account</TableHead>
-                  <TableHead>Mode</TableHead>
                   <TableHead>Outcome</TableHead>
                   <TableHead>Commitment</TableHead>
                   <TableHead>Note</TableHead>
@@ -258,60 +273,62 @@ export function FollowupHistoryView({ coordinatorId, refreshKey = 0, hideSetAsid
                   const Icon = MODE_ICON[entry.mode]
                   return (
                     <TableRow key={entry.id}>
-                      <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
-                        <span className="block">
+                      <TableCell className="tabular-nums">
+                        <span className="block text-sm text-foreground">
                           {formatDate(entry.followup_date)}
                           {entry.edited_at && (
-                            <span className="ml-1 text-xs opacity-70" title={`Edited ${formatDate(entry.edited_at)}`}>
+                            <span className="ml-1 text-xs text-muted-foreground" title={`Edited ${formatDate(entry.edited_at)}`}>
                               (edited)
                             </span>
                           )}
                         </span>
+                        {showWhoFilter && (
+                          <span className="block truncate text-xs text-muted-foreground" title={entry.coordinator_name}>
+                            {entry.coordinator_name}
+                          </span>
+                        )}
                         {entry.touches > 1 && (
-                          <span className="text-xs opacity-70">latest of {entry.touches}</span>
+                          <span className="block text-xs text-muted-foreground">latest of {entry.touches}</span>
                         )}
                       </TableCell>
-                      {showWhoFilter && (
-                        <TableCell className="whitespace-nowrap">{entry.coordinator_name}</TableCell>
-                      )}
                       <TableCell>
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{entry.entity_name}</p>
-                          {entry.entity_bp_code && (
-                            <p className="truncate font-mono text-xs text-muted-foreground">
-                              {entry.entity_bp_code}
-                            </p>
-                          )}
-                        </div>
+                        <p className="line-clamp-2 break-words font-medium leading-snug" title={entry.entity_name}>
+                          {entry.entity_name}
+                        </p>
+                        {entry.entity_bp_code && (
+                          <p className="font-mono text-xs text-muted-foreground">{entry.entity_bp_code}</p>
+                        )}
                       </TableCell>
                       <TableCell>
-                        <span className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground">
-                          <Icon className="h-3.5 w-3.5" />
+                        <Badge variant="outline" className={cn('max-w-full truncate', FOLLOWUP_STATUS_STYLE[entry.status])}>
+                          {FOLLOWUP_STATUS_LABEL[entry.status]}
+                        </Badge>
+                        <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                           {MODE_LABEL[entry.mode]}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={cn('whitespace-nowrap', FOLLOWUP_STATUS_STYLE[entry.status])}>
-                          {FOLLOWUP_STATUS_LABEL[entry.status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
                         {entry.committed_date ? (
-                          <span className="flex items-center gap-1.5 text-sm">
-                            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="tabular-nums">{formatDate(entry.committed_date)}</span>
+                          <>
+                            <span className="flex items-center gap-1.5 text-sm tabular-nums">
+                              <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                              {formatDate(entry.committed_date)}
+                            </span>
                             {entry.committed_amount ? (
-                              <span className="text-muted-foreground">
-                                · {formatCurrency(entry.committed_amount)}
+                              <span className="block text-xs tabular-nums text-muted-foreground">
+                                {formatCurrency(entry.committed_amount)}
                               </span>
                             ) : null}
-                          </span>
+                          </>
                         ) : (
                           <span className="text-muted-foreground opacity-50">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="max-w-sm">
-                        <p className="line-clamp-2 text-sm text-muted-foreground">{entry.notes || '—'}</p>
+                      <TableCell>
+                        <p className="line-clamp-3 break-words text-sm text-muted-foreground" title={entry.notes ?? undefined}>
+                          {entry.notes || '—'}
+                        </p>
                       </TableCell>
                     </TableRow>
                   )

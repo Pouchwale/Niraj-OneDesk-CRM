@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { AssistantWidget } from '@/features/assistant/AssistantWidget';
@@ -7,6 +8,7 @@ import { ProofGate } from '@/features/assistant/ProofGate';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 
 export const AppShell = () => {
+  const { pathname } = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const isDesktop = useIsDesktop();
 
@@ -30,7 +32,8 @@ export const AppShell = () => {
           onMenuClick={() => setIsMobileMenuOpen(true)} 
         />
         <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
-          <div className="mx-auto max-w-7xl">
+          {/* The Overview is a console of wide tables: it gets the whole width. */}
+          <div className={cn('mx-auto', pathname.startsWith('/admin/overview') ? 'max-w-[1800px]' : 'max-w-7xl')}>
             <Outlet />
           </div>
         </main>

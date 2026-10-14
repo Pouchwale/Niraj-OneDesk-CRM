@@ -170,9 +170,9 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
             <tbody className="divide-y divide-border/50">
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td className="whitespace-nowrap px-4 py-3 font-medium">{r.name}</td>
+                  <td className="px-4 py-3 font-medium">{r.name}</td>
                   {r.week.map((s, i) => (
-                    <td key={days[i]} className={cn('whitespace-nowrap px-3 py-3 text-center', days[i] === today && 'bg-primary/5')}>
+                    <td key={days[i]} className={cn('px-3 py-3 text-center', days[i] === today && 'bg-primary/5')}>
                       <Cell s={s} today={days[i] === today} leave={onLeave(r.id, days[i])} extra={extra.get(`${r.id}|${days[i]}`)} />
                     </td>
                   ))}

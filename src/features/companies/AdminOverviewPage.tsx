@@ -40,6 +40,17 @@ import { cn } from '@/lib/utils';
 import type { Company, Followup, OverduePayment } from '@/lib/types';
 import { demoCompanyStore } from '@/lib/demo-companies';
 
+/** Under an account count: how many are overdue, and how many of those are critical. */
+function AccountSplit({ overdue, critical }: { overdue: number; critical: number }) {
+  return (
+    <div className="text-xs tabular-nums">
+      <span className={cn('whitespace-nowrap', overdue > 0 ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>{overdue} overdue</span>
+      <span className="text-muted-foreground"> · </span>
+      <span className={cn('whitespace-nowrap', critical > 0 ? 'font-medium text-rose-600 dark:text-rose-400' : 'text-muted-foreground')}>{critical} critical</span>
+    </div>
+  );
+}
+
 export function AdminOverviewPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const navigate = useNavigate();
@@ -230,7 +241,7 @@ export function AdminOverviewPage() {
       <Tabs value={tab} onValueChange={setTab} orientation="vertical" className="flex flex-col gap-6 lg:min-h-0 lg:flex-1 lg:flex-row">
         <OverviewSideNav counts={navCounts} />
         <div
-          className="min-w-0 flex-1 space-y-6 lg:overflow-y-auto lg:pb-6 lg:pr-2 scrollbar-thin"
+          className="min-w-0 flex-1 space-y-6 lg:overflow-y-auto lg:pb-6 lg:pr-2 scrollbar-thin [&_td]:px-3 [&_th]:px-3"
           data-testid="overview-content"
         >
         <OverviewMobileNav value={tab} onChange={setTab} counts={navCounts} />
@@ -340,48 +351,48 @@ export function AdminOverviewPage() {
           <p className="text-xs text-muted-foreground">Accounts, money and today's Robi plan for each coordinator</p>
         </div>
         
-        <div className="overflow-x-auto rounded-md border border-border/50 [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
-          <Table>
+        {/*
+          Five columns that always fit: related figures share a cell (last
+          follow-up under the name, overdue and critical under the accounts)
+          instead of a column each, so nothing scrolls sideways.
+        */}
+        <div className="rounded-md border border-border/50">
+          <Table className="table-fixed [&_td]:px-3 [&_td]:py-3 [&_th]:h-10 [&_th]:px-3">
+            <colgroup>
+              <col className="w-[24%]" />
+              <col className="w-[22%]" />
+              <col className="w-[18%]" />
+              <col className="w-[13%]" />
+              <col className="w-[23%]" />
+            </colgroup>
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead>Coordinator</TableHead>
                 <TableHead>Accounts</TableHead>
-                <TableHead>Overdue</TableHead>
-                <TableHead>Critical</TableHead>
-                <TableHead>Outstanding</TableHead>
-                <TableHead>Last follow-up</TableHead>
-                <TableHead>Missed promises</TableHead>
+                <TableHead className="text-right">Outstanding</TableHead>
+                <TableHead className="text-right">Missed promises</TableHead>
                 <TableHead>Today's plan</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {coordinatorStats.length > 0 ? (
                 coordinatorStats.map((stat) => (
-                  <TableRow 
+                  <TableRow
                     key={stat.id}
                     className="transition-colors duration-200 hover:bg-muted/30"
                   >
-                    <TableCell className="font-medium text-foreground">{stat.name}</TableCell>
-                    <TableCell>{stat.totalCompanies}</TableCell>
                     <TableCell>
-                      {stat.overdue > 0 ? (
-                        <span className="text-amber-500 font-medium">{stat.overdue}</span>
-                      ) : (
-                        '0'
-                      )}
+                      <div className="truncate font-medium text-foreground" title={stat.name}>{stat.name}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        Last follow-up {stat.lastFollowupDate ? formatRelativeDate(stat.lastFollowupDate) : '—'}
+                      </div>
                     </TableCell>
                     <TableCell>
-                      {stat.critical > 0 ? (
-                        <span className="text-rose-500 font-medium">{stat.critical}</span>
-                      ) : (
-                        '0'
-                      )}
+                      <div className="tabular-nums text-foreground">{stat.totalCompanies}</div>
+                      <AccountSplit overdue={stat.overdue} critical={stat.critical} />
                     </TableCell>
-                    <TableCell>{formatCurrency(stat.outstanding)}</TableCell>
-                    <TableCell>
-                      {stat.lastFollowupDate ? formatRelativeDate(stat.lastFollowupDate) : '-'}
-                    </TableCell>
-                    <TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCurrency(stat.outstanding)}</TableCell>
+                    <TableCell className="text-right">
                       {stat.overdueCommitmentsCount > 0 ? (
                         <span className="font-semibold tabular-nums text-rose-600 dark:text-rose-400">{stat.overdueCommitmentsCount}</span>
                       ) : (
@@ -392,8 +403,8 @@ export function AdminOverviewPage() {
                       {stat.planTotal === 0 ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
-                        <div className="min-w-[96px]">
-                          <div className="flex items-center justify-between text-xs tabular-nums">
+                        <div>
+                          <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
                             <span className={cn('font-medium', stat.planDone === stat.planTotal ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground')}>
                               {stat.planDone}/{stat.planTotal} done
                             </span>
@@ -414,7 +425,7 @@ export function AdminOverviewPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                     {isLoading ? 'Loading coordinators...' : 'No coordinator data available.'}
                   </TableCell>
                 </TableRow>
@@ -422,22 +433,19 @@ export function AdminOverviewPage() {
               {!isLoading && otherOwnerStats.map(({ owner, totals }) => (
                 <TableRow key={owner.key} className={owner.inCrm ? undefined : 'bg-amber-500/5'} data-testid="other-owner-row">
                   <TableCell className="font-medium text-foreground">
-                    <div className={owner.inCrm ? undefined : 'text-amber-700 dark:text-amber-400'}>{owner.name}</div>
-                    <div className="whitespace-nowrap text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
+                    <div className={cn('truncate', owner.inCrm ? undefined : 'text-amber-700 dark:text-amber-400')} title={owner.name}>{owner.name}</div>
+                    <div className="truncate text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
                       {owner.inCrm ? 'Team leader / other login' : 'Not in CRM'}
                     </div>
                   </TableCell>
-                  <TableCell>{totals.accounts}</TableCell>
                   <TableCell>
-                    {totals.overdueAccounts > 0 ? <span className="text-amber-500 font-medium">{totals.overdueAccounts}</span> : '0'}
+                    <div className="tabular-nums">{totals.accounts}</div>
+                    <AccountSplit overdue={totals.overdueAccounts} critical={totals.criticalAccounts} />
                   </TableCell>
-                  <TableCell>
-                    {totals.criticalAccounts > 0 ? <span className="text-rose-500 font-medium">{totals.criticalAccounts}</span> : '0'}
-                  </TableCell>
-                  <TableCell>{formatCurrency(totals.outstanding)}</TableCell>
-                  <TableCell colSpan={3}>
+                  <TableCell className="text-right tabular-nums">{formatCurrency(totals.outstanding)}</TableCell>
+                  <TableCell colSpan={2}>
                     {/* The accounts behind the figure, with every detail, on the screens that hold them. */}
-                    <div className="flex flex-wrap gap-3 text-xs">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
                       <button
                         type="button"
                         className="font-medium text-primary hover:underline"
@@ -459,11 +467,12 @@ export function AdminOverviewPage() {
               {!isLoading && book.length > 0 && (
                 <TableRow className="border-t-2 border-border bg-muted/40 font-semibold" data-testid="breakdown-total">
                   <TableCell>Total</TableCell>
-                  <TableCell>{stats.totalCompanies}</TableCell>
-                  <TableCell>{stats.totalOverdue}</TableCell>
-                  <TableCell>{summariseBook(book).criticalAccounts}</TableCell>
-                  <TableCell>{formatCurrency(stats.totalOutstanding)}</TableCell>
-                  <TableCell colSpan={3} className="text-xs font-normal text-muted-foreground">
+                  <TableCell>
+                    <div className="tabular-nums">{stats.totalCompanies}</div>
+                    <AccountSplit overdue={stats.totalOverdue} critical={summariseBook(book).criticalAccounts} />
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{formatCurrency(stats.totalOutstanding)}</TableCell>
+                  <TableCell colSpan={2} className="text-xs font-normal text-muted-foreground">
                     Matches the cards above
                   </TableCell>
                 </TableRow>
