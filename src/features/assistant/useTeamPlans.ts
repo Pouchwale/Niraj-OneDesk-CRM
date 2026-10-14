@@ -8,19 +8,27 @@ import {
   getOverdueCommitmentDetails,
   type OverdueCommitment,
 } from '@/lib/followups-api'
-import { subscribeToDemoStore } from '@/lib/demo-companies'
+import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import type { Company, Followup, OverduePayment } from '@/lib/types'
 import { todayISO } from '@/lib/utils'
 import { teamPlans, type TeamPlan } from './plan-store'
+import type { LeaderDesk } from './proactive'
 
 interface TeamData {
   companies: Company[]
   overduePayments: OverduePayment[]
   followups: Followup[]
   brokenPromises: OverdueCommitment[]
+  desk: LeaderDesk
 }
 
-const EMPTY: TeamData = { companies: [], overduePayments: [], followups: [], brokenPromises: [] }
+const EMPTY: TeamData = {
+  companies: [],
+  overduePayments: [],
+  followups: [],
+  brokenPromises: [],
+  desk: { decisionRequests: [], proofRequests: [], attendance: [], rfdRows: [] },
+}
 
 /**
  * The team's day, for whoever runs the team.
@@ -44,7 +52,13 @@ export function useTeamPlans(enabled: boolean) {
           getAllFollowups(),
           getOverdueCommitmentDetails(),
         ])
-        setData({ companies, overduePayments, followups, brokenPromises })
+        const desk: LeaderDesk = {
+          decisionRequests: demoCompanyStore.getDecisionRequests(),
+          proofRequests: demoCompanyStore.getProofRequests(),
+          attendance: demoCompanyStore.getAttendanceEntries(),
+          rfdRows: demoCompanyStore.getRfdRows(),
+        }
+        setData({ companies, overduePayments, followups, brokenPromises, desk })
       } catch (err) {
         console.error('Could not load the team for the assistant:', err)
       } finally {
@@ -83,6 +97,7 @@ export function useTeamPlans(enabled: boolean) {
   return {
     team,
     brokenPromises: data.brokenPromises,
+    desk: data.desk,
     companies: data.companies,
     overduePayments: data.overduePayments,
     followups: data.followups,

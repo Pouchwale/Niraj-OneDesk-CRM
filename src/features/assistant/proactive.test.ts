@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Company, Followup, OverduePayment } from '@/lib/types'
-import { composeNudge, type NudgeInput } from './proactive'
+import type { Company, DecisionRequest, Followup, OverduePayment, ProofRequest, RfdRow } from '@/lib/types'
+import { composeNudge, composeNudges, type LeaderDesk, type NudgeInput } from './proactive'
 import { makePlan, resolvePlan } from './daily-plan'
 import { TASK_PRIORITY, type AssistantTask } from './types'
 
@@ -261,6 +261,104 @@ describe('the robot on a leader\'s screen', () => {
     )
     expect(nudge?.text).toBe('1 promise is broken across the team.')
     expect(nudge?.detail).toContain('Balaji Print Pack is the oldest — 5 days past ₹2,50,000, with Pragati Patel')
+  })
+
+  describe('what waits on the leader\'s desk', () => {
+    const names: Record<string, string> = { 'coord-1': 'Pragati Patel', 'coord-2': 'Diya Prajapati' }
+    const leader = (desk: Partial<LeaderDesk>, screen: NudgeInput['screen'] = 'otif') =>
+      input({
+        role: 'team_leader',
+        userId: 'admin-1',
+        firstName: 'Niki',
+        screen,
+        team,
+        minutesNow: 11 * 60,
+        coordinatorName: (id) => (id ? names[id] ?? 'Someone' : 'Unassigned'),
+        desk: { decisionRequests: [], proofRequests: [], attendance: [], rfdRows: [], ...desk },
+      })
+    const request = (id: string, at: string, status: DecisionRequest['status'] = 'pending'): DecisionRequest => ({
+      id,
+      kind: 'dispute',
+      entityType: 'company',
+      entityId: 'c1',
+      bpCode: null,
+      name: `Customer ${id}`,
+      amount: 1000,
+      reason: 'x',
+      requestedBy: 'coord-2',
+      requestedAt: at,
+      status,
+    })
+    const proof = (id: string, coordinatorId: string, status: ProofRequest['status'], date = TODAY): ProofRequest => ({
+      id,
+      coordinatorId,
+      date,
+      taskId: id,
+      entityType: 'company',
+      entityId: 'c1',
+      entityName: 'Balaji Print Pack',
+      followupId: null,
+      requestedAt: `${date}T10:00:00Z`,
+      dueAt: `${date}T10:10:00Z`,
+      status,
+    })
+
+    it('has nothing extra to say with an empty desk off the Overview', () => {
+      expect(composeNudges(leader({}))).toEqual([])
+    })
+
+    it('names pending approvals, oldest first, on any screen', () => {
+      const [nudge] = composeNudges(
+        leader({ decisionRequests: [request('r2', '2026-09-06T09:00:00Z'), request('r1', '2026-09-05T09:00:00Z'), request('r0', '2026-09-01T09:00:00Z', 'approved')] })
+      )
+      expect(nudge.text).toBe('2 requests are waiting for your approval.')
+      expect(nudge.detail).toBe('Oldest: Diya asks to mark Customer r1 as Dispute.')
+      expect(nudge.actions[0]).toMatchObject({ kind: 'navigate', to: '/admin/overview?tab=approvals' })
+    })
+
+    it('lists proofs to review and today\'s missed checks, not older ones', () => {
+      const said = composeNudges(
+        leader({
+          proofRequests: [
+            proof('p1', 'coord-1', 'submitted'),
+            proof('p2', 'coord-2', 'missed'),
+            proof('p3', 'coord-1', 'missed', '2026-09-01'),
+          ],
+        })
+      )
+      expect(said.map((n) => n.text)).toEqual([
+        '1 proof screenshot is waiting for your review.',
+        '1 proof check was missed today.',
+      ])
+      expect(said[1].detail).toBe('Diya did not send the screenshot in time.')
+    })
+
+    it('says who is out today and the RFD money held up, once a day', () => {
+      const rfd = (id: string, customer: string, pending: number, days: number) =>
+        ({ id, customer_name: customer, pending_value: pending, days }) as RfdRow
+      const said = composeNudges(
+        leader({
+          attendance: [
+            { userId: 'coord-1', date: TODAY, status: 'leave', by: 'admin-1', at: '' },
+            { userId: 'coord-2', date: TODAY, status: 'half_day', by: 'admin-1', at: '' },
+            { userId: 'coord-2', date: '2026-09-01', status: 'leave', by: 'admin-1', at: '' },
+          ],
+          rfdRows: [rfd('a', 'Gokul', 50000, 10), rfd('b', 'Gokul', 25000, 8), rfd('c', 'Balaji', 60000, 30), rfd('d', 'New', 99999, 2)],
+        })
+      )
+      expect(said.map((n) => n.text)).toEqual([
+        'Out of the office today: 2 coordinators.',
+        '₹1,35,000 of goods is ready for dispatch but unpaid for 7+ days.',
+      ])
+      expect(said[0].detail).toBe('On leave: Pragati. Half day: Diya.')
+      expect(said[1].detail).toBe('3 lines across 2 customers; the most is Gokul at ₹75,000.')
+      expect(said.every((n) => n.daily)).toBe(true)
+    })
+
+    it('puts the desk before the team\'s progress on the Overview', () => {
+      const said = composeNudges(leader({ decisionRequests: [request('r1', '2026-09-05T09:00:00Z')] }, 'overview'))
+      expect(said.map((n) => n.key.split(':')[0])).toEqual(['lead-approvals', 'team-progress'])
+    })
   })
 
 })

@@ -20,7 +20,7 @@ import { useKnowledge } from './useKnowledge'
 import { splitSuggestions } from './ai-prompt'
 import { useTeamPlans } from './useTeamPlans'
 import { greetedToday, markGreeted } from './assistant-state'
-import { composeNudge, type Nudge, type NudgeAction } from './proactive'
+import { composeNudges, type Nudge, type NudgeAction } from './proactive'
 import { useFocusedRecord, useScreen } from './screen-context'
 import { RobiBuddy, TypingDots, type RobiReaction, type RobotMood } from './RobiBuddy'
 import { planProgressLine, type ResolvedPlan, type ResolvedPlanItem } from './daily-plan'
@@ -392,7 +392,7 @@ export function AssistantWidget() {
   useEffect(() => {
     if (!user || open || isLoading || (isLeader && team.isLoading)) return
     const now = new Date(clock)
-    const candidate = composeNudge({
+    const candidates = composeNudges({
       role: user.role,
       userId: user.id,
       firstName: user.full_name.split(' ')[0] || user.full_name,
@@ -407,9 +407,13 @@ export function AssistantWidget() {
       overduePayments: isLeader ? team.overduePayments : overduePayments,
       team: isLeader ? team.team : undefined,
       brokenPromises: isLeader ? team.brokenPromises : undefined,
+      desk: isLeader ? team.desk : undefined,
       coordinatorName: (id) => (id ? getCoordinatorDisplayName(id) : 'Unassigned'),
     })
-    if (!candidate || wasSaid(user.id, candidate, today)) return
+    // The first thing not said yet: Robi moves down the list rather than
+    // waiting for the top line to change.
+    const candidate = candidates.find((c) => !wasSaid(user.id, c, today))
+    if (!candidate) return
 
     // One remark, then a pause before the next.
     if (Date.now() - lastSpokeRef.current < COOLDOWN_MS) return
@@ -419,7 +423,7 @@ export function AssistantWidget() {
     setNudge(candidate)
   }, [
     user, open, isLoading, isLeader, team.isLoading, team.followups, team.companies,
-    team.overduePayments, team.team, team.brokenPromises, clock, today, screen, focused,
+    team.overduePayments, team.team, team.brokenPromises, team.desk, clock, today, screen, focused,
     tasks, plan, followups, companies, overduePayments,
   ])
 

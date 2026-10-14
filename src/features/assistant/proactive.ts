@@ -8,7 +8,16 @@
  * page re-renders.
  */
 
-import type { Company, Followup, OverduePayment, UserRole } from '@/lib/types'
+import type {
+  AttendanceEntry,
+  Company,
+  DecisionRequest,
+  Followup,
+  OverduePayment,
+  ProofRequest,
+  RfdRow,
+  UserRole,
+} from '@/lib/types'
 import { carriedOverLine } from './daily-plan'
 import { formatCurrency } from '@/lib/utils'
 import type { OverdueCommitment } from '@/lib/followups-api'
@@ -55,8 +64,21 @@ export interface NudgeInput {
   /** Leader only. */
   team?: TeamPlan[]
   brokenPromises?: OverdueCommitment[]
+  /** Leader only: what is waiting on the leader's desk. */
+  desk?: LeaderDesk
   coordinatorName?: (id: string | null) => string
 }
+
+/** The team records a leader acts on, straight from the store. */
+export interface LeaderDesk {
+  decisionRequests: DecisionRequest[]
+  proofRequests: ProofRequest[]
+  attendance: AttendanceEntry[]
+  rfdRows: RfdRow[]
+}
+
+/** RFD lines ready this long and still unpaid are money held up. */
+const RFD_STUCK_DAYS = 7
 
 function partOfDay(minutesNow: number): string {
   const hour = Math.floor(minutesNow / 60)
@@ -159,19 +181,22 @@ function coordinatorNudge(input: NudgeInput): Nudge | null {
 
 /* ===== Team leader / admin ===== */
 
-function leaderNudge(input: NudgeInput): Nudge | null {
+function leaderNudges(input: NudgeInput): Nudge[] {
   const { team = [], today } = input
+  const said: Nudge[] = []
 
   // Nothing is said over an open account's panel (see composeNudge).
+  // Desk items come first: they wait on the leader, not on the team.
+  said.push(...deskNudges(input))
 
   // 1. The Overview: how the team's day is going.
   if (input.screen === 'overview' && team.length > 0) {
     const withPlans = team.filter((t) => t.plan.total > 0)
-    if (withPlans.length === 0) return null
+    if (withPlans.length === 0) return [...said, ...dayNudges(input)]
     const done = withPlans.reduce((sum, t) => sum + t.plan.done, 0)
     const total = withPlans.reduce((sum, t) => sum + t.plan.total, 0)
     const idle = withPlans.filter((t) => t.plan.done === 0 && t.plan.skipped === 0).map((t) => t.name.split(' ')[0])
-    return {
+    said.push({
       key: `team-progress:${today}:${done}`,
       text: `Today's plans: ${done} of ${total} follow-ups done across ${withPlans.length} coordinator${
         withPlans.length === 1 ? '' : 's'
@@ -184,13 +209,13 @@ function leaderNudge(input: NudgeInput): Nudge | null {
           : 'Everyone has started on theirs.',
       tone: idle.length > 0 && input.minutesNow >= 12 * 60 ? 'warn' : 'info',
       actions: [{ kind: 'open', label: 'See the team' }],
-    }
+    })
   }
 
   // 2. The dashboard: promises the customers broke, oldest first.
   if (input.screen === 'dashboard' && input.brokenPromises && input.brokenPromises.length > 0) {
     const oldest = input.brokenPromises[0]
-    return {
+    said.push({
       key: `lead-broken:${today}:${input.brokenPromises.length}`,
       text: `${input.brokenPromises.length} promise${input.brokenPromises.length === 1 ? ' is' : 's are'} broken across the team.`,
       detail: `${oldest.entity_name} is the oldest — ${oldest.days_overdue} day${
@@ -200,26 +225,135 @@ function leaderNudge(input: NudgeInput): Nudge | null {
       }.`,
       tone: 'warn',
       actions: [{ kind: 'navigate', to: '/admin/overview', label: 'Open Overview' }],
-    }
+    })
   }
 
-  return null
+  // Once a day, on any screen: who is out, and money stuck at the gate.
+  said.push(...dayNudges(input))
+  return said
+}
+
+function names(list: string[], max = 3): string {
+  const unique = [...new Set(list)]
+  return `${unique.slice(0, max).join(', ')}${unique.length > max ? ` and ${unique.length - max} more` : ''}`
+}
+
+/** Requests and proofs that wait for the leader, keyed by what is waiting so a new one is news. */
+function deskNudges(input: NudgeInput): Nudge[] {
+  const { desk, today } = input
+  if (!desk) return []
+  const first = (id: string | null) => (input.coordinatorName ? input.coordinatorName(id) : id ?? 'Someone').split(' ')[0]
+  const out: Nudge[] = []
+
+  const approvals = desk.decisionRequests
+    .filter((r) => r.status === 'pending')
+    .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))
+  if (approvals.length > 0) {
+    const oldest = approvals[0]
+    const kind = { no_followup: 'No follow-up', dispute: 'Dispute', export: 'Export client', bankrupt: 'Bankrupt' }[oldest.kind]
+    out.push({
+      key: `lead-approvals:${approvals.map((r) => r.id).join(',')}`,
+      text: `${approvals.length} request${approvals.length === 1 ? ' is' : 's are'} waiting for your approval.`,
+      detail: `Oldest: ${first(oldest.requestedBy)} asks to mark ${oldest.name} as ${kind}.`,
+      tone: 'warn',
+      actions: [{ kind: 'navigate', to: '/admin/overview?tab=approvals', label: 'Review' }],
+    })
+  }
+
+  const toReview = desk.proofRequests.filter((r) => r.status === 'submitted')
+  if (toReview.length > 0) {
+    out.push({
+      key: `lead-proofs:${toReview.map((r) => r.id).join(',')}`,
+      text: `${toReview.length} proof screenshot${toReview.length === 1 ? ' is' : 's are'} waiting for your review.`,
+      detail: `From ${names(toReview.map((r) => first(r.coordinatorId)))}.`,
+      tone: 'info',
+      actions: [{ kind: 'navigate', to: '/admin/overview?tab=proofs', label: 'Review' }],
+    })
+  }
+
+  const missed = desk.proofRequests.filter((r) => r.status === 'missed' && r.date === today)
+  if (missed.length > 0) {
+    out.push({
+      key: `lead-missed:${today}:${missed.length}`,
+      text: `${missed.length} proof check${missed.length === 1 ? ' was' : 's were'} missed today.`,
+      detail: `${names(missed.map((r) => first(r.coordinatorId)))} did not send the screenshot in time.`,
+      tone: 'warn',
+      actions: [{ kind: 'navigate', to: '/admin/overview?tab=proofs', label: 'See them' }],
+    })
+  }
+
+  return out
+}
+
+/** Said once a day: who is out of the office, and RFD money held up. */
+function dayNudges(input: NudgeInput): Nudge[] {
+  const { desk, today } = input
+  if (!desk) return []
+  const first = (id: string) => (input.coordinatorName ? input.coordinatorName(id) : id).split(' ')[0]
+  const out: Nudge[] = []
+
+  const away = desk.attendance.filter((a) => a.date === today)
+  if (away.length > 0) {
+    const leave = away.filter((a) => a.status === 'leave').map((a) => first(a.userId))
+    const half = away.filter((a) => a.status === 'half_day').map((a) => first(a.userId))
+    out.push({
+      key: `lead-attendance:${today}:${away.map((a) => `${a.userId}=${a.status}`).sort().join(',')}`,
+      text: `Out of the office today: ${away.length} coordinator${away.length === 1 ? '' : 's'}.`,
+      detail: [leave.length ? `On leave: ${names(leave, 4)}.` : '', half.length ? `Half day: ${names(half, 4)}.` : '']
+        .filter(Boolean)
+        .join(' '),
+      tone: 'info',
+      actions: [{ kind: 'navigate', to: '/admin/overview?tab=attendance', label: 'Attendance' }],
+      daily: true,
+    })
+  }
+
+  const stuck = desk.rfdRows.filter((r) => r.pending_value > 0 && (r.days ?? 0) >= RFD_STUCK_DAYS)
+  if (stuck.length > 0) {
+    const total = stuck.reduce((sum, r) => sum + r.pending_value, 0)
+    const byCustomer = new Map<string, number>()
+    for (const r of stuck) byCustomer.set(r.customer_name, (byCustomer.get(r.customer_name) ?? 0) + r.pending_value)
+    const [topName, topValue] = [...byCustomer].sort((a, b) => b[1] - a[1])[0]
+    out.push({
+      key: `lead-rfd:${today}`,
+      text: `${formatCurrency(total)} of goods is ready for dispatch but unpaid for ${RFD_STUCK_DAYS}+ days.`,
+      detail: `${stuck.length} line${stuck.length === 1 ? '' : 's'} across ${byCustomer.size} customer${
+        byCustomer.size === 1 ? '' : 's'
+      }; the most is ${topName} at ${formatCurrency(topValue)}.`,
+      tone: 'info',
+      actions: [{ kind: 'navigate', to: '/rfd', label: 'Open RFD' }],
+      daily: true,
+    })
+  }
+
+  return out
+}
+
+/**
+ * Everything worth saying right now, most pressing first. The widget says the
+ * first one not said yet, so Robi moves down the list instead of repeating
+ * the top line.
+ */
+export function composeNudges(input: NudgeInput): Nudge[] {
+  // An account's follow-up panel is open: the person is already working on it,
+  // and a bubble popping over the panel every time one is opened gets in the
+  // way. Robi stays one click away on the button; it just does not interrupt.
+  if (input.focused) return []
+
+  switch (input.role) {
+    case 'coordinator': {
+      const nudge = coordinatorNudge(input)
+      return nudge ? [nudge] : []
+    }
+    case 'team_leader':
+    case 'admin':
+      return leaderNudges(input)
+    default:
+      return []
+  }
 }
 
 /** The one thing worth saying right now, or nothing. */
 export function composeNudge(input: NudgeInput): Nudge | null {
-  // An account's follow-up panel is open: the person is already working on it,
-  // and a bubble popping over the panel every time one is opened gets in the
-  // way. Robi stays one click away on the button; it just does not interrupt.
-  if (input.focused) return null
-
-  switch (input.role) {
-    case 'coordinator':
-      return coordinatorNudge(input)
-    case 'team_leader':
-    case 'admin':
-      return leaderNudge(input)
-    default:
-      return null
-  }
+  return composeNudges(input)[0] ?? null
 }
