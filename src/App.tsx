@@ -8,6 +8,7 @@ import { OtifProvider } from '@/features/otif/OtifContext';
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute';
 import { AppShell } from '@/components/layout/AppShell';
 import { onStorageFailure } from '@/lib/demo-companies';
+import { isRfdOnly } from '@/lib/users/rfd-only';
 import { onSharedDataError } from '@/lib/shared-data';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
@@ -38,6 +39,12 @@ function RouteFallback() {
   );
 }
 
+
+/** An RFD-only coordinator (Avani) has no payments screens: they go to Ready for Dispatch. */
+function NotForRfdOnly({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return isRfdOnly(user) ? <Navigate to="/rfd" replace /> : <>{children}</>;
+}
 
 function CompaniesRoute() {
   const { canManageTeam } = useAuth();
@@ -101,8 +108,8 @@ function AppContent() {
             <AppShell />
           </ProtectedRoute>
         }>
-          <Route index element={<DashboardPage />} />
-          <Route path="companies" element={<ProtectedRoute><CompaniesRoute /></ProtectedRoute>} />
+          <Route index element={<NotForRfdOnly><DashboardPage /></NotForRfdOnly>} />
+          <Route path="companies" element={<NotForRfdOnly><ProtectedRoute><CompaniesRoute /></ProtectedRoute></NotForRfdOnly>} />
           <Route path="admin/overview" element={<ProtectedRoute requiredRole="team_leader"><AdminOverviewPage /></ProtectedRoute>} />
           <Route path="weekly-kpi" element={<ProtectedRoute requiredRole="team_leader"><WeeklyKpiPage /></ProtectedRoute>} />
           <Route path="admin/users" element={<ProtectedRoute requiredRole="admin"><AdminPanelPage /></ProtectedRoute>} />
@@ -116,9 +123,9 @@ function AppContent() {
               <SettingsPage />
             </ProtectedRoute>
           } />
-          <Route path="overdue" element={<OverdueDashboardPage />} />
+          <Route path="overdue" element={<NotForRfdOnly><OverdueDashboardPage /></NotForRfdOnly>} />
           <Route path="rfd" element={<RfdPage />} />
-          <Route path="quotations" element={<QuotationsPage />} />
+          <Route path="quotations" element={<NotForRfdOnly><QuotationsPage /></NotForRfdOnly>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
