@@ -215,7 +215,13 @@ export function AssistantWidget() {
   const startedRef = useRef(false)
   const lastSpokeRef = useRef(0)
 
-  const pending = tasks.length
+  /*
+   * What the badge counts is what the panel lists. With a plan, that is the
+   * plan's tasks still open today; counting every raw reminder (invoices not
+   * yet due, customers resting or waiting for a date) put "9+" on the button
+   * over a panel holding three tasks.
+   */
+  const pending = plan && plan.total > 0 ? plan.open : tasks.length
   const { ask, isThinking, aiReady, aiKeyError } = useKnowledge(tasks)
 
   useEffect(() => {
