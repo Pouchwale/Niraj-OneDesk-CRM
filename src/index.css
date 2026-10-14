@@ -268,6 +268,29 @@
   }
 
   /* Robi (RobiBuddy.tsx): a round plush buddy that floats, waves and types. */
+  /* Its colours come from the CRM's own primary, so Robi matches the system
+     and follows the theme: a lavender plush with an indigo edge. */
+  .robi-buddy {
+    --rb-hi: color-mix(in oklch, var(--color-primary) 5%, white);
+    --rb-mid: color-mix(in oklch, var(--color-primary) 20%, white);
+    --rb-lo: color-mix(in oklch, var(--color-primary) 40%, white);
+    --rb-edge: color-mix(in oklch, var(--color-primary) 55%, white);
+    --rb-ear: color-mix(in oklch, var(--color-primary) 35%, oklch(0.8 0.12 350));
+    --rb-cheek: color-mix(in oklch, var(--color-primary) 25%, oklch(0.78 0.14 355));
+    --rb-ink: var(--color-foreground);
+    --rb-mouth: color-mix(in oklch, var(--color-primary) 55%, var(--color-foreground));
+    --rb-tongue: oklch(0.76 0.13 355);
+    --rb-shadow: color-mix(in oklch, var(--color-primary) 30%, transparent);
+  }
+  .dark .robi-buddy {
+    --rb-hi: color-mix(in oklch, var(--color-primary) 12%, white);
+    --rb-mid: color-mix(in oklch, var(--color-primary) 32%, white);
+    --rb-lo: color-mix(in oklch, var(--color-primary) 58%, white);
+    --rb-edge: color-mix(in oklch, var(--color-primary) 75%, white);
+    --rb-ink: oklch(0.2 0.04 270);
+    --rb-mouth: oklch(0.3 0.08 270);
+    --rb-shadow: color-mix(in oklch, var(--color-primary) 45%, transparent);
+  }
   .robi-buddy .robi-body, .robi-buddy .robi-shadow, .robi-buddy .robi-talk,
   .robi-buddy .robi-paw-wave, .robi-buddy [class^="robi-paw-type"], .robi-buddy .robi-zz {
     transform-box: fill-box;
@@ -313,12 +336,16 @@
     100% { transform: translate(3px, -5px); opacity: 0; }
   }
   .robi-buddy-still *, .robi-buddy-still { animation: none !important; }
+  /* The corner Robi: lifted off the page with a brand-tinted shadow. */
+  .robi-launcher-buddy {
+    filter: drop-shadow(0 8px 14px color-mix(in oklch, var(--color-primary) 28%, transparent));
+  }
   /* The panel's header: warm and soft, the buddy's own colours. */
   .robi-header {
-    background: linear-gradient(135deg, #fff4ea 0%, #fde7ef 48%, #ece6ff 100%);
-  }
-  .dark .robi-header {
-    background: linear-gradient(135deg, #3a2a35 0%, #33263f 50%, #262347 100%);
+    background: linear-gradient(135deg,
+      color-mix(in oklch, var(--color-primary) 6%, var(--color-background)) 0%,
+      color-mix(in oklch, var(--color-primary) 14%, var(--color-background)) 100%);
+    border-bottom: 1px solid color-mix(in oklch, var(--color-primary) 14%, var(--color-border));
   }
   /* Something to say: one small hop. */
   @keyframes robi-hop {

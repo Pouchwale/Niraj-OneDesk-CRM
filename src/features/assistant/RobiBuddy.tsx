@@ -1,6 +1,7 @@
 /**
  * Robi: a soft, round plush buddy (since 14 Oct 2026, after the dot screen
- * was turned down). Cream body, black bead eyes with a sparkle, pink cheeks,
+ * was turned down). Coloured from the CRM's own indigo (index.css, --rb-*),
+ * so it follows the theme. Lavender body, black bead eyes with a sparkle, pink cheeks,
  * little paws - in the family of Meta Muse's mascot and OpenAI's dots.
  *
  * Alive without being busy: it floats, blinks every few seconds, follows the
@@ -92,9 +93,9 @@ export function RobiBuddy({ mood = 'idle', size = 56, interactive = false, hover
     >
       <defs>
         <radialGradient id={`body-${uid}`} cx="38%" cy="30%" r="75%">
-          <stop offset="0%" stopColor="#FFFDF8" />
-          <stop offset="55%" stopColor="#FCEBD9" />
-          <stop offset="100%" stopColor="#F1CDB4" />
+          <stop offset="0%" style={{ stopColor: 'var(--rb-hi)' }} />
+          <stop offset="55%" style={{ stopColor: 'var(--rb-mid)' }} />
+          <stop offset="100%" style={{ stopColor: 'var(--rb-lo)' }} />
         </radialGradient>
         {/* A soft, fuzzy plush edge. */}
         <filter id={`fuzz-${uid}`} x="-10%" y="-10%" width="120%" height="120%">
@@ -104,38 +105,38 @@ export function RobiBuddy({ mood = 'idle', size = 56, interactive = false, hover
       </defs>
 
       {/* shadow on the ground */}
-      <ellipse className="robi-shadow" cx="50" cy="93" rx="25" ry="3.6" fill="rgba(60,40,80,0.16)" />
+      <ellipse className="robi-shadow" cx="50" cy="93" rx="25" ry="3.6" style={{ fill: 'var(--rb-shadow)' }} />
 
       <g className="robi-body">
         {/* ears */}
-        <circle cx="29" cy="27" r="8.5" fill={`url(#body-${uid})`} stroke="#E9C2A8" strokeWidth="1.2" filter={`url(#fuzz-${uid})`} />
-        <circle cx="71" cy="27" r="8.5" fill={`url(#body-${uid})`} stroke="#E9C2A8" strokeWidth="1.2" filter={`url(#fuzz-${uid})`} />
-        <circle cx="29" cy="27" r="4" fill="#F9B9C6" opacity="0.7" />
-        <circle cx="71" cy="27" r="4" fill="#F9B9C6" opacity="0.7" />
+        <circle cx="29" cy="27" r="8.5" fill={`url(#body-${uid})`} style={{ stroke: 'var(--rb-edge)' }} strokeWidth="1.2" filter={`url(#fuzz-${uid})`} />
+        <circle cx="71" cy="27" r="8.5" fill={`url(#body-${uid})`} style={{ stroke: 'var(--rb-edge)' }} strokeWidth="1.2" filter={`url(#fuzz-${uid})`} />
+        <circle cx="29" cy="27" r="4" style={{ fill: 'var(--rb-ear)' }} opacity="0.7" />
+        <circle cx="71" cy="27" r="4" style={{ fill: 'var(--rb-ear)' }} opacity="0.7" />
 
         {/* body */}
-        <ellipse cx="50" cy="57" rx="37" ry="34" fill={`url(#body-${uid})`} stroke="#E9C2A8" strokeWidth="1.4" filter={`url(#fuzz-${uid})`} />
+        <ellipse cx="50" cy="57" rx="37" ry="34" fill={`url(#body-${uid})`} style={{ stroke: 'var(--rb-edge)' }} strokeWidth="1.4" filter={`url(#fuzz-${uid})`} />
         <ellipse cx="38" cy="36" rx="11" ry="6" fill="#FFFFFF" opacity="0.55" />
 
         {/* cheeks */}
-        <ellipse cx="28.5" cy="64" rx="6.5" ry="3.8" fill="#FF9DB4" opacity={beaming ? 0.85 : 0.6} />
-        <ellipse cx="71.5" cy="64" rx="6.5" ry="3.8" fill="#FF9DB4" opacity={beaming ? 0.85 : 0.6} />
+        <ellipse cx="28.5" cy="64" rx="6.5" ry="3.8" style={{ fill: 'var(--rb-cheek)' }} opacity={beaming ? 0.85 : 0.6} />
+        <ellipse cx="71.5" cy="64" rx="6.5" ry="3.8" style={{ fill: 'var(--rb-cheek)' }} opacity={beaming ? 0.85 : 0.6} />
 
         {/* eyes */}
         {beaming ? (
-          <g fill="none" stroke="#2B2233" strokeWidth="3" strokeLinecap="round">
+          <g fill="none" style={{ stroke: 'var(--rb-ink)' }} strokeWidth="3" strokeLinecap="round">
             <path d="M33 56 Q38 49.5 43 56" />
             <path d="M57 56 Q62 49.5 67 56" />
           </g>
         ) : shut ? (
-          <g fill="none" stroke="#2B2233" strokeWidth="2.6" strokeLinecap="round">
+          <g fill="none" style={{ stroke: 'var(--rb-ink)' }} strokeWidth="2.6" strokeLinecap="round">
             <path d="M33.5 55 Q38 58.5 42.5 55" />
             <path d="M57.5 55 Q62 58.5 66.5 55" />
           </g>
         ) : (
           <g className="robi-eyes" transform={`translate(${ex} ${ey})`}>
-            <ellipse cx="38" cy="54" rx={wide ? 5.6 : 4.4} ry={wide ? 6.6 : 5.4} fill="#2B2233" />
-            <ellipse cx="62" cy="54" rx={wide ? 5.6 : 4.4} ry={wide ? 6.6 : 5.4} fill="#2B2233" />
+            <ellipse cx="38" cy="54" rx={wide ? 5.6 : 4.4} ry={wide ? 6.6 : 5.4} style={{ fill: 'var(--rb-ink)' }} />
+            <ellipse cx="62" cy="54" rx={wide ? 5.6 : 4.4} ry={wide ? 6.6 : 5.4} style={{ fill: 'var(--rb-ink)' }} />
             <circle cx="39.6" cy="51.8" r="1.6" fill="#FFFFFF" />
             <circle cx="63.6" cy="51.8" r="1.6" fill="#FFFFFF" />
           </g>
@@ -144,37 +145,37 @@ export function RobiBuddy({ mood = 'idle', size = 56, interactive = false, hover
         {/* mouth */}
         {beaming ? (
           <g>
-            <path d="M43.5 63 Q50 72 56.5 63 Z" fill="#5A2E3E" />
-            <path d="M46.5 66.8 Q50 69.6 53.5 66.8 Q50 65.6 46.5 66.8 Z" fill="#FF8FA8" />
+            <path d="M43.5 63 Q50 72 56.5 63 Z" style={{ fill: 'var(--rb-mouth)' }} />
+            <path d="M46.5 66.8 Q50 69.6 53.5 66.8 Q50 65.6 46.5 66.8 Z" style={{ fill: 'var(--rb-tongue)' }} />
           </g>
         ) : mood === 'talking' ? (
-          <ellipse className="robi-talk" cx="50" cy="65.5" rx="3.6" ry="2.8" fill="#5A2E3E" />
+          <ellipse className="robi-talk" cx="50" cy="65.5" rx="3.6" ry="2.8" style={{ fill: 'var(--rb-mouth)' }} />
         ) : mood === 'alert' ? (
-          <ellipse cx="50" cy="67" rx="2.6" ry="3" fill="#5A2E3E" />
+          <ellipse cx="50" cy="67" rx="2.6" ry="3" style={{ fill: 'var(--rb-mouth)' }} />
         ) : mood === 'sleepy' ? (
-          <path d="M47 66 Q50 67.5 53 66" fill="none" stroke="#5A2E3E" strokeWidth="2" strokeLinecap="round" />
+          <path d="M47 66 Q50 67.5 53 66" fill="none" style={{ stroke: 'var(--rb-mouth)' }} strokeWidth="2" strokeLinecap="round" />
         ) : mood === 'thinking' ? (
-          <path d="M46.5 66 Q50 64.6 53.5 66.4" fill="none" stroke="#5A2E3E" strokeWidth="2.2" strokeLinecap="round" />
+          <path d="M46.5 66 Q50 64.6 53.5 66.4" fill="none" style={{ stroke: 'var(--rb-mouth)' }} strokeWidth="2.2" strokeLinecap="round" />
         ) : (
-          <path d="M45 63.5 Q50 68.5 55 63.5" fill="none" stroke="#5A2E3E" strokeWidth="2.4" strokeLinecap="round" />
+          <path d="M45 63.5 Q50 68.5 55 63.5" fill="none" style={{ stroke: 'var(--rb-mouth)' }} strokeWidth="2.4" strokeLinecap="round" />
         )}
 
         {/* paws: wave when beaming, type when thinking */}
         {mood === 'thinking' ? (
           <g>
-            <rect x="31" y="80" width="38" height="8" rx="2.5" fill="#6D5A86" />
-            <g fill="#CBBCE0">
+            <rect x="31" y="80" width="38" height="8" rx="2.5" style={{ fill: 'var(--color-primary)' }} />
+            <g style={{ fill: 'var(--rb-hi)' }}>
               {[35, 40, 45, 50, 55, 60].map((x) => (
                 <rect key={x} x={x} y="81.6" width="3.4" height="2" rx="0.6" />
               ))}
             </g>
-            <circle className="robi-paw-type-l" cx="40" cy="79" r="4.6" fill={`url(#body-${uid})`} stroke="#E9C2A8" strokeWidth="1.2" />
-            <circle className="robi-paw-type-r" cx="60" cy="79" r="4.6" fill={`url(#body-${uid})`} stroke="#E9C2A8" strokeWidth="1.2" />
+            <circle className="robi-paw-type-l" cx="40" cy="79" r="4.6" fill={`url(#body-${uid})`} style={{ stroke: 'var(--rb-edge)' }} strokeWidth="1.2" />
+            <circle className="robi-paw-type-r" cx="60" cy="79" r="4.6" fill={`url(#body-${uid})`} style={{ stroke: 'var(--rb-edge)' }} strokeWidth="1.2" />
           </g>
         ) : (
           <g>
-            <circle cx="19" cy="70" r="5.2" fill={`url(#body-${uid})`} stroke="#E9C2A8" strokeWidth="1.2" />
-            <circle className={beaming ? 'robi-paw-wave' : undefined} cx="81" cy="70" r="5.2" fill={`url(#body-${uid})`} stroke="#E9C2A8" strokeWidth="1.2" />
+            <circle cx="19" cy="70" r="5.2" fill={`url(#body-${uid})`} style={{ stroke: 'var(--rb-edge)' }} strokeWidth="1.2" />
+            <circle className={beaming ? 'robi-paw-wave' : undefined} cx="81" cy="70" r="5.2" fill={`url(#body-${uid})`} style={{ stroke: 'var(--rb-edge)' }} strokeWidth="1.2" />
           </g>
         )}
 
@@ -184,7 +185,7 @@ export function RobiBuddy({ mood = 'idle', size = 56, interactive = false, hover
 
       {/* sleepy: floating z's */}
       {mood === 'sleepy' && (
-        <g className="robi-zz" fill="#8C7BB5" fontFamily="ui-rounded, system-ui, sans-serif" fontWeight="700">
+        <g className="robi-zz" style={{ fill: 'var(--color-primary)' }} fontFamily="ui-rounded, system-ui, sans-serif" fontWeight="700">
           <text x="76" y="24" fontSize="11">z</text>
           <text x="84" y="14" fontSize="8">z</text>
         </g>

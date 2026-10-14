@@ -674,7 +674,7 @@ export function AssistantWidget() {
             style={{ transformOrigin: 'bottom right' }}
             // Above an open account panel and clickable through its overlay:
             // the remark is usually about the record that panel shows.
-            className="pointer-events-auto fixed bottom-[6.5rem] right-4 z-[60] w-[min(340px,calc(100vw-2rem))] sm:right-6"
+            className="pointer-events-auto fixed bottom-[7.75rem] right-4 z-[60] w-[min(340px,calc(100vw-2rem))] sm:right-6"
             role="status"
             aria-live="polite"
             data-testid="robi-bubble"
@@ -728,7 +728,7 @@ export function AssistantWidget() {
             style={{ transformOrigin: 'bottom right' }}
             className={cn(
               'pointer-events-auto fixed z-[60] flex flex-col overflow-hidden rounded-[28px] border border-border/70 bg-background shadow-2xl',
-              'bottom-[6.5rem] right-4 w-[calc(100vw-2rem)] max-w-[420px] h-[min(660px,calc(100vh-8.5rem))]',
+              'bottom-[7.75rem] right-4 w-[calc(100vw-2rem)] max-w-[420px] h-[min(660px,calc(100vh-9.75rem))]',
               'sm:right-6'
             )}
             role="dialog"
@@ -738,7 +738,7 @@ export function AssistantWidget() {
             {/* Robi's screen: the face, the name, what it is doing. */}
             <div className="robi-header relative flex items-center gap-3 px-4 pb-3 pt-3.5">
               <div className="-my-1 -ml-1">
-                <RobiBuddy mood={mood} size={68} interactive />
+                <RobiBuddy mood={mood} size={84} interactive />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -801,7 +801,7 @@ export function AssistantWidget() {
                 return (
                   <div key={message.id} className={cn('flex items-end gap-2', mine ? 'justify-end' : 'justify-start')}>
                     {!mine && (
-                      <div className="w-8 shrink-0">{showFace && <RobiBuddy mood="idle" size={32} />}</div>
+                      <div className="w-10 shrink-0">{showFace && <RobiBuddy mood="idle" size={40} />}</div>
                     )}
                     <div
                       className={cn(
@@ -848,8 +848,8 @@ export function AssistantWidget() {
               })}
               {isThinking && (
                 <div className="flex items-end gap-2">
-                  <div className="w-8 shrink-0">
-                    <RobiBuddy mood="thinking" size={32} />
+                  <div className="w-10 shrink-0">
+                    <RobiBuddy mood="thinking" size={40} />
                   </div>
                   <div className="rounded-3xl rounded-bl-md bg-background px-4 py-3.5 shadow-sm ring-1 ring-border/70">
                     <TypingDots />
@@ -930,12 +930,12 @@ export function AssistantWidget() {
             <ChevronDown className="h-6 w-6" />
           </span>
         ) : (
-          <RobiBuddy mood={mood} size={76} interactive hovered={launcherHover} className="drop-shadow-[0_6px_10px_rgba(80,50,90,0.18)]" />
+          <RobiBuddy mood={mood} size={96} interactive hovered={launcherHover} className="robi-launcher-buddy" />
         )}
 
         {!open && pending > 0 && (
           <Badge
-            className="absolute right-1 top-1 h-6 min-w-6 justify-center rounded-full border-2 border-background bg-rose-500 px-1.5 text-xs text-white hover:bg-rose-500"
+            className="absolute right-2 top-2 h-6 min-w-6 justify-center rounded-full border-2 border-background bg-rose-500 px-1.5 text-xs text-white hover:bg-rose-500"
             aria-label={`${pending} follow-ups pending`}
           >
             {pending > 9 ? '9+' : pending}
