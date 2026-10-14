@@ -336,6 +336,76 @@
     100% { transform: translate(3px, -5px); opacity: 0; }
   }
   .robi-buddy-still *, .robi-buddy-still { animation: none !important; }
+  /* Ear wiggle, one of Robi's idle habits. */
+  .robi-buddy-ears .robi-ears { transform-box: fill-box; transform-origin: 50% 100%; animation: robi-ears 0.9s ease-in-out 1; }
+  @keyframes robi-ears {
+    0%, 100% { rotate: 0deg; }
+    25% { rotate: -8deg; }
+    50% { rotate: 7deg; }
+    75% { rotate: -4deg; }
+  }
+  .robi-wrap { overflow: visible; }
+  /* The glow behind the corner Robi: brand-tinted, breathing slowly. */
+  .robi-aura {
+    position: absolute; inset: -22%; border-radius: 9999px; pointer-events: none;
+    background: radial-gradient(circle, color-mix(in oklch, var(--color-primary) 38%, transparent) 0%, color-mix(in oklch, var(--color-primary) 12%, transparent) 45%, transparent 70%);
+    filter: blur(6px);
+    animation: robi-aura 4.2s ease-in-out infinite;
+  }
+  .robi-aura-bright { animation-duration: 1.6s; opacity: 1; }
+  @keyframes robi-aura {
+    0%, 100% { transform: scale(0.92); opacity: 0.55; }
+    50% { transform: scale(1.06); opacity: 0.95; }
+  }
+  /* Sparkles, hearts and confetti flung from the middle. */
+  .robi-fx { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 2; }
+  .robi-particle {
+    position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; border-radius: 9999px;
+    background: var(--p-color, var(--color-primary));
+    animation: robi-burst 1.1s cubic-bezier(0.2, 0.8, 0.3, 1) var(--p-delay, 0s) forwards;
+    transform: translate(-50%, -50%) scale(0);
+  }
+  .robi-particle-sparkle {
+    width: 13px; height: 13px; border-radius: 0;
+    clip-path: polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%);
+  }
+  .robi-particle-heart {
+    width: auto; height: auto; background: none; border-radius: 0;
+    color: var(--rb-cheek, #ff9db4); font: 700 15px/1 ui-rounded, system-ui, sans-serif;
+  }
+  .robi-particle-confetti {
+    width: 7px; height: 12px; border-radius: 2px;
+    animation: robi-confetti 1.6s cubic-bezier(0.2, 0.7, 0.4, 1) var(--p-delay, 0s) forwards;
+  }
+  @keyframes robi-burst {
+    0% { transform: translate(-50%, -50%) scale(0) rotate(0deg); opacity: 1; }
+    55% { opacity: 1; }
+    100% { transform: translate(calc(-50% + var(--p-dx)), calc(-50% + var(--p-dy))) scale(1.1) rotate(var(--p-rot, 0deg)); opacity: 0; }
+  }
+  @keyframes robi-confetti {
+    0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.6); opacity: 1; }
+    30% { opacity: 1; }
+    100% { transform: translate(calc(-50% + var(--p-dx)), calc(-50% + var(--p-dy) + 110px)) rotate(var(--p-rot, 360deg)) scale(1); opacity: 0; }
+  }
+  /* Little stars that twinkle round a beaming Robi. */
+  .robi-twinkle {
+    position: absolute; width: 10px; height: 10px; background: var(--color-primary);
+    clip-path: polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%);
+    animation: robi-twinkle 1.5s ease-in-out infinite;
+  }
+  @keyframes robi-twinkle {
+    0%, 100% { transform: scale(0.3) rotate(0deg); opacity: 0.2; }
+    50% { transform: scale(1) rotate(45deg); opacity: 1; }
+  }
+  /* A word or two above Robi's head. */
+  .robi-chip {
+    position: absolute; left: 50%; bottom: calc(100% - 2px); translate: -50% 0; z-index: 3; white-space: nowrap;
+    padding: 4px 10px; border-radius: 9999px;
+    background: var(--color-background); color: var(--color-foreground);
+    border: 1px solid color-mix(in oklch, var(--color-primary) 30%, var(--color-border));
+    box-shadow: 0 6px 16px -6px color-mix(in oklch, var(--color-primary) 35%, transparent);
+    font-size: 12px; font-weight: 600; pointer-events: none;
+  }
   /* The corner Robi: lifted off the page with a brand-tinted shadow. */
   .robi-launcher-buddy {
     filter: drop-shadow(0 8px 14px color-mix(in oklch, var(--color-primary) 28%, transparent));
@@ -368,7 +438,7 @@
   .robi-typing > span:nth-child(2) { animation-delay: 0.15s; }
   .robi-typing > span:nth-child(3) { animation-delay: 0.3s; }
   @media (prefers-reduced-motion: reduce) {
-    .robi-hop, .robi-typing > span, .robi-buddy, .robi-buddy * { animation: none !important; }
+    .robi-hop, .robi-typing > span, .robi-buddy, .robi-buddy *, .robi-aura, .robi-particle, .robi-twinkle { animation: none !important; }
   }
 }
 

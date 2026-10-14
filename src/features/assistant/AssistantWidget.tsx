@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion, AnimatePresence, useMotionValue } from 'motion/react'
 import {
   X, Send, Loader2, CheckCircle2, ChevronDown, ChevronUp, Circle, MinusCircle, ListChecks, Users, MessageSquare, ArrowRightLeft, History,
 } from 'lucide-react'
@@ -22,7 +22,7 @@ import { useTeamPlans } from './useTeamPlans'
 import { greetedToday, markGreeted } from './assistant-state'
 import { composeNudge, type Nudge, type NudgeAction } from './proactive'
 import { useFocusedRecord, useScreen } from './screen-context'
-import { RobiBuddy, TypingDots, type RobotMood } from './RobiBuddy'
+import { RobiBuddy, TypingDots, type RobiReaction, type RobotMood } from './RobiBuddy'
 import { planProgressLine, type ResolvedPlan, type ResolvedPlanItem } from './daily-plan'
 import type { TeamPlan } from './plan-store'
 import type { AssistantAction, AssistantMessage, AssistantTask } from './types'
@@ -216,6 +216,105 @@ export function AssistantWidget() {
     const id = window.setTimeout(() => setHop(false), 950)
     return () => window.clearTimeout(id)
   }, [nudge?.key])
+
+  /* ----- Robi's reactions, chip, and the box it is typed into ----- */
+  const [reaction, setReaction] = useState<RobiReaction | null>(null)
+  const react = useCallback((kind: RobiReaction['kind']) => setReaction({ id: Date.now() + Math.random(), kind }), [])
+  const [chip, setChip] = useState<string | null>(null)
+  const chipTimer = useRef(0)
+  const sayFor = useCallback((text: string, ms = 2200) => {
+    setChip(text)
+    window.clearTimeout(chipTimer.current)
+    chipTimer.current = window.setTimeout(() => setChip(null), ms)
+  }, [])
+  const [inputFocused, setInputFocused] = useState(false)
+  const firstName = user?.full_name.split(' ')[0] ?? ''
+
+  // A task done: a jump and sparkles. The whole day done: confetti, once a day.
+  const prevDone = useRef<number | null>(null)
+  useEffect(() => {
+    if (!plan || !isCoordinator || !user) {
+      prevDone.current = null
+      return
+    }
+    const prev = prevDone.current
+    prevDone.current = plan.done
+    if (prev === null || plan.done <= prev) return
+    if (plan.complete) {
+      const key = `robi.party.${user.id}`
+      const today = todayISO()
+      let partied = false
+      try {
+        partied = localStorage.getItem(key) === today
+        localStorage.setItem(key, today)
+      } catch {
+        /* storage off: party anyway */
+      }
+      if (!partied) {
+        react('party')
+        sayFor('All done! 🎉', 3500)
+        return
+      }
+    }
+    react('celebrate')
+    sayFor(['Nice!', 'One down!', 'Yes!', 'Great call!', 'Keep going!'][Math.floor(Math.random() * 5)])
+  }, [plan?.done, plan?.complete, isCoordinator, user, react, sayFor])
+
+  /* ----- where Robi sits: dragged anywhere, remembered per person ----- */
+  const launcherRef = useRef<HTMLButtonElement>(null)
+  const posX = useMotionValue(0)
+  const posY = useMotionValue(0)
+  const [dragging, setDragging] = useState(false)
+  const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }))
+  const LAUNCHER = 96
+  const EDGE = { right: 20, bottom: 16 }
+  const posKey = user ? `robi.pos.${user.id}` : null
+  const clampPos = useCallback(
+    (x: number, y: number) => ({
+      x: Math.min(0, Math.max(-(viewport.w - EDGE.right - LAUNCHER - 8), x)),
+      y: Math.min(0, Math.max(-(viewport.h - EDGE.bottom - LAUNCHER - 8), y)),
+    }),
+    [viewport.w, viewport.h]
+  )
+  useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight })
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  useEffect(() => {
+    if (!posKey) return
+    try {
+      const saved = JSON.parse(localStorage.getItem(posKey) ?? 'null') as { x: number; y: number } | null
+      const at = clampPos(saved?.x ?? 0, saved?.y ?? 0)
+      posX.set(at.x)
+      posY.set(at.y)
+    } catch {
+      posX.set(0)
+      posY.set(0)
+    }
+  }, [posKey, clampPos, posX, posY])
+  const savePos = (x: number, y: number) => {
+    if (!posKey) return
+    try {
+      localStorage.setItem(posKey, JSON.stringify({ x, y }))
+    } catch {
+      /* storage off */
+    }
+  }
+  // Tap opens; a real drag moves. A twitch of a few pixels is still a tap.
+  const tappedAt = useRef(0)
+  const dragEndAt = useRef(0)
+  const toggleOpen = () => setOpen((v) => !v)
+
+  /* ----- the panel and the bubble sit next to wherever Robi is ----- */
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const measure = useCallback(() => {
+    const rect = launcherRef.current?.getBoundingClientRect() ?? null
+    setAnchor(rect)
+  }, [])
+  useLayoutEffect(() => {
+    measure()
+  }, [open, nudge?.key, viewport.w, viewport.h, dragging, measure])
   /** Ticks once a minute so time-of-day remarks can fire while the app sits open. */
   const [clock, setClock] = useState(() => Date.now())
 
@@ -627,8 +726,11 @@ export function AssistantWidget() {
   if (!user) return null
 
   const onLeave = isCoordinator && demoCompanyStore.getAttendance(user.id, todayISO())?.status === 'leave'
+  const listening = open && (inputFocused || question.trim().length > 0)
   const mood: RobotMood = isThinking
     ? 'thinking'
+    : listening
+      ? 'listening'
     : nudge
       ? nudge.tone === 'warn'
         ? 'alert'
@@ -660,6 +762,50 @@ export function AssistantWidget() {
   const toneRing =
     nudge?.tone === 'warn' ? 'ring-amber-400/60' : nudge?.tone === 'success' ? 'ring-emerald-400/60' : 'ring-border'
 
+  /*
+   * Where the panel and the bubble go: beside Robi, on whichever side has
+   * the room. Above it when Robi sits low, below when high; aligned to the
+   * right edge when Robi is on the right half of the screen, else the left.
+   */
+  const GAP = 12
+  const rect = anchor ?? new DOMRect(viewport.w - EDGE.right - LAUNCHER, viewport.h - EDGE.bottom - LAUNCHER, LAUNCHER, LAUNCHER)
+  const openUp = rect.top + rect.height / 2 > viewport.h / 2
+  const alignRight = rect.left + rect.width / 2 > viewport.w / 2
+  const clampX = (left: number, w: number) => Math.min(Math.max(8, left), Math.max(8, viewport.w - w - 8))
+  const panelW = Math.min(420, viewport.w - 16)
+  const roomAbove = rect.top - GAP - 8
+  const roomBelow = viewport.h - rect.bottom - GAP - 8
+  const vertical = (openUp ? roomAbove : roomBelow) >= 380
+  const panelH = Math.min(660, vertical ? (openUp ? roomAbove : roomBelow) : viewport.h - 16)
+  const panelStyle: React.CSSProperties = vertical
+    ? {
+        left: clampX(alignRight ? rect.right - panelW : rect.left, panelW),
+        top: openUp ? rect.top - GAP - panelH : rect.bottom + GAP,
+        width: panelW,
+        height: panelH,
+        transformOrigin: `${alignRight ? 'right' : 'left'} ${openUp ? 'bottom' : 'top'}`,
+      }
+    : {
+        // No room above or below: beside Robi instead.
+        left: clampX(alignRight ? rect.left - GAP - panelW : rect.right + GAP, panelW),
+        top: Math.min(Math.max(8, rect.bottom - panelH), viewport.h - panelH - 8),
+        width: panelW,
+        height: panelH,
+        transformOrigin: `${alignRight ? 'right' : 'left'} bottom`,
+      }
+  const bubbleW = Math.min(340, viewport.w - 16)
+  const bubbleStyle: React.CSSProperties = {
+    left: clampX(alignRight ? rect.right - bubbleW : rect.left, bubbleW),
+    width: bubbleW,
+    ...(openUp ? { bottom: viewport.h - rect.top + GAP } : { top: rect.bottom + GAP }),
+    transformOrigin: `${alignRight ? 'right' : 'left'} ${openUp ? 'bottom' : 'top'}`,
+  }
+  const bubbleTail = cn(
+    'absolute h-3 w-3 rotate-45 bg-background',
+    openUp ? '-bottom-1.5' : '-top-1.5',
+    alignRight ? 'right-9' : 'left-9'
+  )
+
   return (
     <>
       {/* ===== A remark about what is on screen: a speech bubble from Robi ===== */}
@@ -671,16 +817,17 @@ export function AssistantWidget() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 360, damping: 26 }}
-            style={{ transformOrigin: 'bottom right' }}
+            style={bubbleStyle}
             // Above an open account panel and clickable through its overlay:
             // the remark is usually about the record that panel shows.
-            className="pointer-events-auto fixed bottom-[7.75rem] right-4 z-[60] w-[min(340px,calc(100vw-2rem))] sm:right-6"
+            className="pointer-events-auto fixed z-[60]"
             role="status"
             aria-live="polite"
             data-testid="robi-bubble"
             data-robi=""
           >
-            <div className={cn('relative rounded-3xl rounded-br-md bg-background p-4 shadow-2xl ring-1', toneRing)}>
+            <div className={cn('relative rounded-3xl bg-background p-4 shadow-2xl ring-1', openUp ? (alignRight ? 'rounded-br-md' : 'rounded-bl-md') : alignRight ? 'rounded-tr-md' : 'rounded-tl-md', toneRing)}>
+              <div className={bubbleTail} aria-hidden="true" />
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">{ROBOT_NAME}</p>
@@ -725,21 +872,26 @@ export function AssistantWidget() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 340, damping: 30 }}
-            style={{ transformOrigin: 'bottom right' }}
-            className={cn(
-              'pointer-events-auto fixed z-[60] flex flex-col overflow-hidden rounded-[28px] border border-border/70 bg-background shadow-2xl',
-              'bottom-[7.75rem] right-4 w-[calc(100vw-2rem)] max-w-[420px] h-[min(660px,calc(100vh-9.75rem))]',
-              'sm:right-6'
-            )}
+            style={panelStyle}
+            className="pointer-events-auto fixed z-[60] flex flex-col overflow-hidden rounded-[28px] border border-border/70 bg-background shadow-2xl"
             role="dialog"
             aria-label="Follow-up assistant"
             data-robi=""
           >
             {/* Robi's screen: the face, the name, what it is doing. */}
             <div className="robi-header relative flex items-center gap-3 px-4 pb-3 pt-3.5">
-              <div className="-my-1 -ml-1">
-                <RobiBuddy mood={mood} size={84} interactive />
-              </div>
+              <button
+                type="button"
+                className="-my-1 -ml-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Boop Robi"
+                title="Boop!"
+                onClick={() => {
+                  react('boop')
+                  sayFor(['Boop!', 'Hehe', `Hi ${firstName}!`, '♥', 'Tickles!'][Math.floor(Math.random() * 5)], 1600)
+                }}
+              >
+                <RobiBuddy mood={mood} size={84} interactive reaction={reaction} say={chip} />
+              </button>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-base font-semibold leading-none tracking-tight">{ROBOT_NAME}</span>
@@ -888,6 +1040,8 @@ export function AssistantWidget() {
                   ref={inputRef}
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
                   placeholder="Ask Robi about a customer, an invoice…"
                   aria-label="Ask Robi"
                   className="h-9 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
@@ -910,16 +1064,48 @@ export function AssistantWidget() {
 
       {/* ===== Robi itself ===== */}
       <motion.button
-        onClick={() => setOpen((v) => !v)}
+        ref={launcherRef}
+        onTap={() => {
+          if (Date.now() - dragEndAt.current < 250) return
+          tappedAt.current = Date.now()
+          toggleOpen()
+        }}
         onHoverStart={() => setLauncherHover(true)}
         onHoverEnd={() => setLauncherHover(false)}
+        drag
+        dragMomentum={false}
+        dragElastic={0.12}
+        dragConstraints={{
+          left: -(viewport.w - EDGE.right - LAUNCHER - 8),
+          right: 0,
+          top: -(viewport.h - EDGE.bottom - LAUNCHER - 8),
+          bottom: 0,
+        }}
+        onDragStart={() => setDragging(true)}
+        onDragEnd={(_e, info) => {
+          setDragging(false)
+          dragEndAt.current = Date.now()
+          const moved = Math.hypot(info.offset.x, info.offset.y)
+          const at = clampPos(posX.get(), posY.get())
+          posX.set(at.x)
+          posY.set(at.y)
+          if (moved < 8) {
+            if (Date.now() - tappedAt.current > 250) toggleOpen()
+            return
+          }
+          savePos(at.x, at.y)
+          react('boop')
+          sayFor(['Here is good!', 'Comfy.', 'New spot!'][Math.floor(Math.random() * 3)], 1500)
+        }}
         whileHover={{ scale: 1.05, rotate: -3 }}
-        whileTap={{ scale: 0.9, rotate: 0 }}
+        whileTap={{ scale: 0.92, rotate: 0 }}
+        whileDrag={{ scale: 1.1, rotate: 6, cursor: 'grabbing' }}
         transition={{ type: 'spring', stiffness: 420, damping: 18 }}
+        style={{ x: posX, y: posY, right: EDGE.right, bottom: EDGE.bottom, width: LAUNCHER, height: LAUNCHER, touchAction: 'none' }}
         aria-label={open ? 'Hide follow-up assistant' : 'Open follow-up assistant'}
-        title={open ? `Hide ${ROBOT_NAME}` : `Talk to ${ROBOT_NAME}`}
+        title={open ? `Hide ${ROBOT_NAME}` : `Talk to ${ROBOT_NAME} · drag me anywhere`}
         className={cn(
-          'pointer-events-auto fixed bottom-4 right-3 z-[60] rounded-full sm:right-5',
+          'pointer-events-auto fixed z-[60] flex cursor-grab items-center justify-center rounded-full',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
           hop && !open && 'robi-hop'
         )}
@@ -930,7 +1116,17 @@ export function AssistantWidget() {
             <ChevronDown className="h-6 w-6" />
           </span>
         ) : (
-          <RobiBuddy mood={mood} size={96} interactive hovered={launcherHover} className="robi-launcher-buddy" />
+          <RobiBuddy
+            mood={mood}
+            size={LAUNCHER}
+            interactive
+            aura
+            hovered={launcherHover}
+            dragging={dragging}
+            reaction={reaction}
+            say={chip ?? (launcherHover && !dragging ? `Hi ${firstName}!` : null)}
+            className="robi-launcher-buddy"
+          />
         )}
 
         {!open && pending > 0 && (
