@@ -22,7 +22,7 @@ import { useTeamPlans } from './useTeamPlans'
 import { greetedToday, markGreeted } from './assistant-state'
 import { composeNudge, type Nudge, type NudgeAction } from './proactive'
 import { useFocusedRecord, useScreen } from './screen-context'
-import { RobiScreen, TypingDots, type RobotMood } from './DotFace'
+import { RobiBuddy, TypingDots, type RobotMood } from './RobiBuddy'
 import { planProgressLine, type ResolvedPlan, type ResolvedPlanItem } from './daily-plan'
 import type { TeamPlan } from './plan-store'
 import type { AssistantAction, AssistantMessage, AssistantTask } from './types'
@@ -736,35 +736,35 @@ export function AssistantWidget() {
             data-robi=""
           >
             {/* Robi's screen: the face, the name, what it is doing. */}
-            <div className="robi-screen relative flex items-center gap-3.5 px-4 pb-4 pt-4 text-white">
-              <div className="rounded-2xl bg-white/5 p-1 ring-1 ring-white/10">
-                <RobiScreen mood={mood} size={56} interactive />
+            <div className="robi-header relative flex items-center gap-3 px-4 pb-3 pt-3.5">
+              <div className="-my-1 -ml-1">
+                <RobiBuddy mood={mood} size={68} interactive />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-base font-semibold leading-none tracking-tight">{ROBOT_NAME}</span>
                   {aiReady && !aiKeyError && (
                     <span
-                      className="rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-200"
+                      className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
                       title="Replies are written by the AI from the live records"
                     >
                       AI on
                     </span>
                   )}
                   {aiReady && aiKeyError && (
-                    <span className="rounded-full bg-rose-400/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-200" title={aiKeyError}>
+                    <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-600" title={aiKeyError}>
                       AI off
                     </span>
                   )}
                 </div>
-                <div className="mt-1.5 truncate text-xs text-white/70" data-testid="robi-status">
+                <div className="mt-1.5 truncate text-xs text-muted-foreground" data-testid="robi-status">
                   {statusLine}
                 </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
                 aria-label="Close assistant"
-                className="rounded-full p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -801,7 +801,7 @@ export function AssistantWidget() {
                 return (
                   <div key={message.id} className={cn('flex items-end gap-2', mine ? 'justify-end' : 'justify-start')}>
                     {!mine && (
-                      <div className="w-7 shrink-0">{showFace && <RobiScreen mood="idle" size={28} />}</div>
+                      <div className="w-8 shrink-0">{showFace && <RobiBuddy mood="idle" size={32} />}</div>
                     )}
                     <div
                       className={cn(
@@ -848,8 +848,8 @@ export function AssistantWidget() {
               })}
               {isThinking && (
                 <div className="flex items-end gap-2">
-                  <div className="w-7 shrink-0">
-                    <RobiScreen mood="thinking" size={28} />
+                  <div className="w-8 shrink-0">
+                    <RobiBuddy mood="thinking" size={32} />
                   </div>
                   <div className="rounded-3xl rounded-bl-md bg-background px-4 py-3.5 shadow-sm ring-1 ring-border/70">
                     <TypingDots />
@@ -919,24 +919,23 @@ export function AssistantWidget() {
         aria-label={open ? 'Hide follow-up assistant' : 'Open follow-up assistant'}
         title={open ? `Hide ${ROBOT_NAME}` : `Talk to ${ROBOT_NAME}`}
         className={cn(
-          'pointer-events-auto fixed bottom-6 right-4 z-[60] rounded-[22px] sm:right-6',
+          'pointer-events-auto fixed bottom-4 right-3 z-[60] rounded-full sm:right-5',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-          !open && 'robi-launcher',
           hop && !open && 'robi-hop'
         )}
         data-robi=""
       >
         {open ? (
-          <span className="robi-screen flex h-16 w-16 items-center justify-center rounded-[22px] text-cyan-100">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-background text-foreground shadow-lg ring-1 ring-border">
             <ChevronDown className="h-6 w-6" />
           </span>
         ) : (
-          <RobiScreen mood={mood} size={64} interactive hovered={launcherHover} />
+          <RobiBuddy mood={mood} size={76} interactive hovered={launcherHover} className="drop-shadow-[0_6px_10px_rgba(80,50,90,0.18)]" />
         )}
 
         {!open && pending > 0 && (
           <Badge
-            className="absolute -right-1.5 -top-1.5 h-6 min-w-6 justify-center rounded-full border-2 border-background bg-rose-500 px-1.5 text-xs text-white hover:bg-rose-500"
+            className="absolute right-1 top-1 h-6 min-w-6 justify-center rounded-full border-2 border-background bg-rose-500 px-1.5 text-xs text-white hover:bg-rose-500"
             aria-label={`${pending} follow-ups pending`}
           >
             {pending > 9 ? '9+' : pending}
