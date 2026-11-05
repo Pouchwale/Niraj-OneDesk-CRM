@@ -2,10 +2,14 @@
  * Quotations: every quotation sent, kept in the CRM since 13 Oct 2026 (it used
  * to be the Quotation List workbook). A coordinator adds and works their own;
  * the team leader and the administrator see everyone's.
+ *
+ * The filters above (date, order value, coordinator) narrow the cards, the
+ * list and the Performance view alike; the search and the status buttons
+ * narrow the list.
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { Download, FileText, Plus, Search, Trophy, XCircle, Clock } from 'lucide-react'
+import { BarChart3, Clock, Download, FileText, IndianRupee, List, Plus, Search, Trophy, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
@@ -18,8 +22,11 @@ import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/featu
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { PERFORMANCE, QUOTATION_STATUS_LABEL, followupCount } from '@/lib/quotations'
 import type { Quotation, QuotationStatus } from '@/lib/types'
-import { addDaysISO, cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
+import { matchesQuotationFilter, performanceOf, quotationDay } from '@/lib/quotation-stats'
+import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { QuotationDialog } from './QuotationDialog'
+import { DATE_PRESETS, DEFAULT_FILTERS, QuotationFilters, toQuotationFilter, type FilterState } from './QuotationFilters'
+import { QuotationPerformance } from './QuotationPerformance'
 
 export const STATUS_STYLE: Record<QuotationStatus, string> = {
   open: 'bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-400',
@@ -27,15 +34,7 @@ export const STATUS_STYLE: Record<QuotationStatus, string> = {
   lost: 'bg-rose-500/10 text-rose-700 border-rose-500/30 dark:text-rose-400',
 }
 
-type Period = 'month' | 'quarter' | 'year' | 'all'
-const PERIODS: { id: Period; label: string; from: (today: string) => string | null }[] = [
-  { id: 'month', label: 'This month', from: (t) => `${t.slice(0, 7)}-01` },
-  { id: 'quarter', label: 'Last 3 months', from: (t) => addDaysISO(t, -91) },
-  { id: 'year', label: 'This year', from: (t) => `${t.slice(0, 4)}-01-01` },
-  { id: 'all', label: 'All', from: () => null },
-]
-
-const dayOf = (q: Quotation) => q.quotation_date ?? q.inquiry_date ?? q.created_at.slice(0, 10)
+const dayOf = quotationDay
 
 export function QuotationsPage() {
   const { user, canManageTeam } = useAuth()
@@ -43,19 +42,20 @@ export function QuotationsPage() {
   const today = todayISO()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<QuotationStatus | 'all'>('all')
-  const [period, setPeriod] = useState<Period>('all')
-  const [owner, setOwner] = useState<string>('all')
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
+  const [view, setView] = useState<'list' | 'performance'>('list')
+  const owner = canManageTeam ? filters.owner : 'all'
   const [editing, setEditing] = useState<Quotation | 'new' | null>(null)
 
   const owners = useMemo(() => getAssignableOwners(), [])
   const nameOf = (q: Quotation) => (q.coordinator_id ? getCoordinatorDisplayName(q.coordinator_id) : q.coordinator_name ?? 'Unassigned')
 
+  const filter = useMemo(() => toQuotationFilter(filters, today), [filters, today])
   const inScope = useMemo(() => {
-    const from = PERIODS.find((p) => p.id === period)!.from(today)
     const needle = search.trim().toLowerCase()
     return all.filter(
       (q) =>
-        (!from || dayOf(q) >= from) &&
+        matchesQuotationFilter(q, filter) &&
         (owner === 'all' || (owner === 'none' ? !q.coordinator_id : q.coordinator_id === owner)) &&
         (!needle ||
           q.customer_name.toLowerCase().includes(needle) ||
@@ -63,7 +63,7 @@ export function QuotationsPage() {
           (q.concern_person ?? '').toLowerCase().includes(needle) ||
           (q.sales_employee ?? '').toLowerCase().includes(needle))
     )
-  }, [all, period, owner, search, today])
+  }, [all, filter, owner, search])
   const rows = useMemo(
     () =>
       inScope
@@ -75,6 +75,9 @@ export function QuotationsPage() {
   const count = (s: QuotationStatus) => inScope.filter((q) => q.status === s).length
   const decided = count('closed') + count('lost')
   const winRate = decided ? Math.round((count('closed') / decided) * 100) : null
+  const performance = useMemo(() => performanceOf(inScope), [inScope])
+  const ownerName =
+    owner === 'all' ? null : owner === 'none' ? 'Unassigned' : owners.find((o) => o.id === owner)?.full_name ?? getCoordinatorDisplayName(owner)
 
   const download = async () => {
     const { downloadWorkbook } = await import('@/features/snapshots/download')
@@ -105,12 +108,61 @@ export function QuotationsPage() {
         </Button>
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard title="Quotations" value={inScope.length} icon={FileText} color="blue" hint={PERIODS.find((p) => p.id === period)!.label} />
+      <QuotationFilters
+        state={filters}
+        onChange={setFilters}
+        today={today}
+        owners={canManageTeam ? owners : undefined}
+        ownerName={ownerName}
+      />
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <KpiCard title="Quotations" value={inScope.length} icon={FileText} color="blue" hint={DATE_PRESETS.find((p) => p.id === filters.datePreset)!.label} />
         <KpiCard title="Open" value={count('open')} icon={Clock} color="amber" hint="Waiting on the customer" />
         <KpiCard title="Closed (won)" value={count('closed')} icon={Trophy} color="emerald" hint={winRate === null ? 'None decided yet' : `${winRate}% of decided quotations`} />
         <KpiCard title="Lost" value={count('lost')} icon={XCircle} color="rose" hint={decided ? `${100 - (winRate ?? 0)}% of decided quotations` : undefined} />
+        <KpiCard
+          title="Value won"
+          value={formatCurrency(performance.valueWon, true)}
+          icon={IndianRupee}
+          color="violet"
+          hint={performance.averageOrder === null ? 'No won value yet' : `Avg order ${formatCurrency(performance.averageOrder, true)}`}
+        />
       </div>
+
+      {/* The list as it always was, or how the team and each person performed. */}
+      <div role="tablist" aria-label="View" className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
+        {([
+          { id: 'list', label: 'List', icon: List },
+          { id: 'performance', label: 'Performance', icon: BarChart3 },
+        ] as const).map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            role="tab"
+            aria-selected={view === v.id}
+            onClick={() => setView(v.id)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              view === v.id ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <v.icon className="h-4 w-4" />
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'performance' && (
+        <QuotationPerformance
+          list={inScope}
+          basis={filters.basis}
+          showPeople={canManageTeam && owner === 'all'}
+          onPickPerson={canManageTeam ? (id) => setFilters({ ...filters, owner: id }) : undefined}
+        />
+      )}
+
+      {view === 'list' && (
 
       <GlassCard className="space-y-4 p-4 sm:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -124,34 +176,6 @@ export function QuotationsPage() {
                 {s === 'all' ? 'All' : QUOTATION_STATUS_LABEL[s]}
               </Button>
             ))}
-            <select
-              id="quotation-period"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value as Period)}
-              className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-            >
-              {PERIODS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            {canManageTeam && (
-              <select
-                id="quotation-owner"
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-              >
-                <option value="all">All coordinators</option>
-                {owners.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.full_name}
-                  </option>
-                ))}
-                <option value="none">Unassigned</option>
-              </select>
-            )}
           </div>
         </div>
 
@@ -213,6 +237,7 @@ export function QuotationsPage() {
           </div>
         )}
       </GlassCard>
+      )}
 
       {editing && (
         <QuotationDialog
