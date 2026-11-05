@@ -480,7 +480,13 @@ export interface SelfLead {
   company_name: string
   contact_person: string | null
   contact_number: string | null
-  source: string | null
+  /**
+   * The client who gave this lead as a reference ("Referred by", as in Zoho):
+   * the name as shown, and the lead it came from when it was picked from the
+   * coordinator's own leads (null for an existing customer or a typed name).
+   */
+  referred_by_name: string | null
+  referred_by_lead_id: string | null
   /** True once the coordinator has actually spoken to the lead. */
   connected: boolean
   connected_date: string | null

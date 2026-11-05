@@ -38,6 +38,7 @@ const money = (v: number) => (v ? formatCurrency(v) : '—')
 const SUMMARY_COLUMNS: { key: keyof LeadSummary; label: string; render: (s: LeadSummary) => string }[] = [
   { key: 'leads', label: 'Leads', render: (s) => String(s.leads) },
   { key: 'connected', label: 'Connected', render: (s) => String(s.connected) },
+  { key: 'referrals', label: 'Via reference', render: (s) => String(s.referrals) },
   { key: 'open', label: 'Open', render: (s) => String(s.open) },
   { key: 'closed', label: 'Closed', render: (s) => String(s.closed) },
   { key: 'lost', label: 'Lost', render: (s) => String(s.lost) },
@@ -59,7 +60,8 @@ export function SelfLeadsPage() {
   const [connectedOnly, setConnectedOnly] = useState<'all' | 'yes' | 'no'>('all')
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'leads' | 'people' | 'weekly'>('leads')
-  const [editing, setEditing] = useState<SelfLead | 'new' | null>(null)
+  // A lead to edit, a new one, or a new one referred by a client's lead.
+  const [editing, setEditing] = useState<SelfLead | 'new' | { referredFrom: SelfLead } | null>(null)
 
   const people = useMemo(() => getAssignableOwners().filter((p) => p.role === 'coordinator'), [])
   const teamOf = useMemo(() => {
@@ -90,7 +92,7 @@ export function SelfLeadsPage() {
       .filter(
         (l) =>
           !needle ||
-          [l.company_name, l.contact_person, l.contact_number, l.source, getCoordinatorDisplayName(l.coordinator_id ?? ''), ...l.remarks.map((r) => r.note)]
+          [l.company_name, l.contact_person, l.contact_number, l.referred_by_name, getCoordinatorDisplayName(l.coordinator_id ?? ''), ...l.remarks.map((r) => r.note)]
             .filter(Boolean)
             .some((v) => String(v).toLowerCase().includes(needle))
       )
@@ -110,15 +112,15 @@ export function SelfLeadsPage() {
   const download = async () => {
     const { downloadWorkbook } = await import('@/features/snapshots/download')
     const head = SUMMARY_COLUMNS.map((c) => c.label)
-    const nums = (s: LeadSummary) => [s.leads, s.connected, s.open, s.closed, s.lost, s.conversion ?? '', s.pipelineValue, s.valueWon]
+    const nums = (s: LeadSummary) => [s.leads, s.connected, s.referrals, s.open, s.closed, s.lost, s.conversion ?? '', s.pipelineValue, s.valueWon]
     downloadWorkbook(`Self leads ${today}.xlsx`, [
       {
         name: 'Leads',
         rows: [
-          ['Date', 'Coordinator', 'Team', 'Company', 'Contact person', 'Contact number', 'Source', 'Connected', 'Connected on', 'Status', 'Value', 'Lost reason', 'Remarks'],
+          ['Date', 'Coordinator', 'Team', 'Company', 'Contact person', 'Contact number', 'Referred by', 'Connected', 'Connected on', 'Status', 'Value', 'Lost reason', 'Remarks'],
           ...[...rows].reverse().map((l) => [
             l.date, nameOf(l.coordinator_id), teamOf(l.coordinator_id) ?? '', l.company_name, l.contact_person ?? '', l.contact_number ?? '',
-            l.source ?? '', l.connected ? 'Yes' : 'No', l.connected_date ?? '', SELF_LEAD_STATUS_LABEL[l.status], l.value ?? '', l.lost_reason ?? '',
+            l.referred_by_name ?? '', l.connected ? 'Yes' : 'No', l.connected_date ?? '', SELF_LEAD_STATUS_LABEL[l.status], l.value ?? '', l.lost_reason ?? '',
             l.remarks.map((r) => `${r.at.slice(0, 10)} ${getCoordinatorDisplayName(r.by)}: ${r.note}`).join('\n'),
           ]),
         ],
@@ -230,7 +232,7 @@ export function SelfLeadsPage() {
       </GlassCard>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
-        <KpiCard title="Leads" value={summary.leads} icon={Target} color="blue" hint={periodLabel} />
+        <KpiCard title="Leads" value={summary.leads} icon={Target} color="blue" hint={summary.referrals ? `${summary.referrals} via reference` : periodLabel} />
         <KpiCard title="Connected" value={summary.connected} icon={Phone} color="indigo" hint={summary.leads ? `${Math.round((summary.connected / summary.leads) * 100)}% of leads` : undefined} />
         <KpiCard title="Closed (won)" value={summary.closed} icon={CheckCircle2} color="emerald" hint={summary.conversion === null ? 'None connected yet' : `${summary.conversion}% of connected`} />
         <KpiCard title="Lost" value={summary.lost} icon={XCircle} color="rose" hint={`${summary.open} still open`} />
@@ -367,7 +369,7 @@ export function SelfLeadsPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="relative w-full lg:max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Company, contact, source, remark" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+              <Input placeholder="Company, contact, referred by, remark" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {(['all', 'open', 'closed', 'lost'] as const).map((s) => (
@@ -400,7 +402,7 @@ export function SelfLeadsPage() {
                     <th className="px-4 py-3 font-medium">Date</th>
                     {canManageTeam && <th className="px-3 py-3 font-medium">Coordinator</th>}
                     <th className="px-3 py-3 font-medium">Company</th>
-                    <th className="px-3 py-3 font-medium">Source</th>
+                    <th className="px-3 py-3 font-medium">Referred by</th>
                     <th className="px-3 py-3 font-medium">Connected</th>
                     <th className="px-3 py-3 font-medium">Status</th>
                     <th className="px-3 py-3 text-right font-medium">Value</th>
@@ -423,7 +425,9 @@ export function SelfLeadsPage() {
                           <div className="font-medium">{l.company_name}</div>
                           <div className="text-xs text-muted-foreground">{[l.contact_person, l.contact_number].filter(Boolean).join(' · ')}</div>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-xs">{l.source ?? '—'}</td>
+                        <td className="max-w-[180px] px-3 py-2.5 text-xs">
+                          {l.referred_by_name ? <span className="text-violet-700 dark:text-violet-400">{l.referred_by_name}</span> : '—'}
+                        </td>
                         <td className="whitespace-nowrap px-3 py-2.5 text-xs">
                           {l.connected ? (
                             <span className="text-emerald-700 dark:text-emerald-400">Yes{l.connected_date ? ` · ${formatDate(l.connected_date)}` : ''}</span>
@@ -470,7 +474,11 @@ export function SelfLeadsPage() {
 
       {editing && (
         <SelfLeadDialog
-          lead={editing === 'new' ? null : editing}
+          key={editing === 'new' ? 'new' : 'referredFrom' in editing ? `ref-${editing.referredFrom.id}` : editing.id}
+          lead={editing === 'new' || 'referredFrom' in editing ? null : editing}
+          referredFrom={editing !== 'new' && 'referredFrom' in editing ? editing.referredFrom : null}
+          onOpenLead={(l) => setEditing(l)}
+          onAddReference={(from) => setEditing({ referredFrom: from })}
           all={all}
           canManageTeam={canManageTeam}
           currentUserId={user?.id ?? ''}

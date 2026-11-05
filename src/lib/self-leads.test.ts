@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { demoCompanyStore } from './demo-companies'
-import { leadsByPerson, leadSummary, weekEnd, weeklyByTeam, weekStart } from './self-leads'
+import { leadsByPerson, leadSummary, referencesFrom, weekEnd, weeklyByTeam, weekStart } from './self-leads'
 import type { SelfLead, TeamModule } from './types'
 
 function lead(overrides: Partial<SelfLead> = {}): SelfLead {
@@ -12,7 +12,8 @@ function lead(overrides: Partial<SelfLead> = {}): SelfLead {
     company_name: 'Balaji Wafers',
     contact_person: null,
     contact_number: null,
-    source: 'Cold call',
+    referred_by_name: null,
+    referred_by_lead_id: null,
     connected: false,
     connected_date: null,
     status: 'open',
@@ -33,10 +34,24 @@ describe('leadSummary', () => {
       lead({ id: '1' }),
       lead({ id: '2', connected: true, value: 50000 }),
       lead({ id: '3', connected: true, status: 'closed', value: 120000 }),
-      lead({ id: '4', connected: true, status: 'lost', value: 30000 }),
+      lead({ id: '4', connected: true, status: 'lost', value: 30000, referred_by_name: 'Balaji Wafers' }),
     ])
-    expect(s).toEqual({ leads: 4, connected: 3, open: 2, closed: 1, lost: 1, conversion: 33, pipelineValue: 50000, valueWon: 120000 })
+    expect(s).toEqual({ leads: 4, connected: 3, open: 2, closed: 1, lost: 1, conversion: 33, pipelineValue: 50000, valueWon: 120000, referrals: 1 })
     expect(leadSummary([lead()]).conversion).toBeNull()
+  })
+})
+
+describe('references', () => {
+  it('lists the leads a client referred, linked or named, newest first', () => {
+    const client = lead({ id: 'client', company_name: 'Balaji Wafers', connected: true })
+    const all = [
+      client,
+      lead({ id: 'r1', date: '2026-11-01', company_name: 'Gopal Snacks', referred_by_name: 'Balaji Wafers', referred_by_lead_id: 'client' }),
+      lead({ id: 'r2', date: '2026-11-04', company_name: 'Haldiram', referred_by_name: ' balaji  wafers ' }),
+      lead({ id: 'r3', company_name: 'Other', referred_by_name: 'Balaji Wafers', referred_by_lead_id: 'someone-else' }),
+      lead({ id: 'r4', company_name: 'Not referred' }),
+    ]
+    expect(referencesFrom(client, all).map((l) => l.id)).toEqual(['r2', 'r1'])
   })
 })
 

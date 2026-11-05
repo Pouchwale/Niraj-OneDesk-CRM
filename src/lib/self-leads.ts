@@ -7,6 +7,7 @@
  *   Conversion    closed ÷ connected.
  *   Pipeline      value of the open leads.
  *   Value won     value of the closed leads.
+ *   Referrals     leads a client gave as a reference (Referred by is set).
  *
  * Weeks run Monday to Sunday, as Weekly KPI's do. Teams are the users'
  * module: GP3 or Pouchwale.
@@ -19,9 +20,6 @@ export const SELF_LEAD_STATUS_LABEL: Record<SelfLeadStatus, string> = {
   closed: 'Closed (won)',
   lost: 'Lost',
 }
-
-/** Where a lead came from; anything else can be typed. */
-export const SELF_LEAD_SOURCES = ['Cold call', 'IndiaMART', 'Reference', 'Exhibition', 'Website', 'Social media', 'Existing customer'] as const
 
 export const TEAMS: TeamModule[] = ['GP3', 'Pouchwale']
 
@@ -41,6 +39,8 @@ export interface LeadSummary {
   conversion: number | null
   pipelineValue: number
   valueWon: number
+  /** Leads that came as a reference from a client. */
+  referrals: number
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100
@@ -58,6 +58,7 @@ export function leadSummary(list: readonly SelfLead[]): LeadSummary {
     conversion: connected ? Math.round((closed.length / connected) * 100) : null,
     pipelineValue: sum(list.filter((l) => l.status === 'open')),
     valueWon: sum(closed),
+    referrals: list.filter((l) => Boolean(l.referred_by_name)).length,
   }
 }
 
@@ -71,6 +72,19 @@ export function leadsByPerson(list: readonly SelfLead[], people: readonly string
   return [...groups.entries()]
     .map(([personId, rows]) => ({ personId, summary: leadSummary(rows) }))
     .sort((a, b) => b.summary.valueWon - a.summary.valueWon || b.summary.closed - a.summary.closed || b.summary.leads - a.summary.leads)
+}
+
+const nameKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
+
+/**
+ * The leads a client has referred: linked to this lead, or (for leads typed
+ * before it was picked) naming the same company.
+ */
+export function referencesFrom(lead: Pick<SelfLead, 'id' | 'company_name'>, all: readonly SelfLead[]): SelfLead[] {
+  const name = nameKey(lead.company_name)
+  return all
+    .filter((l) => l.id !== lead.id && (l.referred_by_lead_id === lead.id || (!l.referred_by_lead_id && l.referred_by_name && nameKey(l.referred_by_name) === name)))
+    .sort((a, b) => b.date.localeCompare(a.date))
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
