@@ -14,8 +14,15 @@ import type { Quotation, QuotationStatus } from './types'
 export const quotationDay = (q: Pick<Quotation, 'quotation_date' | 'inquiry_date' | 'created_at'>): string =>
   q.quotation_date ?? q.inquiry_date ?? q.created_at.slice(0, 10)
 
-/** Which date a date range reads: when it was sent, or when it was decided. */
-export type DateBasis = 'quotation' | 'closing'
+/** Which date a date range reads: when it was sent, when it was decided, or when the enquiry came in. */
+export type DateBasis = 'quotation' | 'closing' | 'enquiry'
+
+/** The day a quotation counts on for that basis; null when it has none (an open one has no closing date). */
+export function dayFor(q: Pick<Quotation, 'quotation_date' | 'inquiry_date' | 'closing_date' | 'created_at'>, basis: DateBasis): string | null {
+  if (basis === 'closing') return q.closing_date
+  if (basis === 'enquiry') return q.inquiry_date ?? quotationDay(q)
+  return quotationDay(q)
+}
 
 export interface QuotationFilter {
   basis: DateBasis
@@ -32,7 +39,7 @@ export const NO_QUOTATION_FILTER: QuotationFilter = { basis: 'quotation', from: 
 /** Whether a quotation passes the date and value filter. */
 export function matchesQuotationFilter(q: Quotation, f: QuotationFilter): boolean {
   if (f.from || f.to) {
-    const day = f.basis === 'closing' ? q.closing_date : quotationDay(q)
+    const day = dayFor(q, f.basis)
     // Read by closing date, an undecided quotation has no day and drops out.
     if (!day) return false
     if (f.from && day < f.from) return false
@@ -133,10 +140,18 @@ export interface ConversionSummary {
   /** Converted out of all quotations, 0-100; null with none. */
   conversionRate: number | null
   score: number
+  /** Different customers quoted (names compared ignoring case and spaces), as the sheet's COUNT OF CUSTOMER. */
+  customers: number
+  /** Score ÷ customers, as the sheet's AVG SCORE; null with no customers. */
+  averageScore: number | null
 }
+
+const customerKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
 
 export function conversionsOf(list: readonly Quotation[]): ConversionSummary {
   const closed = list.filter((q) => q.status === 'closed')
+  const score = list.reduce((sum, q) => sum + quotationScore(q), 0)
+  const customers = new Set(list.map((q) => customerKey(q.customer_name))).size
   return {
     quotations: list.length,
     newQuotations: list.filter((q) => q.customer_type === 'new').length,
@@ -145,14 +160,16 @@ export function conversionsOf(list: readonly Quotation[]): ConversionSummary {
     newConversions: closed.filter((q) => q.customer_type === 'new').length,
     existingConversions: closed.filter((q) => q.customer_type === 'existing').length,
     conversionRate: list.length ? Math.round((closed.length / list.length) * 100) : null,
-    score: list.reduce((sum, q) => sum + quotationScore(q), 0),
+    score,
+    customers,
+    averageScore: customers ? Math.round((score / customers) * 100) / 100 : null,
   }
 }
 
 /**
  * Conversions per person ('' = not assigned to anyone in the CRM). Everyone in
  * `people` gets a line, at zero when they sent nothing in the period, as the
- * sheet lists every coordinator. Highest score first, then most quotations.
+ * sheet lists every coordinator. Highest average score first, then total score.
  */
 export function conversionsByPerson(
   list: readonly Quotation[],
@@ -165,7 +182,12 @@ export function conversionsByPerson(
   }
   return [...groups.entries()]
     .map(([personId, rows]) => ({ personId, summary: conversionsOf(rows) }))
-    .sort((a, b) => b.summary.score - a.summary.score || b.summary.quotations - a.summary.quotations)
+    .sort(
+      (a, b) =>
+        (b.summary.averageScore ?? -1) - (a.summary.averageScore ?? -1) ||
+        b.summary.score - a.summary.score ||
+        b.summary.quotations - a.summary.quotations
+    )
 }
 
 /** Counts by status and value won, month by month (yyyy-mm), oldest first, on the chosen date basis. */
@@ -175,7 +197,7 @@ export function monthlyPerformance(
 ): { month: string; open: number; closed: number; lost: number; valueWon: number }[] {
   const months = new Map<string, { month: string; open: number; closed: number; lost: number; valueWon: number }>()
   for (const q of list) {
-    const day = basis === 'closing' ? q.closing_date : quotationDay(q)
+    const day = dayFor(q, basis)
     if (!day) continue
     const month = day.slice(0, 7)
     const m = months.get(month) ?? { month, open: 0, closed: 0, lost: 0, valueWon: 0 }

@@ -17,14 +17,20 @@ import { cn } from '@/lib/utils'
 
 const personName = (id: string) => (id ? getCoordinatorDisplayName(id) : 'Unassigned')
 const n = (v: number) => v.toLocaleString('en-IN')
+const avg = (v: number | null) => (v === null ? '—' : v.toFixed(2))
 
 const COLUMNS: { key: keyof ConversionSummary; label: string }[] = [
   { key: 'quotations', label: 'Total quotations' },
   { key: 'conversions', label: 'Total conversion' },
   { key: 'newConversions', label: 'New conversion' },
   { key: 'existingConversions', label: 'Existing conversion' },
-  { key: 'score', label: 'Score' },
+  { key: 'score', label: 'Total score' },
+  { key: 'customers', label: 'Count of customer' },
+  { key: 'averageScore', label: 'Avg score' },
 ]
+
+const cellOf = (s: ConversionSummary, key: keyof ConversionSummary) =>
+  key === 'averageScore' ? avg(s.averageScore) : n(s[key] as number)
 
 /** One block of the summary: a total with its new / existing split. */
 function SplitTile({ label, total, hint, split }: { label: string; total: string; hint?: string; split: [string, string][] }) {
@@ -87,11 +93,11 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
           ]}
         />
         <SplitTile
-          label="Score"
-          total={n(team.score)}
+          label="Avg score (per customer)"
+          total={avg(team.averageScore)}
           split={[
-            [`New × ${QUOTATION_SCORE.closedNew}`, n(team.newConversions * QUOTATION_SCORE.closedNew)],
-            [`Existing × ${QUOTATION_SCORE.closedExisting}`, n(team.existingConversions * QUOTATION_SCORE.closedExisting)],
+            ['Total score', n(team.score)],
+            ['Count of customer', n(team.customers)],
           ]}
         />
       </div>
@@ -119,8 +125,8 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
                 >
                   <td className={cn('whitespace-nowrap px-4 py-2.5 font-medium', !personId && 'text-amber-600')}>{personName(personId)}</td>
                   {COLUMNS.map((c) => (
-                    <td key={c.key} className={cn('whitespace-nowrap px-3 py-2.5 text-right tabular-nums', c.key === 'score' && 'font-semibold')}>
-                      {n(summary[c.key] as number)}
+                    <td key={c.key} className={cn('whitespace-nowrap px-3 py-2.5 text-right tabular-nums', c.key === 'averageScore' && 'font-semibold')}>
+                      {cellOf(summary, c.key)}
                     </td>
                   ))}
                 </tr>
@@ -131,7 +137,7 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
                 <td className="px-4 py-2.5">Team</td>
                 {COLUMNS.map((c) => (
                   <td key={c.key} className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
-                    {n(team[c.key] as number)}
+                    {cellOf(team, c.key)}
                   </td>
                 ))}
               </tr>
@@ -142,7 +148,8 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
 
       <p className="text-xs text-muted-foreground">
         Conversion = a Closed quotation. Score per quotation: Closed + New customer = {QUOTATION_SCORE.closedNew}, Closed + Existing
-        customer = {QUOTATION_SCORE.closedExisting}, Open or Lost = 0.
+        customer = {QUOTATION_SCORE.closedExisting}, Open or Lost = 0. Count of customer = different customers quoted in the period;
+        Avg score = total score ÷ count of customer. Choose "Enquiry date" above to count the period the way the team sheet does.
       </p>
     </GlassCard>
   )

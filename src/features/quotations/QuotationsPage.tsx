@@ -62,7 +62,7 @@ export function QuotationsPage() {
   const filter = useMemo(() => toQuotationFilter(filters, today), [filters, today])
   const period =
     filter.from || filter.to
-      ? `${filter.from ? formatDate(filter.from) : 'Start'} – ${filter.to ? formatDate(filter.to) : 'today'} · by ${filter.basis === 'closing' ? 'closing' : 'quotation'} date`
+      ? `${filter.from ? formatDate(filter.from) : 'Start'} – ${filter.to ? formatDate(filter.to) : 'today'} · by ${filter.basis} date`
       : 'All dates'
   const inScope = useMemo(() => {
     const needle = search.trim().toLowerCase()

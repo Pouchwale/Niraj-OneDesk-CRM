@@ -246,7 +246,7 @@ export function QuotationPerformance({ list, basis, showPeople, onPickPerson }: 
         <GlassCard className="space-y-3 p-4 sm:p-6">
           <div>
             <h3 className="text-base font-medium">Quotations month by month</h3>
-            <p className="text-xs text-muted-foreground">By {basis === 'closing' ? 'closing' : 'quotation'} date, split by where each stands.</p>
+            <p className="text-xs text-muted-foreground">By {basis} date, split by where each stands.</p>
           </div>
           <Legend />
           <div className="h-[280px]">

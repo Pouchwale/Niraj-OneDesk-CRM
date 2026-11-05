@@ -109,7 +109,7 @@ export function toQuotationFilter(state: FilterState, today: string): QuotationF
 export function describeFilter(f: QuotationFilter, ownerName: string | null): string[] {
   const out: string[] = []
   if (f.from || f.to) {
-    const by = f.basis === 'closing' ? 'Closed' : 'Sent'
+    const by = f.basis === 'closing' ? 'Closed' : f.basis === 'enquiry' ? 'Enquired' : 'Sent'
     out.push(
       f.from && f.to
         ? `${by} ${formatDate(f.from)} – ${formatDate(f.to)}`
@@ -174,20 +174,26 @@ export function QuotationFilters({ state, onChange, today, owners, ownerName }: 
             </SelectContent>
           </Select>
           <div role="radiogroup" aria-label="Date of" className="inline-flex rounded-md border border-border/60 bg-muted/40 p-0.5">
-            {(['quotation', 'closing'] as const).map((b) => (
+            {(['enquiry', 'quotation', 'closing'] as const).map((b) => (
               <button
                 key={b}
                 type="button"
                 role="radio"
                 aria-checked={state.basis === b}
                 onClick={() => set({ basis: b })}
-                title={b === 'quotation' ? 'The date the quotation was sent' : 'The date it was won or lost (open ones have none)'}
+                title={
+                  b === 'enquiry'
+                    ? 'The date the enquiry came in (as the team sheet counts)'
+                    : b === 'quotation'
+                      ? 'The date the quotation was sent'
+                      : 'The date it was won or lost (open ones have none)'
+                }
                 className={cn(
                   'rounded px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   state.basis === b ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                {b === 'quotation' ? 'Quotation date' : 'Closing date'}
+                {b === 'enquiry' ? 'Enquiry date' : b === 'quotation' ? 'Quotation date' : 'Closing date'}
               </button>
             ))}
           </div>

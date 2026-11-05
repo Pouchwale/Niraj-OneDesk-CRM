@@ -134,7 +134,28 @@ describe('conversionsOf', () => {
       existingConversions: 2,
       conversionRate: 60,
       score: 200,
+      customers: 1,
+      averageScore: 200,
     })
+  })
+
+  it('averages the score over different customers, as the sheet does (Krupa: 50 over 5 customers = 10)', () => {
+    const list = [
+      quote({ customer_name: 'A', status: 'closed', customer_type: 'existing' }),
+      quote({ customer_name: 'B' }),
+      quote({ customer_name: 'c ' }),
+      quote({ customer_name: 'C' }),
+      quote({ customer_name: 'D' }),
+      quote({ customer_name: 'E', status: 'lost' }),
+    ]
+    expect(conversionsOf(list)).toMatchObject({ quotations: 6, customers: 5, score: 50, averageScore: 10 })
+    expect(conversionsOf([]).averageScore).toBeNull()
+  })
+
+  it('reads a period by enquiry date when asked', () => {
+    const q = quote({ inquiry_date: '2026-09-28', quotation_date: '2026-10-05' })
+    expect(matchesQuotationFilter(q, { ...NO_QUOTATION_FILTER, basis: 'enquiry', from: '2026-09-25', to: '2026-10-02' })).toBe(true)
+    expect(matchesQuotationFilter(q, { ...NO_QUOTATION_FILTER, basis: 'quotation', from: '2026-09-25', to: '2026-10-02' })).toBe(false)
   })
 
   it('lists every person asked for, at zero when they sent nothing, highest score first', () => {
