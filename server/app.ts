@@ -23,6 +23,8 @@ import { healthRoutes } from './modules/health/routes'
 import { createSnapshotStore, type SnapshotStore } from './modules/snapshots/store'
 import { snapshotRoutes } from './modules/snapshots/routes'
 import { startAutoSave } from './modules/snapshots/auto-save'
+import { createAgeingTrendStore } from './modules/ageing-trend/store'
+import { ageingTrendRoutes } from './modules/ageing-trend/routes'
 import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
@@ -118,6 +120,13 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
     requireSession(accounts, sessions),
     requireRole('team_leader'),
     snapshotRoutes(snapshots, logger)
+  )
+  // The same saved days, summed week by week for Overdue Payments' Trends tab.
+  // Everyone signed in; a coordinator gets only their own figures.
+  router.use(
+    '/ageing-trend',
+    requireSession(accounts, sessions),
+    ageingTrendRoutes(createAgeingTrendStore(config.snapshotDir, snapshots))
   )
   /*
    * The working dataset is mounted first, with a body limit of its own: a day's

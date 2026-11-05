@@ -2,7 +2,7 @@ import { useProgressiveRows, MoreRowsFooter } from '@/components/shared/progress
 import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, type Variants } from 'motion/react';
 import { useSearchParams } from 'react-router-dom';
-import { FileSpreadsheet, RefreshCcw, Search, AlertTriangle, IndianRupee, Clock, CheckCircle2, ArrowDown, ArrowUp, ArrowUpDown, Download } from 'lucide-react';
+import { FileSpreadsheet, RefreshCcw, Search, AlertTriangle, IndianRupee, Clock, CheckCircle2, ArrowDown, ArrowUp, ArrowUpDown, Download, LineChart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { downloadAgeing } from './download-ageing';
 import { PageHeader } from '@/components/shared/PageHeader';
@@ -34,6 +34,9 @@ import { OWNER_ALL, OWNER_NOT_IN_CRM, matchesOwner, ownerOptions } from '@/lib/o
 
 import { OverdueDetailPanel } from './components/OverdueDetailPanel';
 import { AgeingBookPanel, BUCKET_SWATCH } from './components/AgeingBookPanel';
+import { SetAsideTable } from './components/SetAsideTable';
+import { TrendsView } from './components/TrendsView';
+import { BOOK_SEGMENTS, segmentOf, type BookSegment } from '@/lib/ageing-trend';
 
 /** Columns of money the table can be ordered by. */
 type MoneyColumn = AgeingBucketKey | 'balance_due';
@@ -135,6 +138,21 @@ export function OverdueDashboardPage() {
   };
 
   const selectedId = searchParams.get('payment');
+
+  /*
+   * Which part of the book is open: Regular (the working list, exactly as it
+   * always was), one of the three set-aside registers, or Trends. In the URL
+   * so a link or a reload opens the same tab.
+   */
+  type PageTab = BookSegment | 'trends';
+  const tabParam = searchParams.get('tab');
+  const tab: PageTab = tabParam === 'trends' || BOOK_SEGMENTS.some((s) => s.key === tabParam) ? (tabParam as PageTab) : 'regular';
+  const setTab = (next: PageTab) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'regular') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  };
 
   const loadData = useCallback(async () => {
     if (!user?.id) return;
@@ -305,6 +323,16 @@ export function OverdueDashboardPage() {
 
   // Everything this screen can list: set-aside balances are not among them.
   const visibleCount = useMemo(() => payments.filter((p) => !isSetAside(p)).length, [payments]);
+
+  /** The balances of each register, for the tabs and the set-aside tables (bankrupt is in none). */
+  const bySegment = useMemo(() => {
+    const groups: Record<BookSegment, OverduePayment[]> = { regular: [], dispute: [], no_followup: [], export: [] };
+    for (const p of payments) {
+      const segment = segmentOf(p);
+      if (segment) groups[segment].push(p);
+    }
+    return groups;
+  }, [payments]);
   const attentionCounts = useMemo(() => countByReason(payments, overdueAttention), [payments]);
   const attentionTotal = attentionCounts.critical + attentionCounts.overdue;
   const displayCounts = useMemo(() => countByReason(displayRows, overdueAttention), [displayRows]);
@@ -347,6 +375,70 @@ export function OverdueDashboardPage() {
         </>
       )}
 
+      {/* Regular · Dispute · No follow-up · Export · Trends */}
+      <div role="tablist" aria-label="Part of the book" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" data-testid="book-tabs">
+        {BOOK_SEGMENTS.map((s) => {
+          const rows = bySegment[s.key];
+          const amount = rows.reduce((sum, p) => sum + (p.balance_due || 0), 0);
+          const active = tab === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(s.key)}
+              className={cn(
+                'min-w-[140px] shrink-0 rounded-xl border px-4 py-2.5 text-left transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                active
+                  ? 'border-primary/60 bg-primary/10 shadow-sm'
+                  : 'border-border/60 bg-card/60 hover:border-border hover:bg-muted/40'
+              )}
+            >
+              <span className={cn('block text-sm font-medium', active ? 'text-foreground' : 'text-muted-foreground')}>
+                {s.label}
+              </span>
+              <span className="block text-xs tabular-nums text-muted-foreground">
+                {isLoading ? '…' : `${rows.length.toLocaleString('en-IN')} · ${formatCurrency(amount, true)}`}
+              </span>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'trends'}
+          onClick={() => setTab('trends')}
+          className={cn(
+            'min-w-[140px] shrink-0 rounded-xl border px-4 py-2.5 text-left transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            tab === 'trends'
+              ? 'border-primary/60 bg-primary/10 shadow-sm'
+              : 'border-border/60 bg-card/60 hover:border-border hover:bg-muted/40'
+          )}
+        >
+          <span className={cn('flex items-center gap-1.5 text-sm font-medium', tab === 'trends' ? 'text-foreground' : 'text-muted-foreground')}>
+            <LineChart className="h-3.5 w-3.5" /> Trends
+          </span>
+          <span className="block text-xs text-muted-foreground">Monthly · weekly · by person</span>
+        </button>
+      </div>
+
+      {tab !== 'regular' && tab !== 'trends' && (
+        isLoading ? (
+          <div className="flex justify-center p-12">
+            <RefreshCcw className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <SetAsideTable segment={tab} rows={bySegment[tab]} canManageTeam={canManageTeam} onOpen={openPayment} />
+        )
+      )}
+
+      {tab === 'trends' && !isLoading && <TrendsView payments={payments} canManageTeam={canManageTeam} />}
+
+      {tab === 'regular' && (
+      <>
       <motion.div
         variants={containerVariants}
         initial="hidden"
@@ -587,6 +679,8 @@ export function OverdueDashboardPage() {
           </div>
         )}
       </GlassCard>
+      </>
+      )}
 
       <OverdueDetailPanel
         payment={selectedPayment}
