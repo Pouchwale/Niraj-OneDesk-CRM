@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Building2, AlertTriangle, PackageCheck, FileText, ReceiptText, Mail } from 'lucide-react';
+import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Building2, AlertTriangle, PackageCheck, FileText, ReceiptText, Mail, UserPlus } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { cn } from '@/lib/utils';
 import { isRfdOnly } from '@/lib/users/rfd-only';
@@ -26,6 +26,7 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
     { to: '/quotations', icon: FileText, label: 'Quotations', show: !rfdOnly },
     { to: '/billing-issues', icon: ReceiptText, label: 'Billing Issues', show: true },
     { to: '/service', icon: Mail, label: 'Service', show: !rfdOnly },
+    { to: '/self-leads', icon: UserPlus, label: 'Self Leads', show: !rfdOnly },
     { to: '/admin/overview', icon: Users, label: 'Overview', show: canManageTeam },
     { to: '/otif', icon: BarChart3, label: 'OTIF Analytics', show: canManageTeam },
     { to: '/weekly-kpi', icon: CalendarRange, label: 'Weekly KPI', show: canManageTeam },

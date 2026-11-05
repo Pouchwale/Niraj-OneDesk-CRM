@@ -1,0 +1,112 @@
+/**
+ * Self leads: leads coordinators find themselves, and the reports the team
+ * leader reads from them (5 Nov 2026). One record per lead; nothing here is
+ * typed as a total.
+ *
+ *   Connected     the coordinator has spoken to the lead.
+ *   Conversion    closed ÷ connected.
+ *   Pipeline      value of the open leads.
+ *   Value won     value of the closed leads.
+ *
+ * Weeks run Monday to Sunday, as Weekly KPI's do. Teams are the users'
+ * module: GP3 or Pouchwale.
+ */
+
+import type { SelfLead, SelfLeadStatus, TeamModule } from './types'
+
+export const SELF_LEAD_STATUS_LABEL: Record<SelfLeadStatus, string> = {
+  open: 'Open',
+  closed: 'Closed (won)',
+  lost: 'Lost',
+}
+
+/** Where a lead came from; anything else can be typed. */
+export const SELF_LEAD_SOURCES = ['Cold call', 'IndiaMART', 'Reference', 'Exhibition', 'Website', 'Social media', 'Existing customer'] as const
+
+export const TEAMS: TeamModule[] = ['GP3', 'Pouchwale']
+
+export function inLeadPeriod(l: Pick<SelfLead, 'date'>, from: string | null, to: string | null): boolean {
+  if (from && l.date < from) return false
+  if (to && l.date > to) return false
+  return true
+}
+
+export interface LeadSummary {
+  leads: number
+  connected: number
+  open: number
+  closed: number
+  lost: number
+  /** Closed ÷ connected, 0-100; null with nothing connected. */
+  conversion: number | null
+  pipelineValue: number
+  valueWon: number
+}
+
+const round2 = (v: number) => Math.round(v * 100) / 100
+
+export function leadSummary(list: readonly SelfLead[]): LeadSummary {
+  const connected = list.filter((l) => l.connected).length
+  const closed = list.filter((l) => l.status === 'closed')
+  const sum = (rows: readonly SelfLead[]) => round2(rows.reduce((s, l) => s + (l.value ?? 0), 0))
+  return {
+    leads: list.length,
+    connected,
+    open: list.filter((l) => l.status === 'open').length,
+    closed: closed.length,
+    lost: list.filter((l) => l.status === 'lost').length,
+    conversion: connected ? Math.round((closed.length / connected) * 100) : null,
+    pipelineValue: sum(list.filter((l) => l.status === 'open')),
+    valueWon: sum(closed),
+  }
+}
+
+/** One line per person ('' = not assigned); everyone in `people` gets a line, at zero if they added nothing. Most value won first. */
+export function leadsByPerson(list: readonly SelfLead[], people: readonly string[] = []): { personId: string; summary: LeadSummary }[] {
+  const groups = new Map<string, SelfLead[]>(people.map((id) => [id, []]))
+  for (const l of list) {
+    const key = l.coordinator_id ?? ''
+    groups.set(key, [...(groups.get(key) ?? []), l])
+  }
+  return [...groups.entries()]
+    .map(([personId, rows]) => ({ personId, summary: leadSummary(rows) }))
+    .sort((a, b) => b.summary.valueWon - a.summary.valueWon || b.summary.closed - a.summary.closed || b.summary.leads - a.summary.leads)
+}
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** The Monday of a day's week (yyyy-mm-dd). */
+export function weekStart(day: string): string {
+  const t = new Date(`${day}T00:00:00Z`)
+  const back = (t.getUTCDay() + 6) % 7
+  t.setUTCDate(t.getUTCDate() - back)
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`
+}
+
+export function weekEnd(monday: string): string {
+  const t = new Date(`${monday}T00:00:00Z`)
+  t.setUTCDate(t.getUTCDate() + 6)
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`
+}
+
+/**
+ * Week by week (newest first), each team's summary and the total. A lead
+ * whose coordinator is in no team counts in the total only.
+ */
+export function weeklyByTeam(
+  list: readonly SelfLead[],
+  teamOf: (coordinatorId: string | null) => TeamModule | null
+): { week: string; teams: Record<TeamModule, LeadSummary>; total: LeadSummary }[] {
+  const weeks = new Map<string, SelfLead[]>()
+  for (const l of list) {
+    const w = weekStart(l.date)
+    weeks.set(w, [...(weeks.get(w) ?? []), l])
+  }
+  return [...weeks.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([week, rows]) => ({
+      week,
+      teams: Object.fromEntries(TEAMS.map((t) => [t, leadSummary(rows.filter((l) => teamOf(l.coordinator_id) === t))])) as Record<TeamModule, LeadSummary>,
+      total: leadSummary(rows),
+    }))
+}

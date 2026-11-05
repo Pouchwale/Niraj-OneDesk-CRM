@@ -459,6 +459,42 @@ export interface BillingIssue {
   updated_by: string | null
 }
 
+export type SelfLeadStatus = 'open' | 'closed' | 'lost'
+
+/** A remark on a self lead, oldest first. */
+export interface SelfLeadRemark {
+  at: string
+  by: string
+  note: string
+}
+
+/**
+ * A lead a coordinator found themselves (since 5 Nov 2026). One record per
+ * lead; every count and value in the reports is worked out from these.
+ */
+export interface SelfLead {
+  id: string
+  /** The day the lead was found / added; periods and weeks read this. */
+  date: string
+  coordinator_id: string | null
+  company_name: string
+  contact_person: string | null
+  contact_number: string | null
+  source: string | null
+  /** True once the coordinator has actually spoken to the lead. */
+  connected: boolean
+  connected_date: string | null
+  status: SelfLeadStatus
+  /** Expected order value while open; the order value once closed. */
+  value: number | null
+  lost_reason: string | null
+  remarks: SelfLeadRemark[]
+  created_at: string
+  created_by: string | null
+  updated_at: string
+  updated_by: string | null
+}
+
 /** How a dispatch went against the sales order's date. */
 export type DispatchStatus = 'Early' | 'On Time' | 'Delay'
 

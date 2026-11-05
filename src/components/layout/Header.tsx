@@ -15,6 +15,7 @@ const PAGE_TITLES: [string, string][] = [
   ['/quotations', 'Quotations'],
   ['/billing-issues', 'Billing Issues'],
   ['/service', 'Service'],
+  ['/self-leads', 'Self Leads'],
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
   ['/otif', 'OTIF Analytics'],

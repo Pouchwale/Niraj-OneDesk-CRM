@@ -86,6 +86,11 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   deleteServiceRecord: 'team',
   importServiceRecords: 'team',
   setServiceCustomers: 'team',
+
+  // Self leads: a coordinator keeps their own (see selfLeadRefusal).
+  saveSelfLead: 'own',
+  addSelfLeadRemark: 'own',
+  deleteSelfLead: 'team',
   /*
    * The ageing-row-only forms of the two above, which a browser still open on
    * the previous version sends. Left with the team, since they carry no
@@ -223,6 +228,29 @@ export function serviceRecordRefusal(
   const held = records.find((r) => r.id === record?.id)
   if (held && held.coordinator_id !== userId) return 'You can only change your own service records.'
   return record?.coordinator_id === userId ? null : 'A service record you save must be your own.'
+}
+
+/**
+ * Why a coordinator may not change this self lead, or null when they may:
+ * only their own, and they cannot hand one to somebody else.
+ */
+export function selfLeadRefusal(
+  role: AuthRole | undefined,
+  userId: string,
+  method: string,
+  args: unknown[],
+  leads: { id: string; coordinator_id: string | null }[]
+): string | null {
+  if (method !== 'saveSelfLead' && method !== 'addSelfLeadRemark') return null
+  if (role === 'admin' || role === 'team_leader') return null
+  const id = method === 'saveSelfLead' ? (args[0] as { id?: unknown } | null)?.id : args[0]
+  const held = leads.find((l) => l.id === id)
+  if (held && held.coordinator_id !== userId) return 'You can only change your own leads.'
+  if (method === 'addSelfLeadRemark' && !held) return 'That lead is not here.'
+  if (method === 'saveSelfLead' && (args[0] as { coordinator_id?: unknown } | null)?.coordinator_id !== userId) {
+    return 'A lead you save must be your own.'
+  }
+  return null
 }
 
 /** True when this role may ask for that operation. */

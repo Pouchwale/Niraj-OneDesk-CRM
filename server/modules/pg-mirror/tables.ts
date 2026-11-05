@@ -348,6 +348,31 @@ export const TABLES: { spec: TableSpec; rows: (s: MirrorSource) => Row[] }[] = [
   },
   {
     spec: {
+      name: 'self_leads',
+      key: ['id'],
+      columns: [
+        col('id', 'text'),
+        col('date', 'date'),
+        col('coordinator_id', 'text'),
+        col('company_name', 'text'),
+        col('contact_person', 'text'),
+        col('contact_number', 'text'),
+        col('source', 'text'),
+        col('connected', 'boolean'),
+        col('connected_date', 'date'),
+        col('status', 'text'),
+        col('value', 'numeric'),
+        col('lost_reason', 'text'),
+        col('remark_count', 'integer', (r) => ((r.remarks as unknown[] | undefined)?.length ?? 0)),
+        col('created_at', 'timestamptz'),
+        col('updated_at', 'timestamptz'),
+        data,
+      ],
+    },
+    rows: (s) => (s.store.selfLeads ?? []) as unknown as Row[],
+  },
+  {
+    spec: {
       name: 'messages',
       key: ['id'],
       columns: [

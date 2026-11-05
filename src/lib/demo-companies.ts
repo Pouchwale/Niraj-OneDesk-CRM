@@ -1,4 +1,4 @@
-import type { AttendanceEntry, BillingIssue, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { AttendanceEntry, BillingIssue, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
@@ -455,6 +455,8 @@ export interface PersistedStore {
   serviceRecords?: ServiceRecord[]
   /** Each coordinator's Total Customers for the service score. */
   serviceTargets?: ServiceCustomerTarget[]
+  /** Leads coordinators found themselves, kept since 5 Nov 2026. Optional for older files. */
+  selfLeads?: SelfLead[]
   /**
    * Every quotation number in use, team-wide. Sent to a coordinator, who only
    * holds their own quotations, so the next number suggested is never taken.
@@ -551,6 +553,7 @@ class DemoCompanyStore {
   billingIssues: BillingIssue[] = restored?.billingIssues ?? []
   serviceRecords: ServiceRecord[] = restored?.serviceRecords ?? []
   serviceTargets: ServiceCustomerTarget[] = restored?.serviceTargets ?? []
+  selfLeads: SelfLead[] = restored?.selfLeads ?? []
   quotationNos: string[] = []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
@@ -1424,6 +1427,7 @@ class DemoCompanyStore {
       billingIssues: this.billingIssues,
       serviceRecords: this.serviceRecords,
       serviceTargets: this.serviceTargets,
+      selfLeads: this.selfLeads,
     }
   }
 
@@ -1562,6 +1566,39 @@ class DemoCompanyStore {
       customers === null || !Number.isFinite(n) || n < 0
         ? others
         : [...others, { coordinatorId, month, customers: Math.round(n), updatedAt: at, updatedBy: by }]
+  }
+
+  /* ===== Self leads ===== */
+
+  getSelfLeads(): SelfLead[] {
+    return [...this.selfLeads]
+  }
+
+  /** Adds a lead, or replaces the one with the same id (keeping who added it and its remarks). */
+  saveSelfLead(lead: SelfLead): void {
+    if (!lead?.id || !lead.date || !lead.company_name) return
+    const held = this.selfLeads.find((l) => l.id === lead.id)
+    const others = this.selfLeads.filter((l) => l.id !== lead.id)
+    this.selfLeads = [
+      ...others,
+      {
+        ...lead,
+        remarks: held?.remarks ?? lead.remarks ?? [],
+        created_at: held?.created_at ?? lead.created_at,
+        created_by: held?.created_by ?? lead.created_by,
+      },
+    ]
+  }
+
+  addSelfLeadRemark(id: string, remark: SelfLeadRemark): void {
+    if (!remark?.at || !remark.note?.trim()) return
+    this.selfLeads = this.selfLeads.map((l) =>
+      l.id === id ? { ...l, remarks: [...(l.remarks ?? []), remark], updated_at: remark.at, updated_by: remark.by } : l
+    )
+  }
+
+  deleteSelfLead(id: string): void {
+    this.selfLeads = this.selfLeads.filter((l) => l.id !== id)
   }
 
   /* ===== Who is in the office ===== */
@@ -1721,6 +1758,7 @@ class DemoCompanyStore {
     this.billingIssues = snapshot.billingIssues ?? []
     this.serviceRecords = snapshot.serviceRecords ?? []
     this.serviceTargets = snapshot.serviceTargets ?? []
+    this.selfLeads = snapshot.selfLeads ?? []
     this.quotationNos = snapshot.quotationNos ?? []
     this.refreshStatuses()
   }

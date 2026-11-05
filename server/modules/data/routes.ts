@@ -14,7 +14,7 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
-import { accountRefusal, billingIssueRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string) {
@@ -47,6 +47,7 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     // Their own service rows; the team's and the customer counts are the leader's to read.
     serviceRecords: (snapshot.serviceRecords ?? []).filter((r) => r.coordinator_id === userId),
     serviceTargets: [],
+    selfLeads: (snapshot.selfLeads ?? []).filter((l) => l.coordinator_id === userId),
     // Numbers only, so a new quotation never reuses one another coordinator took.
     quotationNos: (snapshot.quotations ?? []).map((q) => q.quotation_no).filter((n): n is string => !!n),
     // The import's own paperwork is the leader's business, not theirs.
@@ -143,6 +144,12 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (service) {
         logger.warn('data: service record change refused', { method, user: user.id, refusal: service })
         next(ApiError.forbidden(service))
+        return
+      }
+      const lead = selfLeadRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().selfLeads ?? [])
+      if (lead) {
+        logger.warn('data: self lead change refused', { method, user: user.id, refusal: lead })
+        next(ApiError.forbidden(lead))
         return
       }
       const proof = proofRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().proofRequests ?? [])

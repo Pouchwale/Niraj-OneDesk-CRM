@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { accountRefusal, billingIssueRefusal, serviceRecordRefusal, decisionRequestRefusal, mayCall, quotationRefusal, type Book } from './operations'
+import { accountRefusal, billingIssueRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, mayCall, quotationRefusal, type Book } from './operations'
 import type { Company, OverduePayment } from '../../../src/lib/types'
 
 const ME = 'coord-1'
@@ -162,5 +162,27 @@ describe('serviceRecordRefusal', () => {
     expect(serviceRecordRefusal('team_leader', 'admin-1', 'saveServiceRecord', [{ id: 's2', coordinator_id: HER }], held)).toBeNull()
     expect(mayCall('coordinator', 'setServiceCustomers')).toBe(false)
     expect(mayCall('coordinator', 'saveServiceRecord')).toBe(true)
+  })
+})
+
+describe('selfLeadRefusal', () => {
+  const held = [
+    { id: 'l1', coordinator_id: ME },
+    { id: 'l2', coordinator_id: HER },
+  ]
+  const coord = (method: string, args: unknown[]) => selfLeadRefusal('coordinator', ME, method, args, held)
+
+  it('lets a coordinator save and remark only on their own leads', () => {
+    expect(coord('saveSelfLead', [{ id: 'new', coordinator_id: ME }])).toBeNull()
+    expect(coord('saveSelfLead', [{ id: 'l1', coordinator_id: ME }])).toBeNull()
+    expect(coord('saveSelfLead', [{ id: 'new', coordinator_id: HER }])).toMatch(/your own/)
+    expect(coord('saveSelfLead', [{ id: 'l2', coordinator_id: ME }])).toMatch(/your own/)
+    expect(coord('addSelfLeadRemark', ['l1', {}])).toBeNull()
+    expect(coord('addSelfLeadRemark', ['l2', {}])).toMatch(/your own/)
+  })
+
+  it('leaves the leader free and deleting with the team', () => {
+    expect(selfLeadRefusal('team_leader', 'admin-1', 'saveSelfLead', [{ id: 'l2', coordinator_id: HER }], held)).toBeNull()
+    expect(mayCall('coordinator', 'deleteSelfLead')).toBe(false)
   })
 })
