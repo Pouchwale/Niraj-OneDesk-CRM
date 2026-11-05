@@ -179,22 +179,34 @@ export function pickWeekly<T extends { id: string; savedAt: string }>(days: read
     .sort((a, b) => b.weekStart.localeCompare(a.weekStart))
 }
 
-export type Period = 'month' | 'quarter'
+export type Period = 'month' | 'quarter' | 'year'
 
-/** "2026-10" or "2026-Q3" (calendar quarters: Jan-Mar is Q1). */
+/** "2026-10", "2026-Q3" (calendar quarters: Jan-Mar is Q1) or "2026". */
 export function periodKey(date: string, by: Period): string {
   const [year, month] = date.split('-').map(Number)
+  if (by === 'year') return String(year)
   return by === 'month' ? `${year}-${pad(month)}` : `${year}-Q${Math.floor((month - 1) / 3) + 1}`
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+export const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
 
-/** "Oct 2026" or "Oct-Dec 2026". */
+/** Which months a quarter holds, "Jan–Mar". */
+export function quarterMonths(quarter: number): string {
+  const first = (quarter - 1) * 3
+  return `${MONTHS[first]}–${MONTHS[first + 2]}`
+}
+
+/** "Oct 2026", "Q4 2026 (Oct–Dec)" or "2026". */
 export function periodLabel(key: string): string {
   const [year, part] = key.split('-')
+  if (!part) return year
   if (part.startsWith('Q')) {
-    const first = (Number(part.slice(1)) - 1) * 3
-    return `${MONTHS[first]}–${MONTHS[first + 2]} ${year}`
+    const quarter = Number(part.slice(1))
+    return `Q${quarter} ${year} (${quarterMonths(quarter)})`
   }
   return `${MONTHS[Number(part) - 1]} ${year}`
 }
@@ -237,29 +249,41 @@ export function monthOf(iso: string | Date): string {
 }
 
 /** A chosen month ('m:2026-10') or quarter ('q:2026-Q4'), or every period. */
-export type PeriodChoice = 'all' | `m:${string}` | `q:${string}`
+/**
+ * What is chosen: every period, a year ('y:2026'), a quarter ('q:2026-Q4'),
+ * a month ('m:2026-10') or one saved week ('w:2026-10-05', its Monday).
+ */
+export type PeriodChoice = 'all' | `y:${string}` | `q:${string}` | `m:${string}` | `w:${string}`
 
-export function parsePeriod(choice: PeriodChoice): { by: Period; key: string } | null {
+export function parsePeriod(choice: PeriodChoice): { by: Period | 'week'; key: string } | null {
   if (choice === 'all') return null
-  return { by: choice.startsWith('m:') ? 'month' : 'quarter', key: choice.slice(2) }
+  const by = ({ y: 'year', q: 'quarter', m: 'month', w: 'week' } as const)[choice[0] as 'y' | 'q' | 'm' | 'w']
+  return { by, key: choice.slice(2) }
 }
 
-/** Whether a yyyy-mm-dd date falls in the chosen period. */
+/**
+ * Whether a yyyy-mm-dd date falls in the chosen period. A chosen week keeps
+ * its whole month in view, so the week is seen among its neighbours.
+ */
 export function inPeriod(date: string, choice: PeriodChoice): boolean {
   const period = parsePeriod(choice)
-  return !period || periodKey(date, period.by) === period.key
+  if (!period) return true
+  if (period.by === 'week') return periodKey(date, 'month') === periodKey(period.key, 'month')
+  return periodKey(date, period.by) === period.key
 }
 
-/** Every month and quarter that has a point, latest first. */
-export function periodChoices(points: readonly BookPoint[]): { months: string[]; quarters: string[] } {
+/** Every year, quarter and month that has a point, latest first. */
+export function periodChoices(points: readonly BookPoint[]): { years: string[]; months: string[]; quarters: string[] } {
+  const years = new Set<string>()
   const months = new Set<string>()
   const quarters = new Set<string>()
   for (const p of points) {
+    years.add(periodKey(p.date, 'year'))
     months.add(periodKey(p.date, 'month'))
     quarters.add(periodKey(p.date, 'quarter'))
   }
   const desc = (a: string, b: string) => b.localeCompare(a)
-  return { months: [...months].sort(desc), quarters: [...quarters].sort(desc) }
+  return { years: [...years].sort(desc), months: [...months].sort(desc), quarters: [...quarters].sort(desc) }
 }
 
 /**

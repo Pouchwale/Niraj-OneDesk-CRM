@@ -17,7 +17,7 @@ import { ArrowDownRight, ArrowUpRight, Download, Minus, RefreshCcw } from 'lucid
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/shared/GlassCard';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { findUserName } from '@/features/auth/AuthContext';
 import {
   BOOK_SEGMENTS,
@@ -27,6 +27,8 @@ import {
   parsePeriod,
   periodChoices,
   periodLabel,
+  quarterMonths,
+  MONTH_NAMES,
   PERSON_ALL,
   PERSON_UNASSIGNED,
   rollUp,
@@ -38,6 +40,7 @@ import {
   type BookSegment,
   type BookWeek,
   type MonthClose,
+  type Period,
   type PeriodChoice,
 } from '@/lib/ageing-trend';
 import { getAgeingTrend } from '@/lib/ageing-trend-api';
@@ -186,11 +189,18 @@ const sumOf = (f: AgeFigures) => Math.round((f.d0_30 + f.d31_120 + f.d121_plus) 
 const over30 = (f: AgeFigures) => Math.round((f.d31_120 + f.d121_plus) * 100) / 100;
 
 /** Where a period's figures come from, in words. */
-function sourceNote(p: BookPoint, by: 'month' | 'quarter'): string {
+function sourceNote(p: BookPoint, by: Period | 'week'): string {
+  if (by === 'week') return p.source === 'live' ? 'Today' : `Saved on Monday ${formatDate(p.date)}, morning`;
   if (p.source === 'live') return `Today — this ${by} is still running`;
-  if (p.source === 'month') return `${by === 'month' ? 'Month' : 'Quarter'} close`;
+  if (p.source === 'month') return `${by === 'month' ? 'Month' : by === 'quarter' ? 'Quarter' : 'Year'} close`;
   return `As of the week of ${formatDate(p.date)} (the last saved week in it)`;
 }
+
+const ALL = 'all';
+const QUARTERS = [1, 2, 3, 4];
+const pad2 = (n: number) => String(n).padStart(2, '0');
+/** "2026-10" → "2026-Q4". */
+const quarterOfMonth = (monthKey: string) => `${monthKey.slice(0, 4)}-Q${Math.ceil(Number(monthKey.slice(5, 7)) / 3)}`;
 
 export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
   const [weeks, setWeeks] = useState<BookWeek[]>([]);
@@ -199,7 +209,11 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
   const [failed, setFailed] = useState<string | null>(null);
   const [segment, setSegment] = useState<SegmentChoice>('regular');
   const [person, setPerson] = useState<string>(PERSON_ALL);
-  const [period, setPeriodState] = useState<PeriodChoice>('all');
+  /* The period, chosen the way it is said: a year, a quarter, a month, a week. */
+  const [year, setYear] = useState<string>(ALL);
+  const [quarter, setQuarter] = useState<number>(0);
+  const [month, setMonth] = useState<number>(0);
+  const [week, setWeek] = useState<string>(ALL);
   const [chart, setChart] = useState<ChartMode>('month');
   const [tableMode, setTableMode] = useState<'total' | 'person'>('total');
 
@@ -232,20 +246,71 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
   const closes = useMemo(() => closingPoints(weeks, months, live), [weeks, months, live]);
   const monthCloses = useMemo(() => rollUp(closes, 'month'), [closes]);
   const quarterCloses = useMemo(() => rollUp(closes, 'quarter'), [closes]);
+  const yearCloses = useMemo(() => rollUp(closes, 'year'), [closes]);
+  /** Every saved week, oldest first, as a period of its own. */
+  const weekCloses = useMemo(
+    () =>
+      [...weeks]
+        .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+        .map((w) => ({ date: w.weekStart, rows: w.rows, source: 'week' as const, key: w.weekStart, label: `Week of ${formatDate(w.weekStart)}` })),
+    [weeks]
+  );
   const choices = useMemo(() => periodChoices(closes), [closes]);
 
+  /** The most specific thing chosen: a week, else a month, a quarter, a year, or everything. */
+  const period: PeriodChoice =
+    year === ALL
+      ? 'all'
+      : week !== ALL
+        ? `w:${week}`
+        : month
+          ? `m:${year}-${pad2(month)}`
+          : quarter
+            ? `q:${year}-Q${quarter}`
+            : `y:${year}`;
   const chosen = parsePeriod(period);
-  const periodList = chosen?.by === 'quarter' ? quarterCloses : monthCloses;
+  const periodList =
+    chosen?.by === 'week' ? weekCloses : chosen?.by === 'year' ? yearCloses : chosen?.by === 'quarter' ? quarterCloses : monthCloses;
   const chosenIndex = chosen ? periodList.findIndex((p) => p.key === chosen.key) : -1;
   const chosenClose = chosenIndex >= 0 ? periodList[chosenIndex] : null;
   const previousClose = chosenIndex > 0 ? periodList[chosenIndex - 1] : null;
 
-  /** Picking a month shows the monthly chart, a quarter the quarterly one. */
-  const setPeriod = (next: PeriodChoice) => {
-    setPeriodState(next);
-    const p = parsePeriod(next);
-    if (p && chart !== 'person') setChart(p.by);
+  /** The year to work in when a quarter or month is picked before a year. */
+  const workingYear = year !== ALL ? year : choices.years[0] ?? today.slice(0, 4);
+  const hasMonth = (y: string, m: number) => choices.months.includes(`${y}-${pad2(m)}`);
+  const hasQuarter = (y: string, q: number) => choices.quarters.includes(`${y}-Q${q}`);
+  /** The saved weeks of the chosen month, oldest first, numbered within it. */
+  const monthWeeks = useMemo(
+    () => (year !== ALL && month ? weekCloses.filter((w) => w.key.startsWith(`${year}-${pad2(month)}`)) : []),
+    [weekCloses, year, month]
+  );
+
+  /** The chart follows the choice: quarters for a quarter, months otherwise. */
+  const followChart = (next: 'month' | 'quarter') => {
+    if (chart !== 'person') setChart(next);
   };
+  const chooseYear = (next: string) => {
+    setYear(next);
+    setQuarter(0);
+    setMonth(0);
+    setWeek(ALL);
+    followChart('month');
+  };
+  const chooseQuarter = (next: number) => {
+    setYear(workingYear);
+    setQuarter(next);
+    if (month && Math.ceil(month / 3) !== next) setMonth(0);
+    setWeek(ALL);
+    followChart(next ? 'quarter' : 'month');
+  };
+  const chooseMonth = (next: number) => {
+    setYear(workingYear);
+    setMonth(next);
+    if (next) setQuarter(Math.ceil(next / 3));
+    setWeek(ALL);
+    followChart('month');
+  };
+  const clearPeriod = () => chooseYear(ALL);
 
   /** Everyone who holds money in this register at any point, biggest book first. */
   const people = useMemo(() => {
@@ -306,19 +371,49 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
     );
   }, [chart, people, chosenClose, liveRows, segment, monthCloses, quarterCloses, who]);
 
-  /** The bar of the chosen period stands out; the rest step back. */
-  const highlighted = chart !== 'person' && chosen?.by === chart ? chosen.key : null;
+  /** The bars of the chosen period stand out; the rest step back. */
+  const isHighlighted = (barKey: string): boolean | null => {
+    if (!chosen || chart === 'person') return null;
+    const barQuarter = chart === 'month' ? quarterOfMonth(barKey) : barKey;
+    switch (chosen.by) {
+      case 'year':
+        return barKey.startsWith(chosen.key);
+      case 'quarter':
+        return barQuarter === chosen.key;
+      case 'month':
+        return chart === 'month' ? barKey === chosen.key : barQuarter === quarterOfMonth(chosen.key);
+      case 'week': {
+        const weekMonth = chosen.key.slice(0, 7);
+        return chart === 'month' ? barKey === weekMonth : barQuarter === quarterOfMonth(weekMonth);
+      }
+    }
+  };
+  /** A click on a bar picks that month or quarter; a second click lets go. */
   const pickBar = (key: string) => {
     if (chart === 'person') return;
-    const next: PeriodChoice = chart === 'month' ? `m:${key}` : `q:${key}`;
-    setPeriod(period === next ? 'all' : next);
+    const y = key.slice(0, 4);
+    if (chart === 'month') {
+      const m = Number(key.slice(5, 7));
+      if (chosen?.by === 'month' && chosen.key === key) return clearPeriod();
+      setYear(y);
+      setQuarter(Math.ceil(m / 3));
+      setMonth(m);
+      setWeek(ALL);
+    } else {
+      const q = Number(key.slice(6));
+      if (chosen?.by === 'quarter' && chosen.key === key) return clearPeriod();
+      setYear(y);
+      setQuarter(q);
+      setMonth(0);
+      setWeek(ALL);
+    }
   };
 
   const latest = allLines[0]?.figures;
   const lastWeek = allLines[1]?.figures ?? null;
   const scopeName = canManageTeam ? (person === PERSON_ALL ? 'the whole team' : personName(person)) : 'your accounts';
   const segmentName = segment === 'all' ? 'all four registers' : SEGMENT_LABEL[segment];
-  const periodName = chosen ? periodLabel(chosen.key) : 'all periods';
+  const periodName = chosenClose ? chosenClose.label : chosen ? (chosen.by === 'week' ? `week of ${formatDate(chosen.key)}` : periodLabel(chosen.key)) : 'all periods';
 
   /** By person: the weeks across (the chosen period's, or the latest six), everyone down. */
   const gridWeeks = period === 'all' ? lines.slice(0, 6) : lines;
@@ -441,34 +536,65 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
             </Select>
           </div>
         )}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Period</span>
-          <Select value={period} onValueChange={(v) => setPeriod(v as PeriodChoice)}>
-            <SelectTrigger className="w-[190px]" aria-label="Period">
+        {/* Year → quarter → month → week, each narrowing the one before. */}
+        <div className="flex flex-wrap items-center gap-2" data-testid="period-filters">
+          <Select value={year} onValueChange={chooseYear}>
+            <SelectTrigger className="w-[120px]" aria-label="Year">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All periods</SelectItem>
-              <SelectGroup>
-                <SelectLabel>Months</SelectLabel>
-                {choices.months.map((m) => (
-                  <SelectItem key={m} value={`m:${m}`}>
-                    {periodLabel(m)}
+              <SelectItem value={ALL}>All years</SelectItem>
+              {choices.years.map((y) => (
+                <SelectItem key={y} value={y}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={String(quarter)} onValueChange={(v) => chooseQuarter(Number(v))}>
+            <SelectTrigger className="w-[150px]" aria-label="Quarter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">All quarters</SelectItem>
+              {QUARTERS.map((q) => (
+                <SelectItem key={q} value={String(q)} disabled={!hasQuarter(workingYear, q)}>
+                  Q{q} ({quarterMonths(q)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={String(month)} onValueChange={(v) => chooseMonth(Number(v))}>
+            <SelectTrigger className="w-[140px]" aria-label="Month">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">All months</SelectItem>
+              {MONTH_NAMES.map((name, i) =>
+                quarter && Math.ceil((i + 1) / 3) !== quarter ? null : (
+                  <SelectItem key={name} value={String(i + 1)} disabled={!hasMonth(workingYear, i + 1)}>
+                    {name}
                   </SelectItem>
-                ))}
-              </SelectGroup>
-              <SelectGroup>
-                <SelectLabel>Quarters</SelectLabel>
-                {choices.quarters.map((q) => (
-                  <SelectItem key={q} value={`q:${q}`}>
-                    {periodLabel(q)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+                )
+              )}
+            </SelectContent>
+          </Select>
+          <Select value={week} onValueChange={setWeek} disabled={!month}>
+            <SelectTrigger className="w-[180px]" aria-label="Week" title={month ? undefined : 'Pick a month first'}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All weeks</SelectItem>
+              {monthWeeks.map((w, i) => (
+                <SelectItem key={w.key} value={w.key}>
+                  {/* The year is chosen already; the label stays short enough to read whole. */}
+                  Week {i + 1} · {formatDate(w.key).replace(/\s\d{4}$/, '')}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           {period !== 'all' && (
-            <Button variant="ghost" size="sm" onClick={() => setPeriod('all')}>
+            <Button variant="ghost" size="sm" onClick={clearPeriod}>
               Clear
             </Button>
           )}
@@ -633,7 +759,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
                     onClick={(entry: { key?: string }) => entry?.key && pickBar(entry.key)}
                   >
                     {chartData.map((d) => (
-                      <Cell key={d.key} fillOpacity={highlighted && d.key !== highlighted ? 0.3 : 1} />
+                      <Cell key={d.key} fillOpacity={isHighlighted(d.key) === false ? 0.3 : 1} />
                     ))}
                   </Bar>
                 ))}
@@ -651,7 +777,8 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-base font-medium">
-              31–120 and 121+ days, week by week{chosen ? ` — ${periodLabel(chosen.key)}` : ''}
+              31–120 and 121+ days, week by week
+              {chosen ? ` — ${chosen.by === 'week' ? periodLabel(chosen.key.slice(0, 7)) : periodLabel(chosen.key)}` : ''}
             </h3>
             <p className="text-xs text-muted-foreground">
               Built by itself from the book saved every Monday morning
@@ -759,7 +886,13 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
                 {lines.map((l) => {
                   const b = before(l);
                   return (
-                    <tr key={l.key} className={cn(l.live ? 'bg-primary/5 font-medium' : 'hover:bg-muted/30')}>
+                    <tr
+                      key={l.key}
+                      className={cn(
+                        l.live ? 'bg-primary/5 font-medium' : 'hover:bg-muted/30',
+                        chosen?.by === 'week' && l.key === chosen.key && 'bg-primary/10 font-semibold ring-1 ring-inset ring-primary/40'
+                      )}
+                    >
                       <td className="whitespace-nowrap px-4 py-2.5">
                         {l.live ? (
                           <span className="inline-flex items-center gap-2">

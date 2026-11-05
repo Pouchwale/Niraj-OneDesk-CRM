@@ -114,10 +114,14 @@ describe('rollUp', () => {
   it('groups calendar quarters', () => {
     const quarters = rollUp([at('2026-09-28', 1), at('2026-10-26', 2), at('2026-11-05', 3, true)], 'quarter')
     expect(quarters.map((q) => [q.label, q.rows[0].accounts])).toEqual([
-      ['Jul–Sep 2026', 1],
-      ['Oct–Dec 2026', 3],
+      ['Q3 2026 (Jul–Sep)', 1],
+      ['Q4 2026 (Oct–Dec)', 3],
     ])
-    expect(periodLabel('2027-Q1')).toBe('Jan–Mar 2027')
+    expect(periodLabel('2027-Q1')).toBe('Q1 2027 (Jan–Mar)')
+    expect(periodLabel('2026')).toBe('2026')
+    expect(rollUp([at('2026-09-28', 1), at('2026-11-05', 3, true)], 'year').map((y) => [y.label, y.rows[0].accounts])).toEqual([
+      ['2026', 3],
+    ])
   })
 })
 
@@ -132,6 +136,10 @@ describe('choosing a month or quarter', () => {
     expect(inPeriod('2026-11-02', 'q:2026-Q4')).toBe(true)
     expect(inPeriod('2026-09-28', 'q:2026-Q4')).toBe(false)
     expect(inPeriod('2026-09-28', 'all')).toBe(true)
+    expect(inPeriod('2026-03-02', 'y:2026')).toBe(true)
+    // A chosen week keeps its month's other weeks in view.
+    expect(inPeriod('2026-10-26', 'w:2026-10-05')).toBe(true)
+    expect(inPeriod('2026-11-02', 'w:2026-10-05')).toBe(false)
   })
 
   it('lists every month and quarter there is a point for, latest first', () => {
@@ -142,6 +150,7 @@ describe('choosing a month or quarter', () => {
     ])
     expect(choices.months).toEqual(['2026-11', '2026-10', '2026-09'])
     expect(choices.quarters).toEqual(['2026-Q4', '2026-Q3'])
+    expect(choices.years).toEqual(['2026'])
   })
 
   it('closes a month with its recorded close, else its last saved week; the running one with today', () => {
