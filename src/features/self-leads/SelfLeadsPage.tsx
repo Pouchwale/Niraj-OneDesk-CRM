@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { DATE_PRESETS, presetRange, type DatePreset } from '@/features/quotations/QuotationFilters'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
-import { inLeadPeriod, leadsByPerson, leadSummary, SELF_LEAD_STATUS_LABEL, TEAMS, weekEnd, weeklyByTeam, type LeadSummary } from '@/lib/self-leads'
+import { inLeadPeriod, leadsByPerson, leadSummary, referencesFrom, SELF_LEAD_STATUS_LABEL, TEAMS, weekEnd, weeklyByTeam, type LeadSummary } from '@/lib/self-leads'
 import type { SelfLead, SelfLeadStatus, TeamModule } from '@/lib/types'
 import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { SelfLeadDialog } from './SelfLeadDialog'
@@ -60,8 +60,7 @@ export function SelfLeadsPage() {
   const [connectedOnly, setConnectedOnly] = useState<'all' | 'yes' | 'no'>('all')
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'leads' | 'people' | 'weekly'>('leads')
-  // A lead to edit, a new one, or a new one referred by a client's lead.
-  const [editing, setEditing] = useState<SelfLead | 'new' | { referredFrom: SelfLead } | null>(null)
+  const [editing, setEditing] = useState<SelfLead | 'new' | null>(null)
 
   const people = useMemo(() => getAssignableOwners().filter((p) => p.role === 'coordinator'), [])
   const teamOf = useMemo(() => {
@@ -101,6 +100,16 @@ export function SelfLeadsPage() {
   const progressive = useProgressiveRows(rows, { resetKey: `${range.from}|${range.to}|${team}|${person}|${status}|${connectedOnly}|${search}` })
 
   const summary = useMemo(() => leadSummary(inScope), [inScope])
+  /** How many references each lead (client) has given, across all leads in view. */
+  const referencesGiven = useMemo(() => {
+    const counts = new Map<string, number>()
+    if (!all.some((l) => l.referred_by_name)) return counts
+    for (const l of all) {
+      const n = referencesFrom(l, all).length
+      if (n) counts.set(l.id, n)
+    }
+    return counts
+  }, [all])
   const shownPeople = useMemo(
     () => people.filter((p) => (team === 'all' || p.module === team) && (person === 'all' || p.id === person)).map((p) => p.id),
     [people, team, person]
@@ -424,6 +433,11 @@ export function SelfLeadsPage() {
                         <td className="min-w-[180px] px-3 py-2.5">
                           <div className="font-medium">{l.company_name}</div>
                           <div className="text-xs text-muted-foreground">{[l.contact_person, l.contact_number].filter(Boolean).join(' · ')}</div>
+                          {(referencesGiven.get(l.id) ?? 0) > 0 && (
+                            <div className="text-xs text-violet-700 dark:text-violet-400">
+                              Gave {referencesGiven.get(l.id)} reference{referencesGiven.get(l.id) === 1 ? '' : 's'}
+                            </div>
+                          )}
                         </td>
                         <td className="max-w-[180px] px-3 py-2.5 text-xs">
                           {l.referred_by_name ? <span className="text-violet-700 dark:text-violet-400">{l.referred_by_name}</span> : '—'}
@@ -474,11 +488,9 @@ export function SelfLeadsPage() {
 
       {editing && (
         <SelfLeadDialog
-          key={editing === 'new' ? 'new' : 'referredFrom' in editing ? `ref-${editing.referredFrom.id}` : editing.id}
-          lead={editing === 'new' || 'referredFrom' in editing ? null : editing}
-          referredFrom={editing !== 'new' && 'referredFrom' in editing ? editing.referredFrom : null}
+          key={editing === 'new' ? 'new' : editing.id}
+          lead={editing === 'new' ? null : editing}
           onOpenLead={(l) => setEditing(l)}
-          onAddReference={(from) => setEditing({ referredFrom: from })}
           all={all}
           canManageTeam={canManageTeam}
           currentUserId={user?.id ?? ''}

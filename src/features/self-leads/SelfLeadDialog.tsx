@@ -5,8 +5,8 @@
  *
  * References, as in Zoho's "Referred by": a lead can name the client who gave
  * it (one of the coordinator's connected leads, an existing customer, or a
- * typed name), and a connected lead lists the references it has given, with a
- * button to add the next one already marked as referred by it.
+ * typed name). Every lead has a "Reference from this client" part: a reference
+ * the client gives is typed there and becomes its own lead, referred by them.
  */
 
 import { useMemo, useState } from 'react'
@@ -36,18 +36,14 @@ const sameName = (a: string, b: string) => clean(a) === clean(b)
 
 export function SelfLeadDialog({
   lead,
-  referredFrom = null,
   all,
   canManageTeam,
   currentUserId,
   onClose,
   onSaved,
   onOpenLead,
-  onAddReference,
 }: {
   lead: SelfLead | null
-  /** A new lead started from "Add reference" on this client's lead. */
-  referredFrom?: SelfLead | null
   all: SelfLead[]
   canManageTeam: boolean
   currentUserId: string
@@ -55,8 +51,6 @@ export function SelfLeadDialog({
   onSaved: (message: string) => void
   /** Open another lead (a reference, or the client who referred this one). */
   onOpenLead?: (lead: SelfLead) => void
-  /** Start a new lead referred by this one. */
-  onAddReference?: (from: SelfLead) => void
 }) {
   const today = todayISO()
   // The live copy, so a remark added here shows straight away.
@@ -64,11 +58,11 @@ export function SelfLeadDialog({
   const coordinators = useMemo(() => getAssignableOwners().filter((p) => p.role === 'coordinator'), [])
   const [form, setForm] = useState<Record<FormKey, string>>(() => ({
     date: lead?.date ?? today,
-    coordinator_id: lead?.coordinator_id ?? referredFrom?.coordinator_id ?? (canManageTeam ? '' : currentUserId),
+    coordinator_id: lead?.coordinator_id ?? (canManageTeam ? '' : currentUserId),
     company_name: lead?.company_name ?? '',
     contact_person: lead?.contact_person ?? '',
     contact_number: lead?.contact_number ?? '',
-    referred_by_name: lead?.referred_by_name ?? referredFrom?.company_name ?? '',
+    referred_by_name: lead?.referred_by_name ?? '',
     connected_date: lead?.connected_date ?? '',
     status: lead?.status ?? 'open',
     value: lead?.value ? String(lead.value) : '',
@@ -84,7 +78,7 @@ export function SelfLeadDialog({
   /** The connected lead the typed referrer is, preferring the one it was linked to. */
   const referrerLead = (name: string): SelfLead | null => {
     if (!name.trim()) return null
-    const linked = lead?.referred_by_lead_id ?? referredFrom?.id ?? null
+    const linked = lead?.referred_by_lead_id ?? null
     return (
       referrerLeads.find((l) => l.id === linked && sameName(l.company_name, name)) ??
       referrerLeads.find((l) => sameName(l.company_name, name)) ??
@@ -95,6 +89,52 @@ export function SelfLeadDialog({
   const [busy, setBusy] = useState(false)
   const canEdit = canManageTeam || !lead || lead.coordinator_id === currentUserId
   const given = live ? referencesFrom(live, all) : []
+  /** A reference this client is giving: becomes its own lead, referred by this one. */
+  const [ref, setRef] = useState({ company: '', person: '', phone: '', note: '' })
+
+  /** The new lead for the reference typed in, owned by the same coordinator as the client. */
+  const referenceLead = (client: Pick<SelfLead, 'id' | 'company_name' | 'coordinator_id'>, at: string): SelfLead => ({
+    id: newId(),
+    date: today,
+    coordinator_id: client.coordinator_id,
+    company_name: ref.company.trim(),
+    contact_person: ref.person.trim() || null,
+    contact_number: ref.phone.trim() || null,
+    referred_by_name: client.company_name,
+    referred_by_lead_id: client.id,
+    connected: false,
+    connected_date: null,
+    status: 'open',
+    value: null,
+    lost_reason: null,
+    remarks: ref.note.trim() ? [{ at, by: currentUserId, note: `Reference from ${client.company_name}: ${ref.note.trim()}` }] : [],
+    created_at: at,
+    created_by: currentUserId,
+    updated_at: at,
+    updated_by: currentUserId,
+  })
+
+  /** On a saved lead: add the reference now. A client who gives a reference has been spoken to. */
+  const addReference = async () => {
+    if (!live || !ref.company.trim()) return
+    setBusy(true)
+    const at = new Date().toISOString()
+    try {
+      if (!live.connected) {
+        demoCompanyStore.saveSelfLead({ ...live, connected: true, connected_date: live.connected_date ?? today, updated_at: at, updated_by: currentUserId })
+        setConnected(true)
+      }
+      const added = referenceLead(live, at)
+      demoCompanyStore.saveSelfLead(added)
+      await whenSaved()
+      setRef({ company: '', person: '', phone: '', note: '' })
+      toast.success(`${added.company_name} added as a reference from ${live.company_name}.`)
+    } catch (err) {
+      toast.error('Not added.', { description: err instanceof Error ? err.message : 'Try again.' })
+    } finally {
+      setBusy(false)
+    }
+  }
   const set = (key: FormKey, value: string) => setForm((f) => ({ ...f, [key]: value }))
   const text = (key: FormKey) => form[key].trim() || null
 
@@ -108,15 +148,19 @@ export function SelfLeadDialog({
           ? 'Say why it was lost.'
           : form.status === 'closed' && !(Number(form.value) > 0)
             ? 'Enter the order value for a closed lead.'
-            : null
+            : !ref.company.trim() && (ref.person.trim() || ref.phone.trim() || ref.note.trim())
+              ? 'Enter the referred company.'
+              : null
 
   const save = async () => {
     if (problem || !canEdit) return
     setBusy(true)
     const at = new Date().toISOString()
     const value = Number(form.value)
-    // A closed or lost lead was spoken to, whatever the box says.
-    const wasConnected = connected || form.status !== 'open'
+    // A reference typed in, on a new lead, goes in with it (on a saved lead it has its own button).
+    const withReference = !lead && Boolean(ref.company.trim())
+    // A closed or lost lead was spoken to, whatever the box says; so was a client who gave a reference.
+    const wasConnected = connected || form.status !== 'open' || withReference
     const record: SelfLead = {
       id: lead?.id ?? newId(),
       date: form.date,
@@ -140,8 +184,16 @@ export function SelfLeadDialog({
     }
     try {
       demoCompanyStore.saveSelfLead(record)
+      const reference = withReference ? referenceLead(record, at) : null
+      if (reference) demoCompanyStore.saveSelfLead(reference)
       await whenSaved()
-      onSaved(lead ? 'Lead updated.' : `Lead ${record.company_name} added.`)
+      onSaved(
+        lead
+          ? 'Lead updated.'
+          : reference
+            ? `Lead ${record.company_name} added, with ${reference.company_name} as its reference.`
+            : `Lead ${record.company_name} added.`
+      )
     } catch (err) {
       toast.error('Not saved.', { description: err instanceof Error ? err.message : 'Try again.' })
     } finally {
@@ -269,18 +321,30 @@ export function SelfLeadDialog({
           )}
         </div>
 
-        {live && live.connected && (
-          <div className="space-y-2 rounded-md border border-border/50 p-3" data-testid="lead-references">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label>References from this client</Label>
-              {canEdit && onAddReference && (
-                <Button size="sm" variant="outline" onClick={() => onAddReference(live)} data-testid="lead-add-reference">
-                  <UserPlus className="mr-2 h-4 w-4" /> Add reference
-                </Button>
-              )}
+        {(canEdit || given.length > 0) && (
+          <div className="space-y-3 rounded-md border border-violet-500/30 bg-violet-500/5 p-3" data-testid="lead-references">
+            <div>
+              <Label>Reference from this client</Label>
+              <p className="text-xs text-muted-foreground">
+                When {form.company_name.trim() || 'this client'} gives you a reference, enter it here. It becomes a new lead, marked as referred by them
+                {lead ? '' : ', when you add this lead'}.
+              </p>
             </div>
+            {canEdit && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Input aria-label="Referred company" placeholder="Referred company" value={ref.company} onChange={(e) => setRef({ ...ref, company: e.target.value })} data-testid="ref-company" />
+                <Input aria-label="Their contact person" placeholder="Their contact person" value={ref.person} onChange={(e) => setRef({ ...ref, person: e.target.value })} />
+                <Input aria-label="Their phone" placeholder="Their phone" inputMode="tel" value={ref.phone} onChange={(e) => setRef({ ...ref, phone: e.target.value })} />
+                <Input aria-label="What the client said" placeholder="What the client said (optional)" value={ref.note} onChange={(e) => setRef({ ...ref, note: e.target.value })} />
+                {lead && (
+                  <Button size="sm" variant="outline" className="sm:col-span-2 sm:justify-self-end" onClick={addReference} disabled={busy || !ref.company.trim()} data-testid="lead-add-reference">
+                    <UserPlus className="mr-2 h-4 w-4" /> Add reference
+                  </Button>
+                )}
+              </div>
+            )}
             {given.length === 0 ? (
-              <p className="text-xs text-muted-foreground">None yet. When this client gives you a reference, add it here.</p>
+              lead ? <p className="text-xs text-muted-foreground">No references from this client yet.</p> : null
             ) : (
               <ul className="space-y-1 text-sm">
                 {given.map((r) => (
