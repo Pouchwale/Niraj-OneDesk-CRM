@@ -488,9 +488,11 @@ export interface ServiceRecord {
   updated_by: string | null
 }
 
-/** A coordinator's "Total Customers" for the service score, typed by the team leader or administrator. */
+/** A coordinator's "Total Customers" for one month of the service score, typed by the team leader or administrator. */
 export interface ServiceCustomerTarget {
   coordinatorId: string
+  /** yyyy-mm. Missing on counts saved before months existed: those are May 2026's (targetMonth). */
+  month?: string
   customers: number
   updatedAt: string
   updatedBy: string | null

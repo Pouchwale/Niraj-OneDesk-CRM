@@ -27,7 +27,7 @@ function record(overrides: Partial<ServiceRecord> = {}): ServiceRecord {
   }
 }
 
-const target = (coordinatorId: string, customers: number): ServiceCustomerTarget => ({ coordinatorId, customers, updatedAt: '', updatedBy: null })
+const target = (coordinatorId: string, customers: number, month = '2026-05'): ServiceCustomerTarget => ({ coordinatorId, month, customers, updatedAt: '', updatedBy: null })
 
 describe('a service row', () => {
   it('scores 10 with an information date and 0 without, as the sheet does', () => {
@@ -63,6 +63,28 @@ describe('serviceScores', () => {
     expect(foram.mailRatio).toBeCloseTo(30 / 22)
     expect(foram.finalScore).toBe(100)
     expect(krupa).toMatchObject({ mails: 1, totalCustomers: null, mailRatio: null, finalScore: null })
+  })
+
+  it('uses the customer count of each month, and adds the months up for a longer period', () => {
+    const rows = [
+      record({ id: 'may', coordinator_id: 'coord-4', date: '2026-05-10' }),
+      record({ id: 'oct1', coordinator_id: 'coord-4', date: '2026-10-03' }),
+      record({ id: 'oct2', coordinator_id: 'coord-4', date: '2026-10-04' }),
+    ]
+    const targets = [target('coord-4', 22, '2026-05'), target('coord-4', 4, '2026-10')]
+    const oct = serviceScores(rows, targets, ['coord-4'], '2026-10-01', '2026-10-31')[0]
+    expect(oct).toMatchObject({ totalCustomers: 4, mails: 2, mailRatio: 0.5, finalScore: 50, missingMonths: [] })
+    const sep = serviceScores(rows, targets, ['coord-4'], '2026-09-01', '2026-09-30')[0]
+    expect(sep).toMatchObject({ totalCustomers: null, finalScore: null, missingMonths: ['2026-09'] })
+    const mayToOct = serviceScores(rows, targets, ['coord-4'], '2026-05-01', '2026-10-31')[0]
+    expect(mayToOct.totalCustomers).toBe(26)
+    expect(mayToOct.missingMonths).toEqual(['2026-06', '2026-07', '2026-08', '2026-09'])
+  })
+
+  it('treats a count saved before months existed as May 2026', () => {
+    const old = { coordinatorId: 'coord-3', customers: 85, updatedAt: '', updatedBy: null }
+    expect(serviceScores([record()], [old], ['coord-3'], '2026-05-01', '2026-05-31')[0].totalCustomers).toBe(85)
+    expect(serviceScores([record()], [old], ['coord-3'], '2026-06-01', '2026-06-30')[0].totalCustomers).toBeNull()
   })
 })
 
@@ -117,10 +139,17 @@ describe('saving a service record', () => {
     demoCompanyStore.saveServiceRecord(record({ id: 'a', remark: 'Edited', created_by: 'someone-else' }))
     expect(demoCompanyStore.getServiceRecords()).toEqual([expect.objectContaining({ id: 'a', remark: 'Edited', created_by: 'coord-3' })])
 
-    demoCompanyStore.setServiceCustomers('coord-3', 85, 'admin-1', 'now')
-    demoCompanyStore.setServiceCustomers('coord-3', 90, 'admin-1', 'later')
-    expect(demoCompanyStore.serviceTargets).toEqual([{ coordinatorId: 'coord-3', customers: 90, updatedAt: 'later', updatedBy: 'admin-1' }])
-    demoCompanyStore.setServiceCustomers('coord-3', null, 'admin-1', 'later')
-    expect(demoCompanyStore.serviceTargets).toEqual([])
+    demoCompanyStore.setServiceCustomers('coord-3', '2026-10', 85, 'admin-1', 'now')
+    demoCompanyStore.setServiceCustomers('coord-3', '2026-11', 70, 'admin-1', 'now')
+    demoCompanyStore.setServiceCustomers('coord-3', '2026-10', 90, 'admin-1', 'later')
+    expect(demoCompanyStore.serviceTargets).toEqual([
+      { coordinatorId: 'coord-3', month: '2026-11', customers: 70, updatedAt: 'now', updatedBy: 'admin-1' },
+      { coordinatorId: 'coord-3', month: '2026-10', customers: 90, updatedAt: 'later', updatedBy: 'admin-1' },
+    ])
+    demoCompanyStore.setServiceCustomers('coord-3', '2026-10', null, 'admin-1', 'later')
+    expect(demoCompanyStore.serviceTargets.map((t) => t.month)).toEqual(['2026-11'])
+    // A page still open from before months existed sends (id, number, by, at): ignored.
+    ;(demoCompanyStore.setServiceCustomers as unknown as (...a: unknown[]) => void)('coord-3', 85, 'admin-1', 'x')
+    expect(demoCompanyStore.serviceTargets).toHaveLength(1)
   })
 })

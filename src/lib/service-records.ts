@@ -10,7 +10,9 @@
  *   Final score     (sum of row scores ÷ Total Customers) × 10, capped at 100
  *                   (user's choice). No Total Customers → 0.
  *
- * Total Customers is typed per coordinator by the team leader or administrator.
+ * Total Customers is typed per coordinator per month by the team leader or
+ * administrator (since 5 Nov 2026, user's choice: one number for every month
+ * sent ratios to 450%). A period longer than a month adds up its months.
  */
 
 import { daysBetween, datesByNeighbours, pickDate, sheetDateCandidates } from './sheet-dates'
@@ -37,10 +39,45 @@ export function inServicePeriod(r: Pick<ServiceRecord, 'date'>, from: string | n
   return true
 }
 
+/** The month a customer count is for. Counts saved before months existed came from the sheet's May 2026 table. */
+export function targetMonth(t: Pick<ServiceCustomerTarget, 'month'>): string {
+  return t.month ?? '2026-05'
+}
+
+/** A coordinator's Total Customers for one month (yyyy-mm), or null when nobody has typed it. */
+export function customersFor(targets: readonly ServiceCustomerTarget[], coordinatorId: string, month: string): number | null {
+  return targets.find((t) => t.coordinatorId === coordinatorId && targetMonth(t) === month)?.customers ?? null
+}
+
+const monthOf = (day: string) => day.slice(0, 7)
+function nextMonth(month: string): string {
+  const y = Number(month.slice(0, 4))
+  const m = Number(month.slice(5, 7))
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+}
+export function previousMonth(month: string): string {
+  const y = Number(month.slice(0, 4))
+  const m = Number(month.slice(5, 7))
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+}
+
+/** The months a period touches; an open end runs to the first or last record. */
+export function monthsInPeriod(from: string | null, to: string | null, records: readonly Pick<ServiceRecord, 'date'>[]): string[] {
+  const days = records.map((r) => r.date).sort()
+  const start = from ?? days[0]
+  const end = to ?? days[days.length - 1]
+  if (!start || !end || start > end) return []
+  const out: string[] = []
+  for (let m = monthOf(start); m <= monthOf(end) && out.length < 240; m = nextMonth(m)) out.push(m)
+  return out
+}
+
 export interface ServiceScore {
   coordinatorId: string
-  /** Null when nobody has typed it yet. */
+  /** The months' Total Customers added up; null when none of them has a number. */
   totalCustomers: number | null
+  /** Months in the period with no number typed for this coordinator. */
+  missingMonths: string[]
   mails: number
   /** Mails ÷ customers, 0-1+ (not capped); null without a customer count. */
   mailRatio: number | null
@@ -57,6 +94,7 @@ export function serviceScores(
   from: string | null,
   to: string | null
 ): ServiceScore[] {
+  const months = monthsInPeriod(from, to, records)
   const tally = new Map<string, { mails: number; sum: number }>(coordinatorIds.map((id) => [id, { mails: 0, sum: 0 }]))
   for (const r of records) {
     if (!r.coordinator_id || !inServicePeriod(r, from, to)) continue
@@ -67,11 +105,14 @@ export function serviceScores(
   }
   return [...tally.entries()]
     .map(([coordinatorId, { mails, sum }]) => {
-      const customers = targets.find((t) => t.coordinatorId === coordinatorId)?.customers ?? null
+      const counts = months.map((m) => customersFor(targets, coordinatorId, m))
+      const known = counts.filter((c): c is number => c !== null)
+      const customers = known.length ? known.reduce((a, c) => a + c, 0) : null
       const usable = customers !== null && customers > 0
       return {
         coordinatorId,
         totalCustomers: customers,
+        missingMonths: months.filter((_, i) => counts[i] === null),
         mails,
         mailRatio: usable ? mails / customers : null,
         sumOfScore: sum,

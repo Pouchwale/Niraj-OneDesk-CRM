@@ -1,6 +1,7 @@
 /**
  * One-off: brings the old SERVICE sheet into the CRM (5 Nov 2026), and its
- * Total Customers numbers (columns N-O) as the starting customer counts.
+ * Total Customers numbers (columns N-O) as May 2026's customer counts (the
+ * sheet's period, M3-M6).
  *
  *   npx tsx scripts/import-service-records.ts <workbook.xlsx> <store.json> <users.json> [--write]
  *
@@ -57,14 +58,14 @@ for (const r of grid) {
   const customers = Number(r[14])
   if (!name || !(customers > 0)) continue
   const id = resolveResponsible(name, people)
-  if (id && people.some((p) => p.id === id)) targets.push({ coordinatorId: id, customers, updatedAt: now.toISOString(), updatedBy: null })
+  if (id && people.some((p) => p.id === id)) targets.push({ coordinatorId: id, month: '2026-05', customers, updatedAt: now.toISOString(), updatedBy: null })
 }
 
 const store = JSON.parse(readFileSync(storePath, 'utf8'))
 const have = new Set(((store.serviceRecords ?? []) as ServiceRecord[]).map((r) => r.id))
 const fresh = records.filter((r) => !have.has(r.id))
-const setAlready = new Set(((store.serviceTargets ?? []) as ServiceCustomerTarget[]).map((t) => t.coordinatorId))
-const freshTargets = targets.filter((t) => !setAlready.has(t.coordinatorId))
+const setAlready = new Set(((store.serviceTargets ?? []) as ServiceCustomerTarget[]).map((t) => `${t.coordinatorId}|${t.month ?? '2026-05'}`))
+const freshTargets = targets.filter((t) => !setAlready.has(`${t.coordinatorId}|${t.month}`))
 
 const name = (id: string | null) => users.find((u) => u.id === id)?.full_name ?? '(not matched)'
 const byPerson = new Map<string, number>()

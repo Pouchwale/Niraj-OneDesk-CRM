@@ -21,7 +21,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { DATE_PRESETS, presetRange, type DatePreset } from '@/features/quotations/QuotationFilters'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
-import { DISPATCH_STATUSES, inServicePeriod, serviceDateDiff, serviceRowScore, serviceScores, SERVICE_SCORE_CAP } from '@/lib/service-records'
+import {
+  customersFor,
+  DISPATCH_STATUSES,
+  inServicePeriod,
+  monthsInPeriod,
+  previousMonth,
+  serviceDateDiff,
+  serviceRowScore,
+  serviceScores,
+  SERVICE_SCORE_CAP,
+} from '@/lib/service-records'
 import { whenSaved } from '@/lib/shared-data'
 import type { DispatchStatus, ServiceRecord } from '@/lib/types'
 import { cn, formatDate, todayISO } from '@/lib/utils'
@@ -39,8 +49,24 @@ const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(2)}
 const finalClass = (v: number | null) =>
   v === null ? 'text-muted-foreground' : v >= 90 ? 'text-emerald-600 dark:text-emerald-400' : v >= 70 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'
 
-/** Total Customers, typed by the team leader or administrator; saved when the box loses focus. */
-function CustomersInput({ coordinatorId, value, userId }: { coordinatorId: string; value: number | null; userId: string }) {
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const monthLabel = (m: string) => `${MONTH_NAMES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`
+
+/** One month's Total Customers, typed by the team leader or administrator; saved when the box loses focus. */
+function CustomersInput({
+  coordinatorId,
+  month,
+  value,
+  hint,
+  userId,
+}: {
+  coordinatorId: string
+  month: string
+  value: number | null
+  /** Last month's number, shown greyed as a reminder. */
+  hint: number | null
+  userId: string
+}) {
   const [text, setText] = useState(value === null ? '' : String(value))
   useEffect(() => setText(value === null ? '' : String(value)), [value])
   const save = async () => {
@@ -53,7 +79,7 @@ function CustomersInput({ coordinatorId, value, userId }: { coordinatorId: strin
     }
     if (next === value) return
     try {
-      demoCompanyStore.setServiceCustomers(coordinatorId, next, userId, new Date().toISOString())
+      demoCompanyStore.setServiceCustomers(coordinatorId, month, next, userId, new Date().toISOString())
       await whenSaved()
     } catch (err) {
       toast.error('Not saved.', { description: err instanceof Error ? err.message : 'Try again.' })
@@ -61,10 +87,11 @@ function CustomersInput({ coordinatorId, value, userId }: { coordinatorId: strin
   }
   return (
     <Input
-      aria-label={`Total customers for ${getCoordinatorDisplayName(coordinatorId)}`}
+      aria-label={`Total customers for ${getCoordinatorDisplayName(coordinatorId)} in ${monthLabel(month)}`}
       inputMode="numeric"
       className="ml-auto h-8 w-20 text-right tabular-nums"
-      placeholder="—"
+      placeholder={hint === null ? '—' : String(hint)}
+      title={hint === null ? undefined : `Last month: ${hint}`}
       value={text}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) => setText(e.target.value.replace(/[^\d]/g, ''))}
@@ -116,6 +143,9 @@ export function ServicePage() {
     () => serviceScores(all, targets, coordinators.map((c) => c.id), range.from, range.to),
     [all, targets, coordinators, range.from, range.to]
   )
+  // One month in view: its Total Customers can be typed. Longer: the months are added up.
+  const months = useMemo(() => monthsInPeriod(range.from, range.to, all), [range.from, range.to, all])
+  const editableMonth = months.length === 1 ? months[0] : null
   const count = (s: DispatchStatus) => inPeriod.filter((r) => r.dispatch_status === s).length
   const noInfo = inPeriod.filter((r) => !r.information_date).length
 
@@ -248,7 +278,12 @@ export function ServicePage() {
         <GlassCard className="space-y-3 p-4 sm:p-6">
           <div>
             <h3 className="text-base font-medium">Service scores</h3>
-            <p className="text-xs text-muted-foreground">{periodLabel} · type each coordinator's Total Customers; it is kept until changed</p>
+            <p className="text-xs text-muted-foreground">
+              {periodLabel} ·{' '}
+              {editableMonth
+                ? `type each coordinator's Total Customers for ${monthLabel(editableMonth)} (last month's number shows greyed)`
+                : `Total Customers is the months' numbers added up (${months.length} months); choose a single month to type them`}
+            </p>
           </div>
           <div className="overflow-x-auto rounded-md border border-border/50">
             <table className="w-full text-sm" data-testid="service-scores">
@@ -275,7 +310,25 @@ export function ServicePage() {
                   >
                     <td className="whitespace-nowrap px-4 py-2 font-medium">{getCoordinatorDisplayName(s.coordinatorId)}</td>
                     <td className="px-3 py-2 text-right">
-                      <CustomersInput coordinatorId={s.coordinatorId} value={s.totalCustomers} userId={user?.id ?? ''} />
+                      {editableMonth ? (
+                        <CustomersInput
+                          coordinatorId={s.coordinatorId}
+                          month={editableMonth}
+                          value={customersFor(targets, s.coordinatorId, editableMonth)}
+                          hint={customersFor(targets, s.coordinatorId, previousMonth(editableMonth))}
+                          userId={user?.id ?? ''}
+                        />
+                      ) : (
+                        <span
+                          className="tabular-nums"
+                          title={s.missingMonths.length ? `No number for ${s.missingMonths.map(monthLabel).join(', ')}` : undefined}
+                        >
+                          {s.totalCustomers ?? '—'}
+                          {s.missingMonths.length > 0 && s.totalCustomers !== null && (
+                            <span className="ml-1 text-xs text-amber-600">({s.missingMonths.length} missing)</span>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{s.mails.toLocaleString('en-IN')}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{pct(s.mailRatio)}</td>
@@ -290,7 +343,8 @@ export function ServicePage() {
           </div>
           <p className="text-xs text-muted-foreground">
             Each record scores 10 when it has an Information Date, otherwise 0. Customer mail ratio = mails ÷ total customers. Final score =
-            (sum of score ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}. A coordinator with no total customers shows —.
+            (sum of score ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}. Total customers is typed per month; a coordinator with no
+            number for the period shows —.
           </p>
         </GlassCard>
       ) : (

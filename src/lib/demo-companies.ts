@@ -1549,15 +1549,19 @@ class DemoCompanyStore {
     return fresh.length
   }
 
-  /** A coordinator's Total Customers for the service score; null clears it. */
-  setServiceCustomers(coordinatorId: string, customers: number | null, by: string | null, at: string): void {
-    if (!coordinatorId) return
-    const others = this.serviceTargets.filter((t) => t.coordinatorId !== coordinatorId)
+  /**
+   * A coordinator's Total Customers for one month (yyyy-mm) of the service
+   * score; null clears it. A call without a proper month (a page still open
+   * from before months existed) changes nothing.
+   */
+  setServiceCustomers(coordinatorId: string, month: string, customers: number | null, by: string | null, at: string): void {
+    if (!coordinatorId || typeof month !== 'string' || !/^\d{4}-\d{2}$/.test(month)) return
+    const others = this.serviceTargets.filter((t) => !(t.coordinatorId === coordinatorId && (t.month ?? '2026-05') === month))
     const n = Number(customers)
     this.serviceTargets =
       customers === null || !Number.isFinite(n) || n < 0
         ? others
-        : [...others, { coordinatorId, customers: Math.round(n), updatedAt: at, updatedBy: by }]
+        : [...others, { coordinatorId, month, customers: Math.round(n), updatedAt: at, updatedBy: by }]
   }
 
   /* ===== Who is in the office ===== */
