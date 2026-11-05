@@ -3,22 +3,30 @@
  * person by person, and the 31–120 and 121+ money week by week.
  *
  * Read-only. The weeks are the Monday books Weekly KPI saves on its own (one
- * per week, kept for good as small sums, see server/modules/ageing-trend), and
- * "Today" is the live book on this screen, summed by the same rules
- * (src/lib/ageing-trend.ts). Nothing here changes a record.
+ * per week, kept for good as small sums, see server/modules/ageing-trend);
+ * each month closes on the server's half-hourly sum of the live book (older
+ * months on their last saved week), a quarter with its last month; "Today" is
+ * the live book on this screen, summed by the same rules
+ * (src/lib/ageing-trend.ts). Any month or quarter can be picked to see how it
+ * closed, against the one before. Nothing here changes a record.
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowDownRight, ArrowUpRight, Download, Minus, RefreshCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/shared/GlassCard';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { findUserName } from '@/features/auth/AuthContext';
 import {
   BOOK_SEGMENTS,
+  closingPoints,
   figuresFor,
+  inPeriod,
+  parsePeriod,
+  periodChoices,
+  periodLabel,
   PERSON_ALL,
   PERSON_UNASSIGNED,
   rollUp,
@@ -29,6 +37,8 @@ import {
   type BookPoint,
   type BookSegment,
   type BookWeek,
+  type MonthClose,
+  type PeriodChoice,
 } from '@/lib/ageing-trend';
 import { getAgeingTrend } from '@/lib/ageing-trend-api';
 import type { OverduePayment } from '@/lib/types';
@@ -172,19 +182,35 @@ function ChartTooltip({
   );
 }
 
+const sumOf = (f: AgeFigures) => Math.round((f.d0_30 + f.d31_120 + f.d121_plus) * 100) / 100;
+const over30 = (f: AgeFigures) => Math.round((f.d31_120 + f.d121_plus) * 100) / 100;
+
+/** Where a period's figures come from, in words. */
+function sourceNote(p: BookPoint, by: 'month' | 'quarter'): string {
+  if (p.source === 'live') return `Today — this ${by} is still running`;
+  if (p.source === 'month') return `${by === 'month' ? 'Month' : 'Quarter'} close`;
+  return `As of the week of ${formatDate(p.date)} (the last saved week in it)`;
+}
+
 export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
   const [weeks, setWeeks] = useState<BookWeek[]>([]);
+  const [months, setMonths] = useState<MonthClose[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState<string | null>(null);
   const [segment, setSegment] = useState<SegmentChoice>('regular');
   const [person, setPerson] = useState<string>(PERSON_ALL);
+  const [period, setPeriodState] = useState<PeriodChoice>('all');
   const [chart, setChart] = useState<ChartMode>('month');
   const [tableMode, setTableMode] = useState<'total' | 'person'>('total');
 
   useEffect(() => {
     let alive = true;
     getAgeingTrend()
-      .then((body) => alive && setWeeks(body.weeks))
+      .then((body) => {
+        if (!alive) return;
+        setWeeks(body.weeks);
+        setMonths(body.months ?? []);
+      })
       .catch((err: Error) => alive && setFailed(err.message))
       .finally(() => alive && setLoading(false));
     return () => {
@@ -194,40 +220,65 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
 
   const liveRows = useMemo(() => summariseBook(payments), [payments]);
   const today = todayLocal();
+  const live: BookPoint = useMemo(() => ({ date: today, rows: liveRows, live: true }), [today, liveRows]);
 
-  /** Today first, then every saved week, latest first. */
-  const points: BookPoint[] = useMemo(
-    () => [{ date: today, rows: liveRows, live: true }, ...weeks.map((w) => ({ date: w.weekStart, rows: w.rows }))],
-    [today, liveRows, weeks]
+  /** Today first, then every saved week, latest first: the week-wise table. */
+  const weekPoints: BookPoint[] = useMemo(
+    () => [live, ...weeks.map((w) => ({ date: w.weekStart, rows: w.rows }))],
+    [live, weeks]
   );
 
-  /** Everyone who holds money in any week, biggest book today first. */
+  /** Each month's and quarter's close, oldest first. */
+  const closes = useMemo(() => closingPoints(weeks, months, live), [weeks, months, live]);
+  const monthCloses = useMemo(() => rollUp(closes, 'month'), [closes]);
+  const quarterCloses = useMemo(() => rollUp(closes, 'quarter'), [closes]);
+  const choices = useMemo(() => periodChoices(closes), [closes]);
+
+  const chosen = parsePeriod(period);
+  const periodList = chosen?.by === 'quarter' ? quarterCloses : monthCloses;
+  const chosenIndex = chosen ? periodList.findIndex((p) => p.key === chosen.key) : -1;
+  const chosenClose = chosenIndex >= 0 ? periodList[chosenIndex] : null;
+  const previousClose = chosenIndex > 0 ? periodList[chosenIndex - 1] : null;
+
+  /** Picking a month shows the monthly chart, a quarter the quarterly one. */
+  const setPeriod = (next: PeriodChoice) => {
+    setPeriodState(next);
+    const p = parsePeriod(next);
+    if (p && chart !== 'person') setChart(p.by);
+  };
+
+  /** Everyone who holds money in this register at any point, biggest book first. */
   const people = useMemo(() => {
     const ids = new Set<string>();
-    for (const p of points)
+    for (const p of closes)
       for (const r of p.rows)
         if ((segment === 'all' || r.segment === segment) && (r.d0_30 || r.d31_120 || r.d121_plus))
           ids.add(r.coordinatorId ?? PERSON_UNASSIGNED);
-    const now = (id: string) => {
-      const f = figuresFor(liveRows, segment, id);
-      return f.d0_30 + f.d31_120 + f.d121_plus;
-    };
-    return [...ids].sort((a, b) => now(b) - now(a) || personName(a).localeCompare(personName(b)));
-  }, [points, liveRows, segment]);
+    const base = chosenClose?.rows ?? liveRows;
+    const size = (id: string) => sumOf(figuresFor(base, segment, id));
+    return [...ids].sort((a, b) => size(b) - size(a) || personName(a).localeCompare(personName(b)));
+  }, [closes, chosenClose, liveRows, segment]);
 
   // A coordinator's rows are only ever their own; the person filter is the team's.
   const who = canManageTeam ? person : PERSON_ALL;
-  const lines: Line[] = useMemo(
+
+  /** Every week with its change on the week before, then narrowed to the chosen period. */
+  const allLines: Line[] = useMemo(
     () =>
-      points.map((p) => ({
+      weekPoints.map((p) => ({
         key: p.live ? 'live' : p.date,
         label: p.live ? 'Today' : `Week of ${formatDate(p.date)}`,
         date: p.date,
         live: Boolean(p.live),
         figures: figuresFor(p.rows, segment, who),
       })),
-    [points, segment, who]
+    [weekPoints, segment, who]
   );
+  const lines = useMemo(() => allLines.filter((l) => inPeriod(l.date, period)), [allLines, period]);
+  const before = (line: Line) => {
+    const i = allLines.indexOf(line);
+    return i >= 0 ? allLines[i + 1]?.figures ?? null : null;
+  };
 
   const chartData = useMemo(() => {
     /*
@@ -235,8 +286,9 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
      * as a bar below zero, which would stretch the axis for one small credit.
      * The tooltip still shows the exact figure, sign and all.
      */
-    const bars = (name: string, f: AgeFigures, note?: string) => ({
+    const bars = (name: string, key: string, f: AgeFigures, note?: string) => ({
       name,
+      key,
       note,
       exact: f,
       d0_30: Math.max(0, f.d0_30),
@@ -244,56 +296,93 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
       d121_plus: Math.max(0, f.d121_plus),
     });
     if (chart === 'person') {
+      const base = chosenClose?.rows ?? liveRows;
       return people
-        .map((id) => bars(personName(id), figuresFor(liveRows, segment, id)))
+        .map((id) => bars(personName(id), id, figuresFor(base, segment, id)))
         .filter((r) => r.d0_30 || r.d31_120 || r.d121_plus);
     }
-    return rollUp(points, chart).map((p) =>
-      bars(p.label, figuresFor(p.rows, segment, who), p.live ? 'Today (period still running)' : `As of the week of ${formatDate(p.date)}`)
+    return (chart === 'quarter' ? quarterCloses : monthCloses).map((p) =>
+      bars(p.label, p.key, figuresFor(p.rows, segment, who), sourceNote(p, chart))
     );
-  }, [chart, people, liveRows, segment, points, who]);
+  }, [chart, people, chosenClose, liveRows, segment, monthCloses, quarterCloses, who]);
 
-  const latest = lines[0]?.figures;
-  const lastWeek = lines[1]?.figures ?? null;
+  /** The bar of the chosen period stands out; the rest step back. */
+  const highlighted = chart !== 'person' && chosen?.by === chart ? chosen.key : null;
+  const pickBar = (key: string) => {
+    if (chart === 'person') return;
+    const next: PeriodChoice = chart === 'month' ? `m:${key}` : `q:${key}`;
+    setPeriod(period === next ? 'all' : next);
+  };
+
+  const latest = allLines[0]?.figures;
+  const lastWeek = allLines[1]?.figures ?? null;
   const scopeName = canManageTeam ? (person === PERSON_ALL ? 'the whole team' : personName(person)) : 'your accounts';
   const segmentName = segment === 'all' ? 'all four registers' : SEGMENT_LABEL[segment];
+  const periodName = chosen ? periodLabel(chosen.key) : 'all periods';
 
-  /** By person: the latest weeks across, everyone down. */
-  const gridWeeks = lines.slice(0, 6);
+  /** By person: the weeks across (the chosen period's, or the latest six), everyone down. */
+  const gridWeeks = period === 'all' ? lines.slice(0, 6) : lines;
 
   const download = async () => {
     try {
       const { downloadWorkbook, fileStamp } = await import('@/features/snapshots/download');
+      const r2 = (n: number) => Math.round(n * 100) / 100;
       const weekly = [
         ['Week', '31-120 days', 'Change', '121+ days', 'Change', '31+ total', 'Accounts'],
-        ...lines.map((l, i) => {
-          const before = lines[i + 1]?.figures;
+        ...lines.map((l) => {
+          const b = before(l);
           return [
             l.live ? `Today ${today}` : l.date,
             l.figures.d31_120,
-            before ? Math.round((l.figures.d31_120 - before.d31_120) * 100) / 100 : '',
+            b ? r2(l.figures.d31_120 - b.d31_120) : '',
             l.figures.d121_plus,
-            before ? Math.round((l.figures.d121_plus - before.d121_plus) * 100) / 100 : '',
-            Math.round((l.figures.d31_120 + l.figures.d121_plus) * 100) / 100,
+            b ? r2(l.figures.d121_plus - b.d121_plus) : '',
+            over30(l.figures),
             l.figures.accounts,
           ];
         }),
       ];
-      const sheets = [{ name: 'Week-wise', rows: weekly }];
+      const closeSheet = (list: typeof monthCloses, by: 'month' | 'quarter') => [
+        [by === 'month' ? 'Month' : 'Quarter', 'As of', '0-30 days', '31-120 days', '121+ days', 'Total', '31+ change', 'Accounts'],
+        ...list.map((p, i) => {
+          const f = figuresFor(p.rows, segment, who);
+          const prev = i > 0 ? figuresFor(list[i - 1].rows, segment, who) : null;
+          return [p.label, sourceNote(p, by), f.d0_30, f.d31_120, f.d121_plus, sumOf(f), prev ? r2(over30(f) - over30(prev)) : '', f.accounts];
+        }),
+      ];
+      const sheets = [
+        { name: 'Week-wise', rows: weekly },
+        { name: 'Month closes', rows: closeSheet(monthCloses, 'month') },
+        { name: 'Quarter closes', rows: closeSheet(quarterCloses, 'quarter') },
+      ];
       if (canManageTeam) {
         const header = ['Coordinator'];
         for (const l of lines) header.push(`${l.live ? 'Today' : l.date} 31-120`, `${l.live ? 'Today' : l.date} 121+`);
         const rows = people.map((id) => {
           const out: (string | number)[] = [personName(id)];
-          for (const p of points) {
+          for (const l of lines) {
+            const p = weekPoints.find((w) => (w.live ? 'live' : w.date) === l.key)!;
             const f = figuresFor(p.rows, segment, id);
             out.push(f.d31_120, f.d121_plus);
           }
           return out;
         });
-        sheets.push({ name: 'By person', rows: [header, ...rows] });
+        sheets.push({ name: 'By person weekly', rows: [header, ...rows] });
+        if (chosenClose) {
+          sheets.push({
+            name: `By person ${chosenClose.label}`,
+            rows: [
+              ['Coordinator', '0-30 days', '31-120 days', '121+ days', 'Total', '31+ change'],
+              ...people.map((id) => {
+                const f = figuresFor(chosenClose.rows, segment, id);
+                const prev = previousClose ? figuresFor(previousClose.rows, segment, id) : null;
+                return [personName(id), f.d0_30, f.d31_120, f.d121_plus, sumOf(f), prev ? r2(over30(f) - over30(prev)) : ''];
+              }),
+            ],
+          });
+        }
       }
-      downloadWorkbook(`Overdue week-wise ${segmentName} ${fileStamp(new Date().toISOString())}.xlsx`, sheets);
+      downloadWorkbook(`Overdue trends ${segmentName} ${periodName} ${fileStamp(new Date().toISOString())}.xlsx`, sheets);
     } catch {
       toast.error('Could not create the Excel file.');
     }
@@ -306,6 +395,9 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
   ];
   // Picking one person leaves nothing to compare people by.
   const chartMode: ChartMode = chart === 'person' && !chartOptions.some((o) => o.key === 'person') ? 'month' : chart;
+
+  const chosenFigures = chosenClose ? figuresFor(chosenClose.rows, segment, who) : null;
+  const previousFigures = previousClose ? figuresFor(previousClose.rows, segment, who) : null;
 
   return (
     <div className={cn('space-y-6', AGE_VARS)} data-testid="trends-view">
@@ -349,33 +441,125 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
             </Select>
           </div>
         )}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Period</span>
+          <Select value={period} onValueChange={(v) => setPeriod(v as PeriodChoice)}>
+            <SelectTrigger className="w-[190px]" aria-label="Period">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All periods</SelectItem>
+              <SelectGroup>
+                <SelectLabel>Months</SelectLabel>
+                {choices.months.map((m) => (
+                  <SelectItem key={m} value={`m:${m}`}>
+                    {periodLabel(m)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectLabel>Quarters</SelectLabel>
+                {choices.quarters.map((q) => (
+                  <SelectItem key={q} value={`q:${q}`}>
+                    {periodLabel(q)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {period !== 'all' && (
+            <Button variant="ghost" size="sm" onClick={() => setPeriod('all')}>
+              Clear
+            </Button>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground sm:ml-auto">
-          {segmentName} · {scopeName}
+          {segmentName} · {scopeName} · {periodName}
         </p>
       </GlassCard>
 
-      {/* Headline: where 31–120 and 121+ stand today against the last saved week. */}
-      {latest && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {[
-            { label: '31–120 days today', now: latest.d31_120, before: lastWeek?.d31_120 ?? null },
-            { label: '121+ days today', now: latest.d121_plus, before: lastWeek?.d121_plus ?? null },
-            {
-              label: '31+ days today',
-              now: latest.d31_120 + latest.d121_plus,
-              before: lastWeek ? lastWeek.d31_120 + lastWeek.d121_plus : null,
-            },
-          ].map((tile) => (
-            <GlassCard key={tile.label} className="p-4">
-              <p className="text-xs text-muted-foreground">{tile.label}</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">{formatCurrency(tile.now)}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                <Change now={tile.now} before={tile.before} />
-                {tile.before !== null && <span> vs week of {formatDate(lines[1].date)}</span>}
-              </p>
-            </GlassCard>
-          ))}
-        </div>
+      {/* Headline: today against the last saved week, or the chosen period against the one before. */}
+      {chosenClose && chosenFigures ? (
+        <GlassCard className="space-y-4 p-4 sm:p-6" data-testid="period-result">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+            <h3 className="text-base font-medium">{chosenClose.label} — result</h3>
+            <p className="text-xs text-muted-foreground">
+              {sourceNote(chosenClose, chosen!.by)}
+              {previousClose ? ` · compared with ${previousClose.label}` : ' · no earlier period to compare with'}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            {[
+              { label: '0–30 days', now: chosenFigures.d0_30, prev: previousFigures?.d0_30 },
+              { label: '31–120 days', now: chosenFigures.d31_120, prev: previousFigures?.d31_120 },
+              { label: '121+ days', now: chosenFigures.d121_plus, prev: previousFigures?.d121_plus },
+              { label: '31+ days', now: over30(chosenFigures), prev: previousFigures ? over30(previousFigures) : undefined },
+              { label: 'Total', now: sumOf(chosenFigures), prev: previousFigures ? sumOf(previousFigures) : undefined },
+            ].map((tile) => (
+              <div key={tile.label} className="min-w-0 rounded-lg border border-border/50 bg-background/40 px-4 py-3">
+                <p className="text-xs text-muted-foreground">{tile.label}</p>
+                <p className="mt-0.5 truncate text-lg font-semibold tabular-nums">{formatCurrency(tile.now)}</p>
+                <p className="mt-0.5 text-xs">
+                  <Change now={tile.now} before={tile.prev ?? null} />
+                </p>
+              </div>
+            ))}
+          </div>
+          {canManageTeam && person === PERSON_ALL && (
+            <div className="overflow-x-auto rounded-md border border-border/50" data-testid="period-by-person">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-medium">Coordinator</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 text-right font-medium">0–30</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 text-right font-medium">31–120</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 text-right font-medium">121+</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 text-right font-medium">Total</th>
+                    <th className="whitespace-nowrap px-4 py-2.5 text-right font-medium">31+ change</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {people.map((id) => {
+                    const f = figuresFor(chosenClose.rows, segment, id);
+                    const prev = previousClose ? figuresFor(previousClose.rows, segment, id) : null;
+                    if (!sumOf(f) && !(prev && sumOf(prev))) return null;
+                    return (
+                      <tr key={id || 'none'} className="hover:bg-muted/30">
+                        <td className="px-4 py-2.5 font-medium">{personName(id)}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatCurrencyExact(f.d0_30)}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatCurrencyExact(f.d31_120)}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatCurrencyExact(f.d121_plus)}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums">{formatCurrencyExact(sumOf(f))}</td>
+                        <td className="px-4 py-2.5 text-right text-xs">
+                          <Change now={over30(f)} before={prev ? over30(prev) : null} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </GlassCard>
+      ) : (
+        latest && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {[
+              { label: '31–120 days today', now: latest.d31_120, before: lastWeek?.d31_120 ?? null },
+              { label: '121+ days today', now: latest.d121_plus, before: lastWeek?.d121_plus ?? null },
+              { label: '31+ days today', now: over30(latest), before: lastWeek ? over30(lastWeek) : null },
+            ].map((tile) => (
+              <GlassCard key={tile.label} className="p-4">
+                <p className="text-xs text-muted-foreground">{tile.label}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums">{formatCurrency(tile.now)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  <Change now={tile.now} before={tile.before} />
+                  {tile.before !== null && <span> vs week of {formatDate(allLines[1].date)}</span>}
+                </p>
+              </GlassCard>
+            ))}
+          </div>
+        )
       )}
 
       {/* The chart. */}
@@ -383,12 +567,16 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-base font-medium">
-              {chartMode === 'person' ? 'By person, today' : chartMode === 'month' ? 'Month by month' : 'Quarter by quarter'}
+              {chartMode === 'person'
+                ? `By person, ${chosenClose ? `${chosenClose.label} close` : 'today'}`
+                : chartMode === 'month'
+                  ? 'Month by month'
+                  : 'Quarter by quarter'}
             </h3>
             <p className="text-xs text-muted-foreground">
               {chartMode === 'person'
-                ? 'Each coordinator’s book today, split by age.'
-                : 'Each period shows the book at its last saved week; the period still running shows today.'}
+                ? 'Each coordinator’s book, split by age.'
+                : 'Each period shows how it closed; the one still running shows today. Click a bar to see that period.'}
             </p>
           </div>
           <Toggle value={chartMode} onChange={setChart} options={chartOptions} label="Chart" />
@@ -403,7 +591,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
         ) : chartMode === 'person' ? (
           <div style={{ height: Math.max(220, chartData.length * 44 + 40) }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" stackOffset="sign" margin={{ top: 4, right: 16, left: 0, bottom: 4 }} barCategoryGap={10}>
+              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 4 }} barCategoryGap={10}>
                 <CartesianGrid horizontal={false} stroke="var(--color-border)" strokeOpacity={0.5} />
                 <XAxis type="number" tickFormatter={(v) => formatCurrency(v, true)} tick={{ fill: 'var(--color-muted-foreground)', fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="name" width={150} tick={{ fill: 'var(--color-foreground)', fontSize: 12 }} axisLine={false} tickLine={false} />
@@ -426,7 +614,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
         ) : (
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} stackOffset="sign" margin={{ top: 4, right: 8, left: 8, bottom: 4 }} barCategoryGap="30%">
+              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }} barCategoryGap="30%">
                 <CartesianGrid vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
                 <XAxis dataKey="name" tick={{ fill: 'var(--color-foreground)', fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={(v) => formatCurrency(v, true)} tick={{ fill: 'var(--color-muted-foreground)', fontSize: 12 }} axisLine={false} tickLine={false} width={64} />
@@ -441,7 +629,13 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
                     strokeWidth={1}
                     radius={i === AGE_SERIES.length - 1 ? [4, 4, 0, 0] : 0}
                     maxBarSize={72}
-                  />
+                    cursor="pointer"
+                    onClick={(entry: { key?: string }) => entry?.key && pickBar(entry.key)}
+                  >
+                    {chartData.map((d) => (
+                      <Cell key={d.key} fillOpacity={highlighted && d.key !== highlighted ? 0.3 : 1} />
+                    ))}
+                  </Bar>
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -456,9 +650,12 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
       <GlassCard className="space-y-4 p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="text-base font-medium">31–120 and 121+ days, week by week</h3>
+            <h3 className="text-base font-medium">
+              31–120 and 121+ days, week by week{chosen ? ` — ${periodLabel(chosen.key)}` : ''}
+            </h3>
             <p className="text-xs text-muted-foreground">
-              Built by itself from the book saved every Monday morning; the top line is today.
+              Built by itself from the book saved every Monday morning
+              {chosen ? '; only the weeks in this period, each compared with the week before it.' : '; the top line is today.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -482,7 +679,9 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
 
         {failed && <p className="text-sm text-rose-600 dark:text-rose-400">Saved weeks could not be loaded: {failed} Today’s line is still shown.</p>}
 
-        {canManageTeam && person === PERSON_ALL && tableMode === 'person' ? (
+        {lines.length === 0 ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">No saved week falls in {periodName}.</div>
+        ) : canManageTeam && person === PERSON_ALL && tableMode === 'person' ? (
           <div className="overflow-x-auto rounded-md border border-border/50" data-testid="weekly-by-person">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground">
@@ -503,18 +702,22 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
-                {people.map((id) => (
-                  <tr key={id || 'none'} className="hover:bg-muted/30">
-                    <td className="sticky left-0 z-10 bg-card px-4 py-2.5 font-medium">{personName(id)}</td>
-                    {gridWeeks.map((l, i) => {
-                      const point = points[i];
-                      const f = figuresFor(point.rows, segment, id);
-                      return (
-                        <PairCells key={l.key} a={f.d31_120} b={f.d121_plus} />
-                      );
-                    })}
-                  </tr>
-                ))}
+                {people.map((id) => {
+                  const cells = gridWeeks.map((l) => {
+                    const point = weekPoints.find((w) => (w.live ? 'live' : w.date) === l.key)!;
+                    return { key: l.key, f: figuresFor(point.rows, segment, id) };
+                  });
+                  // Nobody is listed for weeks in which they held nothing.
+                  if (cells.every((c) => !c.f.d31_120 && !c.f.d121_plus)) return null;
+                  return (
+                    <tr key={id || 'none'} className="hover:bg-muted/30">
+                      <td className="sticky left-0 z-10 bg-card px-4 py-2.5 font-medium">{personName(id)}</td>
+                      {cells.map((c) => (
+                        <PairCells key={c.key} a={c.f.d31_120} b={c.f.d121_plus} />
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot className="border-t-2 border-border bg-muted/50 font-semibold">
                 <tr>
@@ -553,8 +756,8 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
-                {lines.map((l, i) => {
-                  const before = lines[i + 1]?.figures ?? null;
+                {lines.map((l) => {
+                  const b = before(l);
                   return (
                     <tr key={l.key} className={cn(l.live ? 'bg-primary/5 font-medium' : 'hover:bg-muted/30')}>
                       <td className="whitespace-nowrap px-4 py-2.5">
@@ -568,14 +771,14 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatCurrencyExact(l.figures.d31_120)}</td>
                       <td className="px-3 py-2.5 text-right text-xs">
-                        <Change now={l.figures.d31_120} before={before?.d31_120 ?? null} />
+                        <Change now={l.figures.d31_120} before={b?.d31_120 ?? null} />
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatCurrencyExact(l.figures.d121_plus)}</td>
                       <td className="px-3 py-2.5 text-right text-xs">
-                        <Change now={l.figures.d121_plus} before={before?.d121_plus ?? null} />
+                        <Change now={l.figures.d121_plus} before={b?.d121_plus ?? null} />
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums">
-                        {formatCurrencyExact(l.figures.d31_120 + l.figures.d121_plus)}
+                        {formatCurrencyExact(over30(l.figures))}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{l.figures.accounts.toLocaleString('en-IN')}</td>
                     </tr>

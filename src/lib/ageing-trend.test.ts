@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  closingPoints,
   figuresFor,
+  inPeriod,
+  periodChoices,
   periodLabel,
   pickWeekly,
   rollUp,
@@ -115,5 +118,51 @@ describe('rollUp', () => {
       ['Oct–Dec 2026', 3],
     ])
     expect(periodLabel('2027-Q1')).toBe('Jan–Mar 2027')
+  })
+})
+
+describe('choosing a month or quarter', () => {
+  const rows = (accounts: number) => [
+    { coordinatorId: 'coord-1', segment: 'regular' as const, accounts, d0_30: 0, d31_120: 0, d121_plus: 0 },
+  ]
+
+  it('tells which dates fall in a chosen period', () => {
+    expect(inPeriod('2026-10-26', 'm:2026-10')).toBe(true)
+    expect(inPeriod('2026-11-02', 'm:2026-10')).toBe(false)
+    expect(inPeriod('2026-11-02', 'q:2026-Q4')).toBe(true)
+    expect(inPeriod('2026-09-28', 'q:2026-Q4')).toBe(false)
+    expect(inPeriod('2026-09-28', 'all')).toBe(true)
+  })
+
+  it('lists every month and quarter there is a point for, latest first', () => {
+    const choices = periodChoices([
+      { date: '2026-09-14', rows: [] },
+      { date: '2026-10-26', rows: [] },
+      { date: '2026-11-05', rows: [], live: true },
+    ])
+    expect(choices.months).toEqual(['2026-11', '2026-10', '2026-09'])
+    expect(choices.quarters).toEqual(['2026-Q4', '2026-Q3'])
+  })
+
+  it('closes a month with its recorded close, else its last saved week; the running one with today', () => {
+    const live = { date: '2026-11-05', rows: rows(5), live: true }
+    const points = closingPoints(
+      [
+        { dayId: 'a', savedAt: '2026-10-26T07:00:00Z', weekStart: '2026-10-26', rows: rows(3) },
+        { dayId: 'b', savedAt: '2026-09-28T07:00:00Z', weekStart: '2026-09-28', rows: rows(2) },
+      ],
+      [
+        // Last rewritten on 20 Oct, but it is October's close: it outranks the week of 26 Oct.
+        { month: '2026-10', savedAt: '2026-10-20T10:00:00Z', rows: rows(9) },
+        { month: '2026-11', savedAt: '2026-11-04T10:00:00Z', rows: rows(7) },
+      ],
+      live
+    )
+    const months = rollUp(points, 'month')
+    expect(months.map((m) => [m.key, m.rows[0].accounts])).toEqual([
+      ['2026-09', 2],
+      ['2026-10', 9],
+      ['2026-11', 5],
+    ])
   })
 })

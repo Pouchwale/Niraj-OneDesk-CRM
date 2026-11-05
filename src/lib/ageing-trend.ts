@@ -75,8 +75,22 @@ export interface BookWeek {
   rows: PersonSegmentRow[]
 }
 
+/**
+ * A month's closing book: the live book summed by the server every half hour
+ * while the month runs, so once it is over the last sum stands as its close.
+ */
+export interface MonthClose {
+  /** yyyy-mm */
+  month: string
+  /** When it was last summed. */
+  savedAt: string
+  rows: PersonSegmentRow[]
+}
+
 export interface AgeingTrendResponse {
   weeks: BookWeek[]
+  /** Month closes, recorded since 5 Nov 2026; older months fall back to their last saved week. */
+  months: MonthClose[]
 }
 
 export const EMPTY_FIGURES: AgeFigures = { accounts: 0, d0_30: 0, d31_120: 0, d121_plus: 0 }
@@ -192,6 +206,8 @@ export interface BookPoint {
   rows: PersonSegmentRow[]
   /** True for today's live book rather than a saved week. */
   live?: boolean
+  /** Where the figures come from, for saying so on screen. */
+  source?: 'week' | 'month' | 'live'
 }
 
 /**
@@ -213,4 +229,58 @@ export function rollUp(points: readonly BookPoint[], by: Period): (BookPoint & {
 /** Today as yyyy-mm-dd, local time. */
 export function todayLocal(now = new Date()): string {
   return localDate(now)
+}
+
+/** The local yyyy-mm a moment falls in. */
+export function monthOf(iso: string | Date): string {
+  return localDate(typeof iso === 'string' ? new Date(iso) : iso).slice(0, 7)
+}
+
+/** A chosen month ('m:2026-10') or quarter ('q:2026-Q4'), or every period. */
+export type PeriodChoice = 'all' | `m:${string}` | `q:${string}`
+
+export function parsePeriod(choice: PeriodChoice): { by: Period; key: string } | null {
+  if (choice === 'all') return null
+  return { by: choice.startsWith('m:') ? 'month' : 'quarter', key: choice.slice(2) }
+}
+
+/** Whether a yyyy-mm-dd date falls in the chosen period. */
+export function inPeriod(date: string, choice: PeriodChoice): boolean {
+  const period = parsePeriod(choice)
+  return !period || periodKey(date, period.by) === period.key
+}
+
+/** Every month and quarter that has a point, latest first. */
+export function periodChoices(points: readonly BookPoint[]): { months: string[]; quarters: string[] } {
+  const months = new Set<string>()
+  const quarters = new Set<string>()
+  for (const p of points) {
+    months.add(periodKey(p.date, 'month'))
+    quarters.add(periodKey(p.date, 'quarter'))
+  }
+  const desc = (a: string, b: string) => b.localeCompare(a)
+  return { months: [...months].sort(desc), quarters: [...quarters].sort(desc) }
+}
+
+/**
+ * The points that stand for each period's close: every saved week, every
+ * month close (dated the day it was last summed) and today's live book.
+ * rollUp picks the latest of them in each period.
+ */
+export function closingPoints(weeks: readonly BookWeek[], months: readonly MonthClose[], live: BookPoint): BookPoint[] {
+  /*
+   * A close is only rewritten when the book changes, so it is dated at its
+   * month's end (today for the month still running): it stands for the whole
+   * month and outranks the saved weeks in it.
+   */
+  const monthEnd = (month: string) => {
+    const [y, m] = month.split('-').map(Number)
+    const end = localDate(new Date(y, m, 0))
+    return end < live.date ? end : live.date
+  }
+  return [
+    ...weeks.map((w) => ({ date: w.weekStart, rows: w.rows, source: 'week' as const })),
+    ...months.map((m) => ({ date: monthEnd(m.month), rows: m.rows, source: 'month' as const })),
+    { ...live, source: 'live' as const },
+  ]
 }

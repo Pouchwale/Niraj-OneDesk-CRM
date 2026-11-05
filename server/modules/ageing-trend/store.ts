@@ -10,12 +10,16 @@
  * It only reads the saved days. A day deleted by hand while it was still
  * within the 90 days was a save somebody did not want, so its sum goes too;
  * a day removed by age keeps its sum.
+ *
+ * Month closes (since 5 Nov 2026) sit in a second file: the live book summed
+ * every half hour into the current month's entry, so when a month is over its
+ * last sum is how it closed. A quarter closes with its last month.
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SNAPSHOT_RETENTION_DAYS } from '../../../shared/snapshots'
-import { summariseBook, type BookRow, type PersonSegmentRow } from '../../../src/lib/ageing-trend'
+import { monthOf, summariseBook, type BookRow, type MonthClose, type PersonSegmentRow } from '../../../src/lib/ageing-trend'
 import type { SnapshotStore } from '../snapshots/store'
 
 export interface SummedDay {
@@ -27,29 +31,38 @@ export interface SummedDay {
 export interface AgeingTrendStore {
   /** Every summed day, the saved days brought up to date first. */
   days(): SummedDay[]
+  /** Every month close recorded, oldest first. */
+  months(): MonthClose[]
+  /** Sums the live book into the current month's close. Returns the month written, or null when nothing changed. */
+  recordMonth(rows: readonly BookRow[]): string | null
 }
 
 export const TREND_FILE = 'ageing-weeks.json'
+export const MONTHS_FILE = 'ageing-months.json'
 
 export function createAgeingTrendStore(snapshotDir: string, snapshots: SnapshotStore, now: () => Date = () => new Date()): AgeingTrendStore {
   const file = join(snapshotDir, TREND_FILE)
+  const monthsFile = join(snapshotDir, MONTHS_FILE)
 
-  const read = (): Record<string, SummedDay> => {
-    if (!existsSync(file)) return {}
+  function readJson<T>(path: string): Record<string, T> {
+    if (!existsSync(path)) return {}
     try {
-      const parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, SummedDay>
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as Record<string, T>
       return parsed && typeof parsed === 'object' ? parsed : {}
     } catch {
       return {}
     }
   }
 
-  const write = (all: Record<string, SummedDay>) => {
+  const writeJson = (path: string, all: unknown) => {
     mkdirSync(snapshotDir, { recursive: true })
-    const temp = `${file}.tmp`
+    const temp = `${path}.tmp`
     writeFileSync(temp, JSON.stringify(all))
-    renameSync(temp, file)
+    renameSync(temp, path)
   }
+
+  const read = () => readJson<SummedDay>(file)
+  const write = (all: Record<string, SummedDay>) => writeJson(file, all)
 
   // Saved days never change once written, so each is read and summed once.
   let cache: Record<string, SummedDay> | null = null
@@ -81,5 +94,41 @@ export function createAgeingTrendStore(snapshotDir: string, snapshots: SnapshotS
     return Object.values(all)
   }
 
-  return { days }
+  // A few kilobytes, read fresh each time so a restored file is seen at once.
+  const allMonths = () => readJson<MonthClose>(monthsFile)
+
+  const months = (): MonthClose[] => Object.values(allMonths()).sort((a, b) => a.month.localeCompare(b.month))
+
+  const recordMonth = (rows: readonly BookRow[]): string | null => {
+    const at = now()
+    const month = monthOf(at)
+    const summed = summariseBook(rows)
+    const all = allMonths()
+    // Only a change is written: the same book half an hour later is not news.
+    if (all[month] && JSON.stringify(all[month].rows) === JSON.stringify(summed)) return null
+    all[month] = { month, savedAt: at.toISOString(), rows: summed }
+    writeJson(monthsFile, all)
+    return month
+  }
+
+  return { days, months, recordMonth }
+}
+
+/** Every half hour (and a minute after start), the live book into this month's close. */
+export function startMonthCloses(store: AgeingTrendStore, rows: () => readonly BookRow[], onError: (err: unknown) => void): () => void {
+  const tick = () => {
+    try {
+      store.recordMonth(rows())
+    } catch (err) {
+      onError(err)
+    }
+  }
+  const first = setTimeout(tick, 60_000)
+  const timer = setInterval(tick, 30 * 60_000)
+  first.unref?.()
+  timer.unref?.()
+  return () => {
+    clearTimeout(first)
+    clearInterval(timer)
+  }
 }

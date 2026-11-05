@@ -24,6 +24,10 @@ export function ageingTrendRoutes(store: AgeingTrendStore): Router {
           weekStart: day.weekStart,
           rows: seesTeam ? day.rows : day.rows.filter((r) => r.coordinatorId === user?.id),
         })),
+        months: store.months().map((m) => ({
+          ...m,
+          rows: seesTeam ? m.rows : m.rows.filter((r) => r.coordinatorId === user?.id),
+        })),
       }
       res.json(body)
     } catch (err) {

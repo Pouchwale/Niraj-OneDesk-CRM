@@ -18,7 +18,7 @@ import { createLogger } from '../../logger'
 import { AUTH_ROUTES } from '../../../shared/auth'
 import { AGEING_TREND_ROUTE, type AgeingTrendResponse } from '../../../src/lib/ageing-trend'
 import { createSnapshotStore } from '../snapshots/store'
-import { createAgeingTrendStore, TREND_FILE } from './store'
+import { createAgeingTrendStore, MONTHS_FILE, TREND_FILE } from './store'
 
 const root = mkdtempSync(join(tmpdir(), 'ageing-trend-'))
 const quiet = createLogger({ level: 'error', write: () => undefined })
@@ -26,7 +26,7 @@ const quiet = createLogger({ level: 'error', write: () => undefined })
 const balance = (id: string, coordinatorId: string, extra: Record<string, unknown> = {}) => ({
   id,
   bp_code: `BP-${id}`,
-  status: 'overdue',
+  status: 'overdue' as const,
   assigned_coordinator_id: coordinatorId,
   due_0_30: 100,
   due_31_60: 10,
@@ -48,6 +48,8 @@ const day = (rows: Record<string, unknown>[]) => ({
 describe('the route', () => {
   let server: ReturnType<typeof createServer>
   let port = 0
+  /** Writes month closes into the same folder the app reads. */
+  let trendStore: ReturnType<typeof createAgeingTrendStore>
 
   beforeAll(async () => {
     const snapshotDir = mkdtempSync(join(root, 'snapshots-'))
@@ -64,6 +66,7 @@ describe('the route', () => {
       DATA_DIR: mkdtempSync(join(root, 'data-')),
       SNAPSHOT_DIR: snapshotDir,
     })
+    trendStore = createAgeingTrendStore(snapshotDir, createSnapshotStore(snapshotDir))
     server = createServer(createApp(config, quiet))
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     port = (server.address() as AddressInfo).port
@@ -107,6 +110,15 @@ describe('the route', () => {
     expect(body.weeks[0].rows.every((r) => r.coordinatorId === 'coord-1')).toBe(true)
     expect(body.weeks[0].rows).toHaveLength(2)
   })
+
+  it('sends month closes with the same split', async () => {
+    trendStore.recordMonth([balance('a', 'coord-1'), balance('b', 'coord-2')])
+    const team = (await (await as('niki', 'Niki@123')).json()) as AgeingTrendResponse
+    const mine = (await (await as('pragati', 'Pragati@123')).json()) as AgeingTrendResponse
+    expect(team.months).toHaveLength(1)
+    expect(team.months[0].rows.map((r) => r.coordinatorId).sort()).toEqual(['coord-1', 'coord-2'])
+    expect(mine.months[0].rows.map((r) => r.coordinatorId)).toEqual(['coord-1'])
+  })
 })
 
 describe('the kept sums', () => {
@@ -131,6 +143,31 @@ describe('the kept sums', () => {
     expect(snapshots.listDays()).toHaveLength(0)
     const reread = createAgeingTrendStore(dir, snapshots, () => clock)
     expect(reread.days().map((d) => d.id)).toEqual([old.id])
+  })
+})
+
+describe('month closes', () => {
+  it('keeps one close per month, rewritten only when the book changes, and kept for good', () => {
+    const dir = mkdtempSync(join(root, 'months-'))
+    let clock = new Date('2026-10-30T10:00:00')
+    const snapshots = createSnapshotStore(dir, { now: () => clock })
+    const trend = createAgeingTrendStore(dir, snapshots, () => clock)
+
+    expect(trend.recordMonth([balance('a', 'coord-1')])).toBe('2026-10')
+    clock = new Date('2026-10-31T23:30:00')
+    // The same book half an hour later is not written again.
+    expect(trend.recordMonth([balance('a', 'coord-1')])).toBeNull()
+    // A changed book is: this is how October closes.
+    expect(trend.recordMonth([balance('a', 'coord-1'), balance('b', 'coord-2')])).toBe('2026-10')
+    clock = new Date('2026-11-01T00:00:00')
+    expect(trend.recordMonth([balance('a', 'coord-1')])).toBe('2026-11')
+
+    const reread = createAgeingTrendStore(dir, snapshots, () => clock).months()
+    expect(reread.map((m) => [m.month, m.rows.reduce((n, r) => n + r.accounts, 0)])).toEqual([
+      ['2026-10', 2],
+      ['2026-11', 1],
+    ])
+    expect(existsSync(join(dir, MONTHS_FILE))).toBe(true)
   })
 })
 

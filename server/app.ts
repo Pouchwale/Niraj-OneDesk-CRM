@@ -23,7 +23,7 @@ import { healthRoutes } from './modules/health/routes'
 import { createSnapshotStore, type SnapshotStore } from './modules/snapshots/store'
 import { snapshotRoutes } from './modules/snapshots/routes'
 import { startAutoSave } from './modules/snapshots/auto-save'
-import { createAgeingTrendStore } from './modules/ageing-trend/store'
+import { createAgeingTrendStore, startMonthCloses } from './modules/ageing-trend/store'
 import { ageingTrendRoutes } from './modules/ageing-trend/routes'
 import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
@@ -121,13 +121,16 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
     requireRole('team_leader'),
     snapshotRoutes(snapshots, logger)
   )
-  // The same saved days, summed week by week for Overdue Payments' Trends tab.
+  // The same saved days, summed week by week for Overdue Payments' Trends tab,
+  // and each month's close summed from the live book every half hour.
   // Everyone signed in; a coordinator gets only their own figures.
-  router.use(
-    '/ageing-trend',
-    requireSession(accounts, sessions),
-    ageingTrendRoutes(createAgeingTrendStore(config.snapshotDir, snapshots))
-  )
+  const ageingTrend = createAgeingTrendStore(config.snapshotDir, snapshots)
+  if (deps.weeklyAutoSave ?? config.isProduction) {
+    startMonthCloses(ageingTrend, () => data.snapshot().overduePayments, (err) =>
+      logger.error('ageing trend: month close not recorded', { error: err instanceof Error ? err.message : String(err) })
+    )
+  }
+  router.use('/ageing-trend', requireSession(accounts, sessions), ageingTrendRoutes(ageingTrend))
   /*
    * The working dataset is mounted first, with a body limit of its own: a day's
    * import arrives as one batch of a few thousand rows, which is megabytes, and
