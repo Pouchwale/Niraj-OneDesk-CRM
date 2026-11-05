@@ -22,16 +22,23 @@ import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/featu
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { PERFORMANCE, QUOTATION_STATUS_LABEL, followupCount } from '@/lib/quotations'
 import type { Quotation, QuotationStatus } from '@/lib/types'
-import { matchesQuotationFilter, performanceOf, quotationDay } from '@/lib/quotation-stats'
+import { matchesQuotationFilter, performanceOf, quotationDay, quotationScore } from '@/lib/quotation-stats'
 import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { QuotationDialog } from './QuotationDialog'
 import { DATE_PRESETS, DEFAULT_FILTERS, QuotationFilters, toQuotationFilter, type FilterState } from './QuotationFilters'
 import { QuotationPerformance } from './QuotationPerformance'
+import { QuotationConversions } from './QuotationConversions'
 
 export const STATUS_STYLE: Record<QuotationStatus, string> = {
   open: 'bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-400',
   closed: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30 dark:text-emerald-400',
   lost: 'bg-rose-500/10 text-rose-700 border-rose-500/30 dark:text-rose-400',
+}
+
+/** New and existing customers, told apart from the status colours. */
+const TYPE_STYLE: Record<'new' | 'existing', string> = {
+  new: 'bg-violet-500/10 text-violet-700 border-violet-500/30 dark:text-violet-400',
+  existing: 'bg-slate-500/10 text-slate-700 border-slate-500/30 dark:text-slate-300',
 }
 
 const dayOf = quotationDay
@@ -48,9 +55,15 @@ export function QuotationsPage() {
   const [editing, setEditing] = useState<Quotation | 'new' | null>(null)
 
   const owners = useMemo(() => getAssignableOwners(), [])
+  /** Everyone who has sent a quotation: each gets a line in the conversions table, even at zero. */
+  const quotingPeople = useMemo(() => [...new Set(all.map((q) => q.coordinator_id).filter((id): id is string => Boolean(id)))], [all])
   const nameOf = (q: Quotation) => (q.coordinator_id ? getCoordinatorDisplayName(q.coordinator_id) : q.coordinator_name ?? 'Unassigned')
 
   const filter = useMemo(() => toQuotationFilter(filters, today), [filters, today])
+  const period =
+    filter.from || filter.to
+      ? `${filter.from ? formatDate(filter.from) : 'Start'} – ${filter.to ? formatDate(filter.to) : 'today'} · by ${filter.basis === 'closing' ? 'closing' : 'quotation'} date`
+      : 'All dates'
   const inScope = useMemo(() => {
     const needle = search.trim().toLowerCase()
     return all.filter(
@@ -85,12 +98,12 @@ export function QuotationsPage() {
       {
         name: 'Quotations',
         rows: [
-          ['Enquiry date', 'Coordinator', 'Customer', 'Concern person', 'Contact', 'Source', 'Quotation date', 'Sales employee', 'Quotation no', 'Follow-ups', 'Closing date', 'Status', 'Customer type', 'Performance', 'Amount', 'Lost remark'],
+          ['Enquiry date', 'Coordinator', 'Customer', 'Concern person', 'Contact', 'Source', 'Quotation date', 'Sales employee', 'Quotation no', 'Follow-ups', 'Closing date', 'Status', 'Customer type', 'Performance', 'Score', 'Amount', 'Lost remark'],
           ...rows.map((q) => [
             q.inquiry_date ?? '', nameOf(q), q.customer_name, q.concern_person ?? '', q.contact_number ?? '', q.source ?? '',
             q.quotation_date ?? '', q.sales_employee ?? '', q.quotation_no ?? '', followupCount(q), q.closing_date ?? '',
             QUOTATION_STATUS_LABEL[q.status], q.customer_type === 'new' ? 'New' : q.customer_type === 'existing' ? 'Existing' : '',
-            PERFORMANCE[q.status], q.amount ?? '', q.lost_remark ?? '',
+            PERFORMANCE[q.status], quotationScore(q), q.amount ?? '', q.lost_remark ?? '',
           ]),
         ],
       },
@@ -154,6 +167,16 @@ export function QuotationsPage() {
       </div>
 
       {view === 'performance' && (
+        <QuotationConversions
+          list={inScope}
+          period={period}
+          showPeople={canManageTeam && owner === 'all'}
+          people={quotingPeople}
+          onPickPerson={canManageTeam ? (id) => setFilters({ ...filters, owner: id }) : undefined}
+        />
+      )}
+
+      {view === 'performance' && (
         <QuotationPerformance
           list={inScope}
           basis={filters.basis}
@@ -196,6 +219,8 @@ export function QuotationsPage() {
                   <th className="px-3 py-3 text-right font-medium">Follow-ups</th>
                   <th className="px-3 py-3 text-right font-medium">Amount</th>
                   <th className="px-3 py-3 font-medium">Status</th>
+                  <th className="px-3 py-3 font-medium">Customer type</th>
+                  <th className="px-3 py-3 text-right font-medium" title="Closed + New = 100 · Closed + Existing = 50 · Open or Lost = 0">Score</th>
                   <th className="px-3 py-3 font-medium">Closing</th>
                 </tr>
               </thead>
@@ -209,7 +234,7 @@ export function QuotationsPage() {
                     <td className="min-w-[200px] px-3 py-3">
                       <div className="font-medium">{q.customer_name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {[q.concern_person, q.customer_type === 'new' ? 'New customer' : q.customer_type === 'existing' ? 'Existing' : null].filter(Boolean).join(' · ')}
+                        {q.concern_person}
                       </div>
                     </td>
                     {canManageTeam && <td className={cn('whitespace-nowrap px-3 py-3', !q.coordinator_id && 'text-amber-600')}>{nameOf(q)}</td>}
@@ -221,6 +246,18 @@ export function QuotationsPage() {
                       <Badge variant="outline" className={STATUS_STYLE[q.status]}>
                         {QUOTATION_STATUS_LABEL[q.status]}
                       </Badge>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      {q.customer_type ? (
+                        <Badge variant="outline" className={TYPE_STYLE[q.customer_type]}>
+                          {q.customer_type === 'new' ? 'New' : 'Existing'}
+                        </Badge>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className={cn('px-3 py-3 text-right font-semibold tabular-nums', quotationScore(q) === 0 && 'font-normal text-muted-foreground')}>
+                      {quotationScore(q)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 text-xs text-muted-foreground">
                       {q.closing_date ? formatDate(q.closing_date) : '—'}

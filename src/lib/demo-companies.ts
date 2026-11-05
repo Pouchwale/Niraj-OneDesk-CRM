@@ -1,8 +1,10 @@
-import type { AttendanceEntry, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { AttendanceEntry, BillingIssue, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
-import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, isBankrupt, isNoFollowup, isSetAside, markNoFollowup } from './no-followup'
+import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, disputedAmountOf, isBankrupt, isNoFollowup, isSetAside, markNoFollowup } from './no-followup'
+import { nextBillingSrNo } from './billing-issues'
+import { addBuckets, bucketsOf, disputeExtraIdOf, isDisputeExtra, splitDisputedBalance, type AgeingBuckets } from './dispute-split'
 import { invoiceKeyOf } from './account-key'
 // Relative: this file runs on the server too, outside Vite's alias resolution.
 import { DAY_MS } from './constants'
@@ -323,10 +325,80 @@ const SEED_OVERDUE: OverduePayment[] = [
 ]
 
 /** The status the ageing itself implies, used when a declaration is undone. */
-function deriveOverdueStatusFor(row: OverduePayment): OverdueStatus {
+function deriveOverdueStatusFor(row: AgeingBuckets): OverdueStatus {
   if (row.balance_due === 0) return 'settled'
   if ((row.due_91_120 || 0) > 0 || (row.due_121_plus || 0) > 0) return 'critical'
   return 'overdue'
+}
+
+/**
+ * The Regular row carrying what a disputed customer owes above the disputed
+ * amount (see dispute-split.ts). Built from the file's row, owned by whoever
+ * owns the disputed row, and never itself set aside. At nil it is settled,
+ * which takes it off every list until the file shows extra money again.
+ */
+function disputeExtraRow(
+  primary: OverduePayment,
+  file: OverduePayment,
+  extra: AgeingBuckets,
+  was: OverduePayment | undefined,
+  now: string
+): OverduePayment {
+  const bankrupt = was?.status === 'bankrupt'
+  return {
+    ...(was ?? {}),
+    ...file,
+    ...extra,
+    id: disputeExtraIdOf(primary.id),
+    dispute_extra_of: primary.id,
+    assigned_coordinator_id: primary.assigned_coordinator_id,
+    status: bankrupt ? 'bankrupt' : deriveOverdueStatusFor(extra),
+    no_followup_at: null,
+    no_followup_by: null,
+    no_followup_note: null,
+    no_followup_kind: null,
+    no_followup_amount: null,
+    bankrupt_declared_at: was?.bankrupt_declared_at ?? null,
+    bankrupt_declared_by: was?.bankrupt_declared_by ?? null,
+    bankrupt_note: was?.bankrupt_note ?? null,
+    created_at: was?.created_at ?? now,
+    updated_at: now,
+  }
+}
+
+/**
+ * Puts the extra rows of these disputed rows back into them: the money, and
+ * the follow-ups logged on the extra. Done before a customer's set-aside
+ * decision changes, so the customer is one row again and the new decision
+ * starts from what the file says they owe in all.
+ */
+function foldDisputeExtras(
+  payments: OverduePayment[],
+  followups: Followup[],
+  primaryIds: Set<string>
+): OverduePayment[] {
+  const extras = payments.filter((p) => p.dispute_extra_of && primaryIds.has(p.dispute_extra_of))
+  if (extras.length === 0) return payments
+  const now = new Date().toISOString()
+  const gone = new Set(extras.map((p) => p.id))
+  for (const followup of followups) {
+    if (followup.entity_type !== 'overdue_payment' || !gone.has(followup.entity_id)) continue
+    const extra = extras.find((p) => p.id === followup.entity_id)
+    if (extra?.dispute_extra_of) followup.entity_id = extra.dispute_extra_of
+  }
+  return payments
+    .filter((p) => !gone.has(p.id))
+    .map((p) => {
+      const mine = extras.filter((e) => e.dispute_extra_of === p.id)
+      if (mine.length === 0) return p
+      const money = mine.reduce((sum, e) => addBuckets(sum, bucketsOf(e)), bucketsOf(p))
+      return {
+        ...p,
+        ...money,
+        status: p.status === 'bankrupt' ? p.status : deriveOverdueStatusFor(money),
+        updated_at: now,
+      }
+    })
 }
 
 const STORE_STORAGE_KEY = 'crm_demo_store'
@@ -377,6 +449,12 @@ export interface PersistedStore {
   rfdRows?: RfdRow[]
   /** Quotations, kept in the CRM since 13 Oct 2026. Optional for older files. */
   quotations?: Quotation[]
+  /** The billing issue log, kept in the CRM since 5 Nov 2026. Optional for older files. */
+  billingIssues?: BillingIssue[]
+  /** The service log (dispatch mails), kept in the CRM since 5 Nov 2026. Optional for older files. */
+  serviceRecords?: ServiceRecord[]
+  /** Each coordinator's Total Customers for the service score. */
+  serviceTargets?: ServiceCustomerTarget[]
   /**
    * Every quotation number in use, team-wide. Sent to a coordinator, who only
    * holds their own quotations, so the next number suggested is never taken.
@@ -470,6 +548,9 @@ class DemoCompanyStore {
   attendance: AttendanceEntry[] = restored?.attendance ?? []
   rfdRows: RfdRow[] = restored?.rfdRows ?? []
   quotations: Quotation[] = restored?.quotations ?? []
+  billingIssues: BillingIssue[] = restored?.billingIssues ?? []
+  serviceRecords: ServiceRecord[] = restored?.serviceRecords ?? []
+  serviceTargets: ServiceCustomerTarget[] = restored?.serviceTargets ?? []
   quotationNos: string[] = []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
@@ -767,9 +848,11 @@ class DemoCompanyStore {
 
   /** Drops an ageing row and the follow-ups logged against it. */
   deleteOverduePayment(id: string): void {
-    this.overduePayments = this.overduePayments.filter((o) => o.id !== id)
+    // A disputed row's extra row (money above the dispute) goes with it.
+    const gone = new Set(this.overduePayments.filter((o) => o.id === id || o.dispute_extra_of === id).map((o) => o.id))
+    this.overduePayments = this.overduePayments.filter((o) => !gone.has(o.id))
     this.followups = this.followups.filter(
-      (f) => !(f.entity_type === 'overdue_payment' && f.entity_id === id)
+      (f) => !(f.entity_type === 'overdue_payment' && gone.has(f.entity_id))
     )
   }
 
@@ -926,28 +1009,51 @@ class DemoCompanyStore {
   }
 
   upsertOverduePayment(payment: OverduePayment): { payment: OverduePayment; wasCreated: boolean } {
-    const existing = this.overduePayments.find(p => sameBpCode(p.bp_code, payment.bp_code))
+    // The customer's own row; a row carrying the extra above a dispute is never it.
+    const existing = this.overduePayments.find(p => !isDisputeExtra(p) && sameBpCode(p.bp_code, payment.bp_code))
     if (existing) {
       const index = this.overduePayments.indexOf(existing)
+      const now = new Date().toISOString()
+      // A dispute covers the amount disputed; anything the file shows above it
+      // goes on the customer's extra row, on the Regular list (dispute-split.ts).
+      const disputed = disputedAmountOf(existing)
+      const split = disputed === null ? null : splitDisputedBalance(bucketsOf(payment), disputed)
       // Follow-up progress recorded in the app must survive a re-import.
       this.overduePayments[index] = {
         ...existing,
         ...payment,
+        ...(split ? split.disputed : {}),
         id: existing.id,
         assigned_coordinator_id: keptOwner(existing, payment),
         // The file is the truth about the money: a balance it still lists is
         // overdue, whatever an earlier sync concluded when the row went
         // missing for a day. Only a bankruptcy - a declaration somebody made
         // on purpose - outlives the file.
-        status: existing.status === 'bankrupt' ? existing.status : payment.status,
+        status: existing.status === 'bankrupt'
+          ? existing.status
+          : split ? deriveOverdueStatusFor(split.disputed) : payment.status,
         no_followup_at: existing.no_followup_at ?? null,
         no_followup_by: existing.no_followup_by ?? null,
         no_followup_note: existing.no_followup_note ?? null,
         no_followup_kind: existing.no_followup_kind ?? null,
+        no_followup_amount: existing.no_followup_amount ?? null,
+        dispute_extra_of: null,
         created_at: existing.created_at,
-        updated_at: new Date().toISOString()
+        updated_at: now
       }
-      return { payment: this.overduePayments[index], wasCreated: false }
+      const primary = this.overduePayments[index]
+
+      const extraId = disputeExtraIdOf(primary.id)
+      const extraIndex = this.overduePayments.findIndex((p) => p.id === extraId)
+      const was = extraIndex >= 0 ? this.overduePayments[extraIndex] : undefined
+      // No dispute amount any more (older data): the row holds it all, the extra goes to nil.
+      const extra = split ? split.extra : splitDisputedBalance(bucketsOf(payment), Infinity).extra
+      if (was || extra.balance_due > 0) {
+        const row = disputeExtraRow(primary, payment, extra, was, now)
+        if (extraIndex >= 0) this.overduePayments[extraIndex] = row
+        else this.overduePayments.push(row)
+      }
+      return { payment: primary, wasCreated: false }
     }
 
     // A customer declared bankrupt from their invoices, before the ageing report
@@ -1137,22 +1243,43 @@ class DemoCompanyStore {
         touched++
       }
     }
+    // One ageing row per customer again first, so a dispute covers all they owe today.
+    const isMine = this.foldCustomerAgeing(bpCode, entityId)
     for (const payment of this.overduePayments) {
-      if (payment.id === entityId || (bpCode && sameBpCode(payment.bp_code, bpCode))) {
-        Object.assign(payment, fields, { updated_at: new Date().toISOString() })
+      if (isMine(payment)) {
+        // A dispute covers the balance disputed today; later money is not part of it.
+        const amount = kind === 'dispute' ? payment.balance_due || 0 : null
+        Object.assign(payment, fields, { no_followup_amount: amount, updated_at: new Date().toISOString() })
         touched++
       }
     }
     return touched
   }
 
+  /**
+   * Folds the customer's extra row (money above a dispute) back into their
+   * disputed row, and says which ageing rows are the customer's afterwards.
+   */
+  private foldCustomerAgeing(bpCode: string | null, entityId: string): (p: OverduePayment) => boolean {
+    const matches = (p: OverduePayment) => p.id === entityId || Boolean(bpCode && sameBpCode(p.bp_code, bpCode))
+    const primaryIds = new Set(this.overduePayments.filter(matches).map((p) => p.dispute_extra_of || p.id))
+    this.overduePayments = foldDisputeExtras(this.overduePayments, this.followups, primaryIds)
+    return (p) => primaryIds.has(p.id) || matches(p)
+  }
+
   /** Puts the customer back into the working lists and back into the totals. */
   clearNoFollowup(bpCode: string | null, entityId: string): number {
     let touched = 0
 
-    for (const record of [...this.companies, ...this.overduePayments]) {
-      const code = 'sap_bp_code' in record ? record.sap_bp_code : record.bp_code
-      if (record.id === entityId || (bpCode && sameBpCode(code, bpCode))) {
+    const isMine = this.foldCustomerAgeing(bpCode, entityId)
+    for (const record of this.companies) {
+      if (record.id === entityId || (bpCode && sameBpCode(record.sap_bp_code, bpCode))) {
+        Object.assign(record, CLEAR_NO_FOLLOWUP, { updated_at: new Date().toISOString() })
+        touched++
+      }
+    }
+    for (const record of this.overduePayments) {
+      if (isMine(record)) {
         Object.assign(record, CLEAR_NO_FOLLOWUP, { updated_at: new Date().toISOString() })
         touched++
       }
@@ -1294,6 +1421,9 @@ class DemoCompanyStore {
       attendance: this.attendance,
       rfdRows: this.rfdRows,
       quotations: this.quotations,
+      billingIssues: this.billingIssues,
+      serviceRecords: this.serviceRecords,
+      serviceTargets: this.serviceTargets,
     }
   }
 
@@ -1358,6 +1488,76 @@ class DemoCompanyStore {
     const fresh = rows.filter((q) => q?.id && !have.has(q.id))
     this.quotations = [...this.quotations, ...fresh]
     return fresh.length
+  }
+
+  /* ===== Billing issues ===== */
+
+  getBillingIssues(): BillingIssue[] {
+    return [...this.billingIssues]
+  }
+
+  /**
+   * Adds an issue, or replaces the one with the same id. A new one gets the
+   * next Sr. No here, so two people logging at once never share a number:
+   * the server's copy decides.
+   */
+  saveBillingIssue(issue: BillingIssue): void {
+    if (!issue?.id || !issue.date || !issue.customer_name || !issue.issue) return
+    const held = this.billingIssues.find((i) => i.id === issue.id)
+    const others = this.billingIssues.filter((i) => i.id !== issue.id)
+    const sr_no = held ? held.sr_no : nextBillingSrNo(others)
+    this.billingIssues = [...others, { ...issue, sr_no, created_at: held?.created_at ?? issue.created_at, created_by: held?.created_by ?? issue.created_by }]
+  }
+
+  deleteBillingIssue(id: string): void {
+    this.billingIssues = this.billingIssues.filter((i) => i.id !== id)
+  }
+
+  /** The old billing issue sheet, once: rows whose id is already here are left alone. */
+  importBillingIssues(rows: BillingIssue[]): number {
+    if (!Array.isArray(rows)) return 0
+    const have = new Set(this.billingIssues.map((i) => i.id))
+    const fresh = rows.filter((i) => i?.id && !have.has(i.id))
+    this.billingIssues = [...this.billingIssues, ...fresh]
+    return fresh.length
+  }
+
+  /* ===== Service (dispatch mails) ===== */
+
+  getServiceRecords(): ServiceRecord[] {
+    return [...this.serviceRecords]
+  }
+
+  /** Adds a service record, or replaces the one with the same id (keeping who first entered it). */
+  saveServiceRecord(record: ServiceRecord): void {
+    if (!record?.id || !record.date || !record.customer_name) return
+    const held = this.serviceRecords.find((r) => r.id === record.id)
+    const others = this.serviceRecords.filter((r) => r.id !== record.id)
+    this.serviceRecords = [...others, { ...record, created_at: held?.created_at ?? record.created_at, created_by: held?.created_by ?? record.created_by }]
+  }
+
+  deleteServiceRecord(id: string): void {
+    this.serviceRecords = this.serviceRecords.filter((r) => r.id !== id)
+  }
+
+  /** The old SERVICE sheet, once: rows whose id is already here are left alone. */
+  importServiceRecords(rows: ServiceRecord[]): number {
+    if (!Array.isArray(rows)) return 0
+    const have = new Set(this.serviceRecords.map((r) => r.id))
+    const fresh = rows.filter((r) => r?.id && !have.has(r.id))
+    this.serviceRecords = [...this.serviceRecords, ...fresh]
+    return fresh.length
+  }
+
+  /** A coordinator's Total Customers for the service score; null clears it. */
+  setServiceCustomers(coordinatorId: string, customers: number | null, by: string | null, at: string): void {
+    if (!coordinatorId) return
+    const others = this.serviceTargets.filter((t) => t.coordinatorId !== coordinatorId)
+    const n = Number(customers)
+    this.serviceTargets =
+      customers === null || !Number.isFinite(n) || n < 0
+        ? others
+        : [...others, { coordinatorId, customers: Math.round(n), updatedAt: at, updatedBy: by }]
   }
 
   /* ===== Who is in the office ===== */
@@ -1514,6 +1714,9 @@ class DemoCompanyStore {
     this.attendance = snapshot.attendance ?? []
     this.rfdRows = snapshot.rfdRows ?? []
     this.quotations = snapshot.quotations ?? []
+    this.billingIssues = snapshot.billingIssues ?? []
+    this.serviceRecords = snapshot.serviceRecords ?? []
+    this.serviceTargets = snapshot.serviceTargets ?? []
     this.quotationNos = snapshot.quotationNos ?? []
     this.refreshStatuses()
   }

@@ -176,6 +176,10 @@ export interface OverduePayment {
   no_followup_note?: string | null
   /** 'dispute' when set aside because the customer disputes the amount. */
   no_followup_kind?: 'dispute' | 'export' | null
+  /** For a dispute: the balance disputed. Money above it goes on a second row (since 5 Nov 2026). */
+  no_followup_amount?: number | null
+  /** Set on that second row: the id of the row in dispute it carries the extra for. */
+  dispute_extra_of?: string | null
   extra_fields: Record<string, unknown>
   imported_at: string
   created_at: string
@@ -423,6 +427,73 @@ export interface Quotation {
   created_by: string | null
   updated_at: string
   updated_by: string | null
+}
+
+/**
+ * One row of the billing issue log (kept in the CRM since 5 Nov 2026; it was a
+ * shared sheet). A responsible person is a user id when the name is someone in
+ * the CRM, otherwise the text as written ("Billing", "Production side").
+ */
+export interface BillingIssue {
+  id: string
+  /** Sr. No, given by the store when the issue is first saved. */
+  sr_no: number
+  /** The sheet's "Date": the day it was logged. The score period reads this. */
+  date: string
+  responsible_1: string | null
+  responsible_2: string | null
+  responsible_3: string | null
+  customer_name: string
+  issue: string
+  issue_date: string | null
+  solution: string | null
+  solution_date: string | null
+  invoice_no: string | null
+  cn_no: string | null
+  dn_no: string | null
+  account_remarks: string | null
+  coordinator_remarks: string | null
+  created_at: string
+  created_by: string | null
+  updated_at: string
+  updated_by: string | null
+}
+
+/** How a dispatch went against the sales order's date. */
+export type DispatchStatus = 'Early' | 'On Time' | 'Delay'
+
+/**
+ * One row of the service log (kept in the CRM since 5 Nov 2026; it was the
+ * SERVICE sheet): a dispatch mail a coordinator sent a customer.
+ */
+export interface ServiceRecord {
+  id: string
+  /** The sheet's "Date": the score period reads this. */
+  date: string
+  coordinator_id: string | null
+  /** The name as the old sheet had it, for rows it could not match. */
+  coordinator_name: string | null
+  po_no: string | null
+  fg_code: string | null
+  sales_order_no: string | null
+  customer_name: string
+  dispatch_status: DispatchStatus | null
+  information_date: string | null
+  original_dispatch_date: string | null
+  final_dispatch_date: string | null
+  remark: string | null
+  created_at: string
+  created_by: string | null
+  updated_at: string
+  updated_by: string | null
+}
+
+/** A coordinator's "Total Customers" for the service score, typed by the team leader or administrator. */
+export interface ServiceCustomerTarget {
+  coordinatorId: string
+  customers: number
+  updatedAt: string
+  updatedBy: string | null
 }
 
 export interface CoordinatorAlias {

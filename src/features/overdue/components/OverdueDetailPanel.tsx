@@ -209,6 +209,12 @@ export function OverdueDetailPanel({
                     No follow-up
                   </Badge>
                 )}
+                {/* Money that came after the customer's dispute: chased as normal. */}
+                {payment.dispute_extra_of && (
+                  <Badge variant="outline" className="text-xs border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                    New amount · older balance in dispute
+                  </Badge>
+                )}
                 {/* Nobody is chasing a customer set aside, so there is nobody to remind. */}
                 {currentUserId && payment.status !== 'settled' && !isSetAside(payment) && (
                   <Button

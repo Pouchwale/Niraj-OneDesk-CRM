@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  conversionsByPerson,
+  conversionsOf,
   matchesQuotationFilter,
   monthlyPerformance,
   NO_QUOTATION_FILTER,
   performanceByPerson,
   performanceOf,
+  quotationScore,
 } from './quotation-stats'
 import type { Quotation } from './types'
 
@@ -99,6 +102,50 @@ describe('performance', () => {
     expect(monthlyPerformance(list, 'closing').map((m) => [m.month, m.closed, m.lost, m.valueWon])).toEqual([
       ['2026-10', 2, 1, 30000],
       ['2026-11', 1, 0, 90000],
+    ])
+  })
+})
+
+describe('quotation score', () => {
+  it('gives 100 for a closed new customer, 50 for a closed existing one, 0 otherwise', () => {
+    expect(quotationScore(quote({ status: 'closed', customer_type: 'new' }))).toBe(100)
+    expect(quotationScore(quote({ status: 'closed', customer_type: 'existing' }))).toBe(50)
+    expect(quotationScore(quote({ status: 'closed', customer_type: null }))).toBe(0)
+    expect(quotationScore(quote({ status: 'lost', customer_type: 'new' }))).toBe(0)
+    expect(quotationScore(quote({ status: 'open', customer_type: 'existing' }))).toBe(0)
+  })
+})
+
+describe('conversionsOf', () => {
+  it('splits quotations and conversions by new and existing, and adds up the score', () => {
+    const list = [
+      quote({ customer_type: 'new', status: 'closed' }),
+      quote({ customer_type: 'new', status: 'lost' }),
+      quote({ customer_type: 'existing', status: 'closed' }),
+      quote({ customer_type: 'existing', status: 'closed' }),
+      quote({ customer_type: 'existing', status: 'open' }),
+    ]
+    expect(conversionsOf(list)).toEqual({
+      quotations: 5,
+      newQuotations: 2,
+      existingQuotations: 3,
+      conversions: 3,
+      newConversions: 1,
+      existingConversions: 2,
+      conversionRate: 60,
+      score: 200,
+    })
+  })
+
+  it('lists every person asked for, at zero when they sent nothing, highest score first', () => {
+    const rows = conversionsByPerson(
+      [quote({ coordinator_id: 'coord-1', status: 'closed', customer_type: 'existing' }), quote({ coordinator_id: 'coord-2', status: 'closed', customer_type: 'new' })],
+      ['coord-1', 'coord-2', 'coord-9']
+    )
+    expect(rows.map((r) => [r.personId, r.summary.score, r.summary.quotations])).toEqual([
+      ['coord-2', 100, 1],
+      ['coord-1', 50, 1],
+      ['coord-9', 0, 0],
     ])
   })
 })

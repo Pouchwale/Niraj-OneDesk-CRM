@@ -14,6 +14,7 @@ import { demoCompanyStore, inBulk } from './demo-companies'
 import { accountKeyOf } from './account-key'
 import { countSettlements, guardSettlements, planSettlements, type FileAccounts } from './excel-reconcile'
 import { isNoFollowup } from './no-followup'
+import { isDisputeExtra } from './dispute-split'
 import { getOverduePayments, settleOverduePayments } from './overdue-api'
 import type { OverduePayment, OverdueStatus } from './types'
 
@@ -416,7 +417,7 @@ async function upsertOverduePayment(
   payload: Omit<OverduePayment, 'id' | 'created_at' | 'updated_at'>
 ): Promise<{ id: string | null; wasCreated: boolean; before: number | null }> {
   // Read before the write, which is the only moment it still exists.
-  const was = demoCompanyStore.getAllOverduePayments().find((p) => sameBpCode(p.bp_code, payload.bp_code))
+  const was = demoCompanyStore.getAllOverduePayments().find((p) => !isDisputeExtra(p) && sameBpCode(p.bp_code, payload.bp_code))
   const before = was ? was.balance_due ?? 0 : null
   const { payment, wasCreated } = demoCompanyStore.upsertOverduePayment(payload as OverduePayment)
   return { id: payment.id, wasCreated, before }

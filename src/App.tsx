@@ -29,6 +29,8 @@ const SettingsPage = lazyPage(() => import('@/features/settings/SettingsPage'), 
 const AdminOverviewPage = lazyPage(() => import('@/features/companies/AdminOverviewPage'), 'AdminOverviewPage');
 const RfdPage = lazyPage(() => import('@/features/rfd/RfdPage'), 'RfdPage');
 const QuotationsPage = lazyPage(() => import('@/features/quotations/QuotationsPage'), 'QuotationsPage');
+const BillingIssuesPage = lazyPage(() => import('@/features/billing-issues/BillingIssuesPage'), 'BillingIssuesPage');
+const ServicePage = lazyPage(() => import('@/features/service/ServicePage'), 'ServicePage');
 const WeeklyKpiPage = lazyPage(() => import('@/features/snapshots/WeeklyKpiPage'), 'WeeklyKpiPage');
 
 function RouteFallback() {
@@ -126,6 +128,8 @@ function AppContent() {
           <Route path="overdue" element={<NotForRfdOnly><OverdueDashboardPage /></NotForRfdOnly>} />
           <Route path="rfd" element={<RfdPage />} />
           <Route path="quotations" element={<NotForRfdOnly><QuotationsPage /></NotForRfdOnly>} />
+          <Route path="billing-issues" element={<BillingIssuesPage />} />
+          <Route path="service" element={<NotForRfdOnly><ServicePage /></NotForRfdOnly>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

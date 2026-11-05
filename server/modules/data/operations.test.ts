@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { accountRefusal, decisionRequestRefusal, mayCall, quotationRefusal, type Book } from './operations'
+import { accountRefusal, billingIssueRefusal, serviceRecordRefusal, decisionRequestRefusal, mayCall, quotationRefusal, type Book } from './operations'
 import type { Company, OverduePayment } from '../../../src/lib/types'
 
 const ME = 'coord-1'
@@ -116,5 +116,51 @@ describe('quotations', () => {
     expect(coord('addQuotationFollowup', ['q1', {}])).toBeNull()
     expect(coord('addQuotationFollowup', ['q2', {}])).toMatch(/your own/)
     expect(quotationRefusal('team_leader', 'admin-1', 'saveQuotation', [{ id: 'q2', coordinator_id: HER }], held)).toBeNull()
+  })
+})
+
+describe('billingIssueRefusal', () => {
+  const held = [
+    { id: 'b1', created_by: ME },
+    { id: 'b2', created_by: HER },
+  ]
+  const coord = (args: unknown[]) => billingIssueRefusal('coordinator', ME, 'saveBillingIssue', args, held)
+
+  it('lets a coordinator log in their own name and edit what they logged', () => {
+    expect(coord([{ id: 'new', created_by: ME }])).toBeNull()
+    expect(coord([{ id: 'b1', created_by: ME }])).toBeNull()
+  })
+
+  it('refuses logging in another name or editing an issue somebody else logged', () => {
+    expect(coord([{ id: 'new', created_by: HER }])).toMatch(/own name/)
+    expect(coord([{ id: 'b2', created_by: ME }])).toMatch(/you logged/)
+  })
+
+  it('lets the team leader edit any issue, and keeps deleting with the team', () => {
+    expect(billingIssueRefusal('team_leader', 'admin-1', 'saveBillingIssue', [{ id: 'b2' }], held)).toBeNull()
+    expect(mayCall('coordinator', 'saveBillingIssue')).toBe(true)
+    expect(mayCall('coordinator', 'deleteBillingIssue')).toBe(false)
+  })
+})
+
+describe('serviceRecordRefusal', () => {
+  const held = [
+    { id: 's1', coordinator_id: ME },
+    { id: 's2', coordinator_id: HER },
+  ]
+  const coord = (args: unknown[]) => serviceRecordRefusal('coordinator', ME, 'saveServiceRecord', args, held)
+
+  it('lets a coordinator save only their own rows', () => {
+    expect(coord([{ id: 'new', coordinator_id: ME }])).toBeNull()
+    expect(coord([{ id: 's1', coordinator_id: ME }])).toBeNull()
+    expect(coord([{ id: 'new', coordinator_id: HER }])).toMatch(/your own/)
+    expect(coord([{ id: 's2', coordinator_id: ME }])).toMatch(/your own/)
+    expect(coord([{ id: 's1', coordinator_id: HER }])).toMatch(/your own/)
+  })
+
+  it('leaves the leader free, and the customer counts with the team', () => {
+    expect(serviceRecordRefusal('team_leader', 'admin-1', 'saveServiceRecord', [{ id: 's2', coordinator_id: HER }], held)).toBeNull()
+    expect(mayCall('coordinator', 'setServiceCustomers')).toBe(false)
+    expect(mayCall('coordinator', 'saveServiceRecord')).toBe(true)
   })
 })

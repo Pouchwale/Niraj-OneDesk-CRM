@@ -13,6 +13,8 @@ const PAGE_TITLES: [string, string][] = [
   ['/overdue', 'Overdue Payments'],
   ['/rfd', 'Ready for Dispatch'],
   ['/quotations', 'Quotations'],
+  ['/billing-issues', 'Billing Issues'],
+  ['/service', 'Service'],
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
   ['/otif', 'OTIF Analytics'],

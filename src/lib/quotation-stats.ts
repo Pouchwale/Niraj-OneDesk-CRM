@@ -105,6 +105,69 @@ export function performanceByPerson(list: readonly Quotation[]): { personId: str
     .sort((a, b) => b.performance.valueWon - a.performance.valueWon || b.performance.quotations - a.performance.quotations)
 }
 
+/* ===================== Score and conversions (the team's sheet format, 5 Nov 2026) ===================== */
+
+/** Points per quotation: winning a new customer is worth twice winning more work from an existing one. */
+export const QUOTATION_SCORE = { closedNew: 100, closedExisting: 50, other: 0 } as const
+
+/**
+ * A quotation's score: Closed + New customer = 100, Closed + Existing = 50,
+ * anything else (Open, Lost, or a closed one with no customer type) = 0.
+ * Same as the sheet's =IF(K2="Closed", IF(L2="new",100, IF(L2="existing",50,0)), 0).
+ */
+export function quotationScore(q: Pick<Quotation, 'status' | 'customer_type'>): number {
+  if (q.status !== 'closed') return QUOTATION_SCORE.other
+  if (q.customer_type === 'new') return QUOTATION_SCORE.closedNew
+  if (q.customer_type === 'existing') return QUOTATION_SCORE.closedExisting
+  return QUOTATION_SCORE.other
+}
+
+/** Quotations and conversions (closed = converted), split by new and existing customers, with the score. */
+export interface ConversionSummary {
+  quotations: number
+  newQuotations: number
+  existingQuotations: number
+  conversions: number
+  newConversions: number
+  existingConversions: number
+  /** Converted out of all quotations, 0-100; null with none. */
+  conversionRate: number | null
+  score: number
+}
+
+export function conversionsOf(list: readonly Quotation[]): ConversionSummary {
+  const closed = list.filter((q) => q.status === 'closed')
+  return {
+    quotations: list.length,
+    newQuotations: list.filter((q) => q.customer_type === 'new').length,
+    existingQuotations: list.filter((q) => q.customer_type === 'existing').length,
+    conversions: closed.length,
+    newConversions: closed.filter((q) => q.customer_type === 'new').length,
+    existingConversions: closed.filter((q) => q.customer_type === 'existing').length,
+    conversionRate: list.length ? Math.round((closed.length / list.length) * 100) : null,
+    score: list.reduce((sum, q) => sum + quotationScore(q), 0),
+  }
+}
+
+/**
+ * Conversions per person ('' = not assigned to anyone in the CRM). Everyone in
+ * `people` gets a line, at zero when they sent nothing in the period, as the
+ * sheet lists every coordinator. Highest score first, then most quotations.
+ */
+export function conversionsByPerson(
+  list: readonly Quotation[],
+  people: readonly string[] = []
+): { personId: string; summary: ConversionSummary }[] {
+  const groups = new Map<string, Quotation[]>(people.map((id) => [id, []]))
+  for (const q of list) {
+    const key = q.coordinator_id ?? ''
+    groups.set(key, [...(groups.get(key) ?? []), q])
+  }
+  return [...groups.entries()]
+    .map(([personId, rows]) => ({ personId, summary: conversionsOf(rows) }))
+    .sort((a, b) => b.summary.score - a.summary.score || b.summary.quotations - a.summary.quotations)
+}
+
 /** Counts by status and value won, month by month (yyyy-mm), oldest first, on the chosen date basis. */
 export function monthlyPerformance(
   list: readonly Quotation[],

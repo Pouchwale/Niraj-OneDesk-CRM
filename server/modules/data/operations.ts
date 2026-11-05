@@ -75,6 +75,17 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   addQuotationFollowup: 'own',
   deleteQuotation: 'team',
   importQuotations: 'team',
+
+  // Billing issues: anyone logs one; a coordinator edits only what they logged (see billingIssueRefusal).
+  saveBillingIssue: 'own',
+  deleteBillingIssue: 'team',
+  importBillingIssues: 'team',
+
+  // Service log: a coordinator keeps their own rows (see serviceRecordRefusal); the leader sets Total Customers.
+  saveServiceRecord: 'own',
+  deleteServiceRecord: 'team',
+  importServiceRecords: 'team',
+  setServiceCustomers: 'team',
   /*
    * The ageing-row-only forms of the two above, which a browser still open on
    * the previous version sends. Left with the team, since they carry no
@@ -174,6 +185,44 @@ export function quotationRefusal(
     return 'A quotation you save must be your own.'
   }
   return null
+}
+
+/**
+ * Why a coordinator may not save this billing issue, or null when they may:
+ * they log new ones in their own name and change only the ones they logged.
+ */
+export function billingIssueRefusal(
+  role: AuthRole | undefined,
+  userId: string,
+  method: string,
+  args: unknown[],
+  issues: { id: string; created_by: string | null }[]
+): string | null {
+  if (method !== 'saveBillingIssue') return null
+  if (role === 'admin' || role === 'team_leader') return null
+  const issue = (args[0] ?? null) as { id?: unknown; created_by?: unknown } | null
+  const held = issues.find((i) => i.id === issue?.id)
+  if (held) return held.created_by === userId ? null : 'You can only change billing issues you logged.'
+  return issue?.created_by === userId ? null : 'A billing issue you log must be in your own name.'
+}
+
+/**
+ * Why a coordinator may not save this service record, or null when they may:
+ * only their own rows, and they cannot hand one to somebody else.
+ */
+export function serviceRecordRefusal(
+  role: AuthRole | undefined,
+  userId: string,
+  method: string,
+  args: unknown[],
+  records: { id: string; coordinator_id: string | null }[]
+): string | null {
+  if (method !== 'saveServiceRecord') return null
+  if (role === 'admin' || role === 'team_leader') return null
+  const record = (args[0] ?? null) as { id?: unknown; coordinator_id?: unknown } | null
+  const held = records.find((r) => r.id === record?.id)
+  if (held && held.coordinator_id !== userId) return 'You can only change your own service records.'
+  return record?.coordinator_id === userId ? null : 'A service record you save must be your own.'
 }
 
 /** True when this role may ask for that operation. */

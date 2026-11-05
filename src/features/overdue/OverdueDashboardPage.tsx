@@ -323,6 +323,11 @@ export function OverdueDashboardPage() {
 
   // Everything this screen can list: set-aside balances are not among them.
   const visibleCount = useMemo(() => payments.filter((p) => !isSetAside(p)).length, [payments]);
+  /** The amount in dispute, for a row carrying a disputed customer's newer money. */
+  const disputedBalanceOf = useMemo(() => {
+    const byId = new Map(payments.map((p) => [p.id, p]));
+    return (row: OverduePayment) => (row.dispute_extra_of ? byId.get(row.dispute_extra_of)?.balance_due ?? null : null);
+  }, [payments]);
 
   /** The balances of each register, for the tabs and the set-aside tables (bankrupt is in none). */
   const bySegment = useMemo(() => {
@@ -610,6 +615,11 @@ export function OverdueDashboardPage() {
                       <td className="px-4 py-3">
                         <div className="font-medium text-foreground">{payment.customer_name || '-'}</div>
                         <div className="text-xs text-muted-foreground font-mono">{payment.bp_code}</div>
+                        {payment.dispute_extra_of && (
+                          <div className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                            New amount · {disputedBalanceOf(payment) != null ? `${formatCurrency(disputedBalanceOf(payment) ?? 0)} more` : 'older amount'} in dispute
+                          </div>
+                        )}
                         {attention && <AttentionChip attention={attention} className="mt-1" />}
                       </td>
                       <td

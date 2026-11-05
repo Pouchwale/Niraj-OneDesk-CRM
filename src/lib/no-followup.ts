@@ -33,6 +33,12 @@ export interface NoFollowupFields {
   no_followup_note?: string | null
   /** 'dispute' for an account in dispute, 'export' for an export client; otherwise a plain no follow-up. */
   no_followup_kind?: SetAsideKind | null
+  /**
+   * For a dispute on an ageing row: the balance that was disputed. Money the
+   * file shows above it is not part of the dispute (see dispute-split.ts).
+   * Null on older disputes and on invoices: the whole balance is held out.
+   */
+  no_followup_amount?: number | null
 }
 
 /** Set aside because the customer disputes the amount (listed in its own register). */
@@ -72,6 +78,7 @@ export function markNoFollowup(by: string, note?: string | null, kind?: SetAside
     no_followup_by: by,
     no_followup_note: note?.trim() || null,
     no_followup_kind: kind === 'dispute' || kind === 'export' ? kind : null,
+    no_followup_amount: null,
   }
 }
 
@@ -81,6 +88,14 @@ export const CLEAR_NO_FOLLOWUP: Required<NoFollowupFields> = {
   no_followup_by: null,
   no_followup_note: null,
   no_followup_kind: null,
+  no_followup_amount: null,
+}
+
+/** The disputed amount an ageing row's dispute covers, or null when it covers the whole balance. */
+export function disputedAmountOf(record: NoFollowupFields | null | undefined): number | null {
+  if (!isDispute(record)) return null
+  const amount = record?.no_followup_amount
+  return typeof amount === 'number' && Number.isFinite(amount) ? amount : null
 }
 
 /** What is set aside, and how much of the book it accounts for. */

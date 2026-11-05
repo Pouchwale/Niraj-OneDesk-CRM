@@ -14,7 +14,7 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
-import { accountRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string) {
@@ -44,6 +44,9 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     attendance: (snapshot.attendance ?? []).filter((a) => a.userId === userId),
     rfdRows: (snapshot.rfdRows ?? []).filter((r) => r.assigned_coordinator_id === userId),
     quotations: (snapshot.quotations ?? []).filter((q) => q.coordinator_id === userId),
+    // Their own service rows; the team's and the customer counts are the leader's to read.
+    serviceRecords: (snapshot.serviceRecords ?? []).filter((r) => r.coordinator_id === userId),
+    serviceTargets: [],
     // Numbers only, so a new quotation never reuses one another coordinator took.
     quotationNos: (snapshot.quotations ?? []).map((q) => q.quotation_no).filter((n): n is string => !!n),
     // The import's own paperwork is the leader's business, not theirs.
@@ -128,6 +131,18 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (quote) {
         logger.warn('data: quotation change refused', { method, user: user.id, refusal: quote })
         next(ApiError.forbidden(quote))
+        return
+      }
+      const billing = billingIssueRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().billingIssues ?? [])
+      if (billing) {
+        logger.warn('data: billing issue change refused', { method, user: user.id, refusal: billing })
+        next(ApiError.forbidden(billing))
+        return
+      }
+      const service = serviceRecordRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().serviceRecords ?? [])
+      if (service) {
+        logger.warn('data: service record change refused', { method, user: user.id, refusal: service })
+        next(ApiError.forbidden(service))
         return
       }
       const proof = proofRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().proofRequests ?? [])
