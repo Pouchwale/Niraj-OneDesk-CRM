@@ -58,7 +58,7 @@ export function runAutoSave(deps: AutoSaveDeps): string {
   const decision = autoSaveDue(now, saved, lastImport)
   if (decision === 'no' || decision === 'wait') return decision
 
-  const { percentage } = deps.snapshots.getSettings()
+  const { percentage, disputePercentage } = deps.snapshots.getSettings()
   if (percentage === null) {
     deps.logger.warn('weekly kpi: Monday save skipped, no target percentage is set')
     return 'no-percentage'
@@ -68,6 +68,7 @@ export function runAutoSave(deps: AutoSaveDeps): string {
     savedByName: decision === 'save' ? 'Automatic (Monday)' : 'Automatic (Monday, before the morning sync)',
     fileModifiedAt: deps.fileModifiedAt?.() ?? null,
     percentage,
+    disputePercentage: disputePercentage ?? null,
     rows: rows as unknown as Record<string, unknown>[],
     table: transformOverdueDay(rows, percentage, deps.nameOf),
   }

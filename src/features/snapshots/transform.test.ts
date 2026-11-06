@@ -180,3 +180,27 @@ describe('the full saved day as a sheet', () => {
     expect(sheet.at(-1)).toEqual(['Total', null, 150, 110, null, null])
   })
 })
+
+describe('dispute accounts (6 Nov 2026)', () => {
+  const disputed = row({ id: 'd1', no_followup_at: '2026-10-10', no_followup_kind: 'dispute', balance_due: 10 * L, due_0_30: 0, due_31_60: 0, due_61_90: 0, due_91_120: 0, due_121_plus: 10 * L })
+  const plain = row({ id: 'p1', no_followup_at: '2026-10-10', no_followup_kind: null })
+  const regular = row({ id: 'r1' })
+
+  it('counts only the customers in dispute, with the dispute percentage', () => {
+    const [line] = transformOverdueDay([regular, disputed, plain], 10, nameOf, 'dispute')
+    expect(line).toMatchObject({ coordinatorName: 'Pragati', balanceDue: 10 * L, due121Plus: 10 * L, target121Plus: 1 * L, target0to120: 0 })
+  })
+
+  it('leaves the regular table exactly as before', () => {
+    const [line] = transformOverdueDay([regular, disputed, plain], 20, nameOf)
+    expect(line.balanceDue).toBe(24 * L)
+  })
+
+  it('scores dispute accounts with the same formula', () => {
+    const older = transformOverdueDay([disputed], 10, nameOf, 'dispute')
+    const newer = transformOverdueDay([{ ...disputed, balance_due: 9.5 * L, due_121_plus: 9.5 * L }], 10, nameOf, 'dispute')
+    const { rows } = scoreTwoDays(older, newer)
+    // Target 121+ = 1L; collected 0.5L → 25 points; 30-120 has no target → 0.
+    expect(rows[0]).toMatchObject({ target120Plus: 1 * L, achieve120Plus: 0.5 * L, kpiScore: 25 })
+  })
+})

@@ -67,6 +67,7 @@ EXPORT CLIENT AND SET-ASIDE AMOUNTS
 WEEKLY KPI
 - "Save today's data" (Overdue Payments and Weekly KPI, team leader/admin) freezes the Overdue book for the weekly score. Every Monday it is also saved automatically: from 10:00, as soon as that morning's Overdue sync is in, or at 13:00 with whatever data there is. Only one save per Monday; a manual save that day counts.
 - Weekly KPI compares two saved days. Its KPI score is written as the gap from 100%: 80 out of 100 shows as -20%, a full score as 0% (the same way as the daily scores).
+- Weekly KPI has a Regular accounts / Dispute accounts toggle at the top (since 6 Nov 2026). Dispute accounts are the customers in dispute, scored exactly the same way (0-120 and 121+ targets, achievement = old minus new, points capped at 50 each) with their own target percentage, set on the same card while Dispute is selected. Each saved day keeps the dispute percentage it was saved with; days saved before this existed use the current one (shown as "now"). Dispute results are kept apart from regular ones in Past results.
 
 CREDIT / DEBIT NOTES
 - Money past 120 days held up by a credit or debit note gets special attention: when the latest follow-up on an overdue customer with a 121+ balance mentions a credit note, debit note, CN or DN, Robi gives a "Credit/debit note pending" task every day, first in the list and on top of the day's 8, even if a later follow-up date was set, until a newer follow-up no longer mentions a note.

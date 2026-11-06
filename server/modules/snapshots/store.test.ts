@@ -206,3 +206,34 @@ describe('nothing reaches outside the folder', () => {
     expect(existsSync(join(dir, 'settings.json'))).toBe(true)
   })
 })
+
+describe('dispute accounts (6 Nov 2026)', () => {
+  it('keeps a separate dispute percentage, and the regular one untouched', () => {
+    const store = createSnapshotStore(dir)
+    store.saveSettings(20, 'admin-1')
+    store.saveDisputeSettings(10, 'admin-1')
+    expect(store.getSettings()).toMatchObject({ percentage: 20, disputePercentage: 10 })
+    store.saveSettings(25, 'admin-1')
+    expect(store.getSettings()).toMatchObject({ percentage: 25, disputePercentage: 10 })
+    expect(() => store.saveDisputeSettings(0, 'x')).toThrow(SnapshotInputError)
+  })
+
+  it('freezes the dispute percentage on a saved day', () => {
+    const store = createSnapshotStore(dir)
+    const meta = store.saveDay(day({ disputePercentage: 15 }))
+    expect(meta.disputePercentage).toBe(15)
+    expect(store.saveDay(day()).disputePercentage).toBeNull()
+  })
+
+  it('keeps a dispute result apart from the regular result for the same two days', () => {
+    const store = createSnapshotStore(dir)
+    const a = store.saveDay(day())
+    const b = store.saveDay(day())
+    const base = { generatedBy: 'admin-1', oldId: a.id, newId: b.id, oldSavedAt: a.savedAt, newSavedAt: b.savedAt, rows: [], flags: [], oldTable: [], newTable: [] }
+    store.saveResult(base)
+    store.saveResult({ ...base, book: 'dispute' })
+    const books = store.listResults().map((r) => r.book).sort()
+    expect(books).toEqual(['dispute', 'regular'])
+    expect(store.getResult(`${a.id}--${b.id}--dispute`)?.book).toBe('dispute')
+  })
+})

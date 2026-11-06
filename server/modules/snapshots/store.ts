@@ -49,6 +49,7 @@ export interface SnapshotStore {
   removeDay(id: string): boolean
   getSettings(): SnapshotSettings
   saveSettings(percentage: unknown, by: unknown): SnapshotSettings
+  saveDisputeSettings(percentage: unknown, by: unknown): SnapshotSettings
   listResults(): ScoreResultMeta[]
   getResult(id: string): ScoreResult | null
   saveResult(input: unknown): ScoreResultMeta
@@ -106,6 +107,7 @@ export function validateNewDay(input: unknown): NewOverdueSnapshot {
     savedByName: typeof v.savedByName === 'string' && v.savedByName ? v.savedByName : v.savedBy,
     fileModifiedAt: typeof v.fileModifiedAt === 'string' ? v.fileModifiedAt : null,
     percentage: validatePercentage(v.percentage),
+    disputePercentage: v.disputePercentage === undefined || v.disputePercentage === null ? null : validatePercentage(v.disputePercentage),
     rows: v.rows as Record<string, unknown>[],
     table: validateTable(v.table, 'saved day'),
   }
@@ -140,6 +142,7 @@ export function validateNewResult(input: unknown): NewScoreResult {
     flags: Array.isArray(v.flags) ? v.flags.map(String) : [],
     oldTable: validateTable(v.oldTable, 'old day'),
     newTable: validateTable(v.newTable, 'new day'),
+    book: v.book === 'dispute' ? 'dispute' : 'regular',
   }
 }
 
@@ -230,6 +233,7 @@ export function createSnapshotStore(
       savedByName: day.savedByName,
       fileModifiedAt: day.fileModifiedAt,
       percentage: day.percentage,
+      disputePercentage: day.disputePercentage ?? null,
       rowCount: day.rows.length,
       coordinatorCount: day.table.length,
       totalBalance: Math.round(day.table.reduce((sum, row) => sum + row.balanceDue, 0) * 100) / 100,
@@ -252,9 +256,22 @@ export function createSnapshotStore(
 
   const saveSettings = (percentage: unknown, by: unknown): SnapshotSettings => {
     const settings: SnapshotSettings = {
+      ...getSettings(),
       percentage: validatePercentage(percentage),
       updatedAt: now().toISOString(),
       updatedBy: typeof by === 'string' && by ? by : null,
+    }
+    writeJson(settingsFile, settings)
+    return settings
+  }
+
+  /** The dispute accounts' own target percentage; the regular one is left as it is. */
+  const saveDisputeSettings = (percentage: unknown, by: unknown): SnapshotSettings => {
+    const settings: SnapshotSettings = {
+      ...getSettings(),
+      disputePercentage: validatePercentage(percentage),
+      disputeUpdatedAt: now().toISOString(),
+      disputeUpdatedBy: typeof by === 'string' && by ? by : null,
     }
     writeJson(settingsFile, settings)
     return settings
@@ -279,7 +296,9 @@ export function createSnapshotStore(
   const saveResult = (input: unknown): ScoreResultMeta => {
     const result = validateNewResult(input)
     prune()
-    const id = `${result.oldId}--${result.newId}`
+    // One result per pair of days per book; a dispute result never replaces a regular one.
+    const book = result.book === 'dispute' ? 'dispute' : 'regular'
+    const id = book === 'dispute' ? `${result.oldId}--${result.newId}--dispute` : `${result.oldId}--${result.newId}`
     const meta: ScoreResultMeta = {
       id,
       generatedAt: now().toISOString(),
@@ -289,6 +308,7 @@ export function createSnapshotStore(
       newId: result.newId,
       oldSavedAt: result.oldSavedAt,
       newSavedAt: result.newSavedAt,
+      book,
     }
     writeJson(join(resultsDir, `${id}.json`), { ...result, ...meta } satisfies ScoreResult)
     writeJson(join(resultsDir, `${id}.meta.json`), meta)
@@ -303,5 +323,5 @@ export function createSnapshotStore(
     return existed
   }
 
-  return { listDays, getDay, saveDay, removeDay, getSettings, saveSettings, listResults, getResult, saveResult, removeResult, prune }
+  return { listDays, getDay, saveDay, removeDay, getSettings, saveSettings, saveDisputeSettings, listResults, getResult, saveResult, removeResult, prune }
 }

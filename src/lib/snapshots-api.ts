@@ -54,6 +54,13 @@ export const saveTargetPercentage = (percentage: number, updatedBy: string) =>
     body: JSON.stringify({ percentage, updatedBy }),
   })
 
+/** The dispute accounts' own target percentage. */
+export const saveDisputeTargetPercentage = (disputePercentage: number, updatedBy: string) =>
+  call<SnapshotSettings>(SNAPSHOT_ROUTES.settings, {
+    method: 'PUT',
+    body: JSON.stringify({ disputePercentage, updatedBy }),
+  })
+
 export const listScoreResults = () => call<ScoreResultListResponse>(SNAPSHOT_ROUTES.results)
 export const getScoreResult = (id: string) => call<ScoreResult>(snapshotResultUrl(id))
 export const saveScoreResult = (input: NewScoreResult) =>
@@ -80,6 +87,7 @@ export async function saveTodaysOverdue(
     savedByName: by.name,
     fileModifiedAt: readSyncLog().overdue?.modifiedAt ?? null,
     percentage: settings.percentage,
+    disputePercentage: settings.disputePercentage ?? null,
     rows: rows as unknown as Record<string, unknown>[],
     table: transformOverdueDay(rows, settings.percentage, nameOf),
   }

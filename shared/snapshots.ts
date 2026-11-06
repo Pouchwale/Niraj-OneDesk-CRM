@@ -23,6 +23,12 @@ export const SNAPSHOT_ROUTES = {
 export const snapshotDayUrl = (id: string) => `${SNAPSHOT_ROUTES.days}/${encodeURIComponent(id)}`
 export const snapshotResultUrl = (id: string) => `${SNAPSHOT_ROUTES.results}/${encodeURIComponent(id)}`
 
+/**
+ * Which accounts a score is for (since 6 Nov 2026): the regular book, or the
+ * customers in dispute, scored the same way with their own target percentage.
+ */
+export type KpiBook = 'regular' | 'dispute'
+
 /** Saved days and results older than this are removed automatically. */
 export const SNAPSHOT_RETENTION_DAYS = 90
 
@@ -51,6 +57,11 @@ export interface OverdueSnapshotMeta {
   fileModifiedAt: string | null
   /** The target percentage in force when the day was saved. It never changes afterwards. */
   percentage: number
+  /**
+   * The dispute target percentage in force when the day was saved; absent on
+   * days saved before dispute scores existed (they use the current one).
+   */
+  disputePercentage?: number | null
   rowCount: number
   coordinatorCount: number
   totalBalance: number
@@ -66,13 +77,17 @@ export interface OverdueSnapshot extends OverdueSnapshotMeta {
 export type NewOverdueSnapshot = Pick<
   OverdueSnapshot,
   'savedBy' | 'savedByName' | 'fileModifiedAt' | 'percentage' | 'rows' | 'table'
->
+> & { disputePercentage?: number | null }
 
 export interface SnapshotSettings {
   /** One percentage for both targets, applied to days saved from then on. */
   percentage: number | null
   updatedAt: string | null
   updatedBy: string | null
+  /** The dispute accounts' own percentage, for both of their targets. */
+  disputePercentage?: number | null
+  disputeUpdatedAt?: string | null
+  disputeUpdatedBy?: string | null
 }
 
 /** One coordinator's line of the result, in the layout of Niki's sheet. */
@@ -94,6 +109,8 @@ export interface ScoreResultMeta {
   newId: string
   oldSavedAt: string
   newSavedAt: string
+  /** Absent on results from before dispute scores: those are regular. */
+  book?: KpiBook
 }
 
 export interface ScoreResult extends ScoreResultMeta {

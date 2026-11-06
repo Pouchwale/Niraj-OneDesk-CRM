@@ -8,14 +8,17 @@
  * Left out of the sums: customers marked bankrupt or no follow-up, settled
  * rows, and rows with no coordinator.
  *
+ * Dispute (since 6 Nov 2026): the same table and the same score, worked out
+ * from the customers in dispute only, with the dispute target percentage.
+ *
  * Score: the existing Collection KPI calculation, unchanged, so the figures are
  * the ones her Excel formula gives. Only the old day's targets are used.
  */
 
 import type { OverduePayment } from '../../lib/types'
-import { isSetAside } from '../../lib/no-followup'
+import { isBankrupt, isDispute, isSetAside } from '../../lib/no-followup'
 import { calculateCollectionsKpi, type KpiInputRow } from './kpi-calculator'
-import type { ScoreRow, SnapshotTableRow } from '../../../shared/snapshots'
+import type { KpiBook, ScoreRow, SnapshotTableRow } from '../../../shared/snapshots'
 
 /** The column names of the transformed day, exactly as Niki's sheet has them. */
 export const DAY_COLUMNS = [
@@ -50,9 +53,11 @@ function amount(value: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
-/** Whether an Overdue row belongs in the sums. */
-export function countsTowardsScore(row: OverduePayment): boolean {
-  return row.status !== 'settled' && !isSetAside(row) && Boolean(row.assigned_coordinator_id)
+/** Whether an Overdue row belongs in the sums of that book (regular by default). */
+export function countsTowardsScore(row: OverduePayment, book: KpiBook = 'regular'): boolean {
+  if (row.status === 'settled' || !row.assigned_coordinator_id) return false
+  if (book === 'dispute') return isDispute(row) && !isBankrupt(row)
+  return !isSetAside(row)
 }
 
 /**
@@ -65,12 +70,13 @@ export function countsTowardsScore(row: OverduePayment): boolean {
 export function transformOverdueDay(
   rows: OverduePayment[],
   percentage: number,
-  nameOf: (coordinatorId: string) => string
+  nameOf: (coordinatorId: string) => string,
+  book: KpiBook = 'regular'
 ): SnapshotTableRow[] {
   const byCoordinator = new Map<string, SnapshotTableRow>()
 
   for (const row of rows) {
-    if (!countsTowardsScore(row)) continue
+    if (!countsTowardsScore(row, book)) continue
     const id = row.assigned_coordinator_id as string
     let line = byCoordinator.get(id)
     if (!line) {

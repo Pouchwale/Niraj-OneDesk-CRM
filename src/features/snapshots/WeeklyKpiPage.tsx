@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, CalendarRange, Download, Loader2, Percent, Table2, Trash2, Trophy } from 'lucide-react'
+import { AlertTriangle, CalendarRange, Download, Loader2, Percent, Scale, Table2, Trash2, Trophy, Users } from 'lucide-react'
 
 import { PageHeader } from '@/components/shared/PageHeader'
 import { GlassCard } from '@/components/shared/GlassCard'
@@ -27,9 +27,12 @@ import {
   listScoreResults,
   saveScoreResult,
   saveTargetPercentage,
+  saveDisputeTargetPercentage,
 } from '@/lib/snapshots-api'
+import type { OverduePayment } from '@/lib/types'
 import {
   SNAPSHOT_RETENTION_DAYS,
+  type KpiBook,
   type OverdueSnapshot,
   type OverdueSnapshotMeta,
   type ScoreResult,
@@ -46,6 +49,7 @@ import {
   resultSheet,
   scoreTwoDays,
   totalOfDay,
+  transformOverdueDay,
   kpiGap,
   kpiGapLabel,
 } from './transform'
@@ -154,6 +158,8 @@ function ResultTable({ result }: { result: ScoreResult }) {
  */
 export function WeeklyKpiPage() {
   const { user } = useAuth()
+  // Regular accounts, or the customers in dispute scored the same way (since 6 Nov 2026).
+  const [book, setBook] = useState<KpiBook>('regular')
   const [days, setDays] = useState<OverdueSnapshotMeta[]>([])
   const [settings, setSettings] = useState<SnapshotSettings | null>(null)
   const [results, setResults] = useState<ScoreResultMeta[]>([])
@@ -178,7 +184,6 @@ export function WeeklyKpiPage() {
       setDays(list.days)
       setSettings(list.settings)
       setResults(kept.results)
-      setPercentInput(list.settings.percentage === null ? '' : String(list.settings.percentage))
       setUnreachable(null)
     } catch (err) {
       setUnreachable(err instanceof Error ? err.message : 'The server is not answering.')
@@ -190,6 +195,37 @@ export function WeeklyKpiPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // The percentage box shows the selected book's own percentage.
+  const bookPercentage = book === 'dispute' ? settings?.disputePercentage ?? null : settings?.percentage ?? null
+  useEffect(() => {
+    setPercentInput(bookPercentage === null ? '' : String(bookPercentage))
+  }, [bookPercentage, book])
+  // A result on screen belongs to the book it was made for.
+  useEffect(() => {
+    setScore((s) => (s && (s.book ?? 'regular') !== book ? null : s))
+  }, [book])
+
+  /**
+   * A day's dispute percentage: the one it was saved with, or for days saved
+   * before dispute scores existed, the one set now. Null when neither is set.
+   */
+  const disputePercentOf = (d: Pick<OverdueSnapshotMeta, 'disputePercentage'>): number | null =>
+    d.disputePercentage ?? settings?.disputePercentage ?? null
+  const percentLabel = (d: OverdueSnapshotMeta): string => {
+    if (book === 'regular') return `${d.percentage}%`
+    const p = disputePercentOf(d)
+    if (p === null) return '—'
+    return d.disputePercentage == null ? `${p}% (now)` : `${p}%`
+  }
+  /** The day as the selected book's table: regular is frozen in the day; dispute is worked out from its rows. */
+  const tableOf = (day: OverdueSnapshot): SnapshotTableRow[] => {
+    if (book === 'regular') return day.table
+    const p = disputePercentOf(day)
+    return transformOverdueDay(day.rows as unknown as OverduePayment[], p ?? 0, getCoordinatorDisplayName, 'dispute')
+  }
+  const bookName = book === 'dispute' ? 'Dispute accounts' : 'Regular accounts'
+  const shownResults = useMemo(() => results.filter((r) => (r.book ?? 'regular') === book), [results, book])
 
   const byId = useMemo(() => new Map(days.map((d) => [d.id, d])), [days])
   // The newer day must be later than the older one.
@@ -207,8 +243,8 @@ export function WeeklyKpiPage() {
     if (!user) return
     setSavingPercent(true)
     try {
-      setSettings(await saveTargetPercentage(value, user.id))
-      toast.success(`Target percentage set to ${value}%`, {
+      setSettings(book === 'dispute' ? await saveDisputeTargetPercentage(value, user.id) : await saveTargetPercentage(value, user.id))
+      toast.success(`${bookName}: target percentage set to ${value}%`, {
         description: 'It applies to days saved from now on. Days already saved keep their own percentage.',
       })
     } catch (err) {
@@ -232,8 +268,8 @@ export function WeeklyKpiPage() {
   const downloadDay = async (meta: OverdueSnapshotMeta) => {
     try {
       const saved = await getSavedDay(meta.id)
-      downloadWorkbook(`Overdue saved ${fileStamp(saved.savedAt)}.xlsx`, [
-        { name: 'Transformed', rows: daySheet(saved.table) },
+      downloadWorkbook(`Overdue saved ${fileStamp(saved.savedAt)}${book === 'dispute' ? ' dispute' : ''}.xlsx`, [
+        { name: book === 'dispute' ? 'Transformed dispute' : 'Transformed', rows: daySheet(tableOf(saved)) },
         { name: 'All data', rows: rawDaySheet(saved.rows) },
       ])
     } catch (err) {
@@ -264,8 +300,15 @@ export function WeeklyKpiPage() {
         toast.error('The old day must be earlier than the new day.')
         return
       }
-      const outcome = scoreTwoDays(older.table, newer.table)
+      if (book === 'dispute' && disputePercentOf(older) === null) {
+        toast.error('Set the dispute target percentage first.')
+        return
+      }
+      const oldTable = tableOf(older)
+      const newTable = tableOf(newer)
+      const outcome = scoreTwoDays(oldTable, newTable)
       const input = {
+        book,
         generatedBy: user.id,
         generatedByName: getCoordinatorDisplayName(user.id),
         oldId,
@@ -274,8 +317,8 @@ export function WeeklyKpiPage() {
         newSavedAt: newer.savedAt,
         rows: outcome.rows,
         flags: outcome.flags,
-        oldTable: older.table,
-        newTable: newer.table,
+        oldTable,
+        newTable,
       }
       const { result } = await saveScoreResult(input)
       setScore({ ...input, id: result.id, generatedAt: result.generatedAt })
@@ -296,7 +339,7 @@ export function WeeklyKpiPage() {
   }
 
   const downloadResult = (result: ScoreResult) => {
-    downloadWorkbook(`KPI score ${fileStamp(result.oldSavedAt)} to ${fileStamp(result.newSavedAt)}.xlsx`, [
+    downloadWorkbook(`KPI score${(result.book ?? 'regular') === 'dispute' ? ' dispute' : ''} ${fileStamp(result.oldSavedAt)} to ${fileStamp(result.newSavedAt)}.xlsx`, [
       { name: 'KPI score', rows: resultSheet(result.rows) },
       { name: 'Old day', rows: daySheet(result.oldTable) },
       { name: 'New day', rows: daySheet(result.newTable, false) },
@@ -321,6 +364,33 @@ export function WeeklyKpiPage() {
         <SaveTodayButton variant="default" onSaved={load} />
       </PageHeader>
 
+      {/* Which accounts are scored: everything below follows this. */}
+      <div role="tablist" aria-label="Accounts scored" className="inline-flex rounded-xl border border-border bg-muted/40 p-1" data-testid="kpi-book">
+        {([
+          { id: 'regular', label: 'Regular accounts', Icon: Users },
+          { id: 'dispute', label: 'Dispute accounts', Icon: Scale },
+        ] as const).map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={book === id}
+            onClick={() => setBook(id)}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              book === id
+                ? id === 'dispute'
+                  ? 'bg-amber-400 font-medium text-amber-950 shadow-sm'
+                  : 'bg-background font-medium text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
       {unreachable && (
         <GlassCard className="flex items-start gap-2 p-4 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
@@ -331,12 +401,14 @@ export function WeeklyKpiPage() {
       {/* The one percentage for both targets. */}
       <GlassCard className="space-y-3 p-5" data-testid="target-percentage">
         <h3 className="flex items-center gap-2 text-lg font-semibold">
-          <Percent className="h-5 w-5 text-primary" /> Target percentage
+          <Percent className="h-5 w-5 text-primary" /> Target percentage · {bookName}
         </h3>
         <p className="max-w-3xl text-sm text-muted-foreground">
           0 to 120 Days Collection target = this % of (0-30 + 31-60 + 61-90 + 91-120). 121+ Days Target =
           this % of 121+. It applies to days saved from now on; days already saved keep the percentage
           they were saved with.
+          {book === 'dispute' &&
+            ' Dispute accounts are the customers in dispute, scored exactly like regular accounts with this percentage. Days saved before dispute scores existed use the percentage set now (marked "now").'}
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
@@ -360,9 +432,13 @@ export function WeeklyKpiPage() {
             {savingPercent ? 'Saving…' : 'Save percentage'}
           </Button>
           <span className="text-xs text-muted-foreground">
-            {settings?.percentage === null || !settings
-              ? 'Not set yet — a day cannot be saved until it is.'
-              : `Now ${settings.percentage}%${settings.updatedAt ? `, set ${when(settings.updatedAt)}` : ''}`}
+            {book === 'dispute'
+              ? bookPercentage === null
+                ? 'Not set yet — dispute scores cannot be generated until it is.'
+                : `Now ${bookPercentage}%${settings?.disputeUpdatedAt ? `, set ${when(settings.disputeUpdatedAt)}` : ''}`
+              : settings?.percentage === null || !settings
+                ? 'Not set yet — a day cannot be saved until it is.'
+                : `Now ${settings.percentage}%${settings.updatedAt ? `, set ${when(settings.updatedAt)}` : ''}`}
           </span>
         </div>
       </GlassCard>
@@ -386,7 +462,7 @@ export function WeeklyKpiPage() {
                   <th className="px-3 py-2 text-left font-medium">Excel file saved</th>
                   <th className="px-3 py-2 text-right font-medium">Coordinators</th>
                   <th className="px-3 py-2 text-right font-medium">Balance</th>
-                  <th className="px-3 py-2 text-right font-medium">Target %</th>
+                  <th className="px-3 py-2 text-right font-medium">{book === 'dispute' ? 'Dispute target %' : 'Target %'}</th>
                   <th className="px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -398,7 +474,7 @@ export function WeeklyKpiPage() {
                     <td className="px-3 py-2 text-muted-foreground">{when(d.fileModifiedAt)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{d.coordinatorCount}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{rupees(d.totalBalance)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.percentage}%</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{percentLabel(d)}</td>
                     <td className="px-3 py-2">
                       <div className="flex justify-end gap-2">
                         <Button size="sm" variant="outline" onClick={() => openTransform(d.id)} disabled={opening === d.id}>
@@ -424,7 +500,7 @@ export function WeeklyKpiPage() {
       {/* Two days in, one score out. */}
       <GlassCard className="space-y-4 p-5">
         <h3 className="flex items-center gap-2 text-lg font-semibold">
-          <Trophy className="h-5 w-5 text-primary" /> Generate score
+          <Trophy className="h-5 w-5 text-primary" /> Generate score · {bookName}
         </h3>
         <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <div className="space-y-1.5">
@@ -442,7 +518,7 @@ export function WeeklyKpiPage() {
               <SelectContent>
                 {days.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
-                    {when(d.savedAt)} · {d.percentage}%
+                    {when(d.savedAt)} · {percentLabel(d)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -481,7 +557,7 @@ export function WeeklyKpiPage() {
             )}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-semibold">
-                KPI score · {when(score.oldSavedAt)} → {when(score.newSavedAt)}
+                {(score.book ?? 'regular') === 'dispute' ? 'Dispute KPI score' : 'KPI score'} · {when(score.oldSavedAt)} → {when(score.newSavedAt)}
               </h4>
               <Button size="sm" variant="outline" onClick={() => downloadResult(score)}>
                 <Download className="mr-1.5 h-3.5 w-3.5" /> Download
@@ -502,12 +578,12 @@ export function WeeklyKpiPage() {
 
       {/* Results generated before, kept three months. */}
       <GlassCard className="space-y-3 p-5">
-        <h3 className="text-lg font-semibold">Past results</h3>
-        {results.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No score has been generated yet.</p>
+        <h3 className="text-lg font-semibold">Past results · {bookName}</h3>
+        {shownResults.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No {book === 'dispute' ? 'dispute ' : ''}score has been generated yet.</p>
         ) : (
           <ul className="divide-y divide-border/50 text-sm">
-            {results.map((r) => (
+            {shownResults.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
                   <span className="font-medium">{when(r.oldSavedAt)}</span> →{' '}
@@ -533,18 +609,20 @@ export function WeeklyKpiPage() {
             <DialogTitle>Saved {transformed ? when(transformed.savedAt) : ''}</DialogTitle>
             <DialogDescription>
               {transformed
-                ? `${transformed.coordinatorCount} coordinators · targets at ${transformed.percentage}% · bankrupt, no follow-up, settled and unassigned rows left out`
+                ? book === 'dispute'
+                  ? `Dispute accounts · targets at ${disputePercentOf(transformed) ?? '—'}% · only customers in dispute; settled, bankrupt and unassigned rows left out`
+                  : `${transformed.coordinatorCount} coordinators · targets at ${transformed.percentage}% · bankrupt, no follow-up, settled and unassigned rows left out`
                 : ''}
             </DialogDescription>
           </DialogHeader>
-          {transformed && <DayTable table={transformed.table} />}
+          {transformed && <DayTable table={tableOf(transformed)} />}
           <DialogFooter>
             {transformed && (
               <Button
                 variant="outline"
                 onClick={() =>
-                  downloadWorkbook(`Overdue saved ${fileStamp(transformed.savedAt)}.xlsx`, [
-                    { name: 'Transformed', rows: daySheet(transformed.table) },
+                  downloadWorkbook(`Overdue saved ${fileStamp(transformed.savedAt)}${book === 'dispute' ? ' dispute' : ''}.xlsx`, [
+                    { name: book === 'dispute' ? 'Transformed dispute' : 'Transformed', rows: daySheet(tableOf(transformed)) },
                     { name: 'All data', rows: rawDaySheet(transformed.rows) },
                   ])
                 }

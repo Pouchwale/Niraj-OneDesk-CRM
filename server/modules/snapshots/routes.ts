@@ -57,7 +57,13 @@ export function snapshotRoutes(store: SnapshotStore, logger: Logger): Router {
   router.put(
     '/settings',
     handle((req, res) => {
-      const body = (req.body ?? {}) as { percentage?: unknown; updatedBy?: unknown }
+      const body = (req.body ?? {}) as { percentage?: unknown; disputePercentage?: unknown; updatedBy?: unknown }
+      if (body.disputePercentage !== undefined) {
+        const settings = store.saveDisputeSettings(body.disputePercentage, body.updatedBy)
+        logger.info('weekly kpi: dispute target percentage set', { percentage: settings.disputePercentage, by: settings.disputeUpdatedBy })
+        res.json(settings)
+        return
+      }
       const settings = store.saveSettings(body.percentage, body.updatedBy)
       logger.info('weekly kpi: target percentage set', { percentage: settings.percentage, by: settings.updatedBy })
       res.json(settings)
