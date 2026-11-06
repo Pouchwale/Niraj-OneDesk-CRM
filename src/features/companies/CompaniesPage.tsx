@@ -15,11 +15,14 @@ import { DueDaysFilter } from '@/components/shared/DueDaysFilter'
 import { matchesDueRange, type DueFilterPreset } from '@/lib/due-filter'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Building2, AlertTriangle, Clock, IndianRupee, Search, Filter, ChevronDown, ChevronUp, ArrowUpDown, RefreshCcw, Download } from 'lucide-react'
+import { Building2, AlertTriangle, Clock, IndianRupee, Search, Filter, ChevronDown, ChevronUp, ArrowUpDown, RefreshCcw, Download, Table2 } from 'lucide-react'
+import { SummaryTables } from '@/components/shared/SummaryTables'
+import { activeSummary, summarySheetRows, ACTIVE_SUMMARY_COLUMNS } from '@/lib/ageing-summary'
+import { todayISO } from '@/lib/utils'
 import { differenceInDays, parseISO } from 'date-fns'
 import { formatCurrency } from '@/lib/utils'
 import { getCompanies, getCompanyStats, type CompanyStats } from '@/lib/companies-api'
-import { useAuth, rowOwner } from '@/features/auth/AuthContext'
+import { useAuth, rowOwner, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { OwnerFilter, OwnerName } from '@/components/shared/OwnerFilter'
 import { SetAsideMatches } from '@/components/shared/SetAsideMatches'
 import { OWNER_ALL, OWNER_NOT_IN_CRM, matchesOwner, ownerOptions } from '@/lib/owner'
@@ -92,6 +95,22 @@ export function CompaniesPage() {
     if (next === 'attention') params.set('view', 'attention')
     else params.delete('view')
     setSearchParams(params, { replace: true })
+  }
+  // The pivot-sheet summary instead of the list (in the URL so a reload keeps it).
+  const showSummary = searchParams.get('view') === 'summary'
+  const toggleSummary = () => {
+    const params = new URLSearchParams(searchParams)
+    if (showSummary) params.delete('view')
+    else params.set('view', 'summary')
+    setSearchParams(params, { replace: true })
+  }
+  const summaryNameOf = (id: string | null) => (id ? getCoordinatorDisplayName(id) : 'Not in CRM')
+  const summary = useMemo(() => activeSummary(companies, todayISO(), summaryNameOf), [companies])
+  const downloadSummary = async () => {
+    const { downloadWorkbook } = await import('@/features/snapshots/download')
+    downloadWorkbook(`Active payments summary ${todayISO()}.xlsx`, [
+      { name: 'Summary', rows: summarySheetRows(summary, ACTIVE_SUMMARY_COLUMNS, summaryNameOf) },
+    ])
   }
   
   // Sort
@@ -351,7 +370,10 @@ export function CompaniesPage() {
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <ViewSwitch value={view} onChange={setView} allCount={workingCount} attentionCount={attentionTotal} />
+            <ViewSwitch value={showSummary ? ('none' as PaymentsView) : view} onChange={setView} allCount={workingCount} attentionCount={attentionTotal} />
+            <Button size="sm" variant={showSummary ? 'default' : 'outline'} className="h-9" onClick={toggleSummary} data-testid="active-summary-toggle">
+              <Table2 className="mr-2 h-4 w-4" /> Summary tables
+            </Button>
             {view === 'attention' && (
               <p className="text-xs text-muted-foreground">
                 {attentionCounts.critical} critical · {attentionCounts.overdue} overdue · {attentionCounts.due_soon} due this week
@@ -363,6 +385,24 @@ export function CompaniesPage() {
               </p>
             )}
           </div>
+          {showSummary ? (
+            <SummaryTables
+              title="Active payments summary"
+              subtitle="Every unpaid invoice in its group, by days past the due date; a customer is counted once. Click a line to see that coordinator's accounts."
+              tables={summary}
+              columns={ACTIVE_SUMMARY_COLUMNS}
+              nameOf={summaryNameOf}
+              onDownload={downloadSummary}
+              onPick={(group, ownerId) => {
+                if (group !== 'regular') return
+                const params = new URLSearchParams(searchParams)
+                params.delete('view')
+                params.set('owner', ownerId ?? OWNER_NOT_IN_CRM)
+                setSearchParams(params, { replace: true })
+              }}
+            />
+          ) : (
+          <>
           <GlassCard className="p-4 space-y-4">
           <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
             <div className="relative w-full md:w-96">
@@ -521,6 +561,8 @@ export function CompaniesPage() {
                 </table>
               </div>
             </GlassCard>
+          )}
+          </>
           )}
       </div>
 

@@ -2,7 +2,7 @@ import { useProgressiveRows, MoreRowsFooter } from '@/components/shared/progress
 import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, type Variants } from 'motion/react';
 import { useSearchParams } from 'react-router-dom';
-import { FileSpreadsheet, RefreshCcw, Search, AlertTriangle, IndianRupee, Clock, CheckCircle2, ArrowDown, ArrowUp, ArrowUpDown, Download, LineChart } from 'lucide-react';
+import { FileSpreadsheet, RefreshCcw, Search, AlertTriangle, IndianRupee, Clock, CheckCircle2, ArrowDown, ArrowUp, ArrowUpDown, Download, LineChart, Table2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { downloadAgeing } from './download-ageing';
 import { PageHeader } from '@/components/shared/PageHeader';
@@ -27,7 +27,9 @@ import { getOverduePayments, type OverdueStats } from '@/lib/overdue-api';
 import { getFollowupSummaryByCompany, type CompanyFollowupSummary } from '@/lib/followups-api';
 import { type OverduePayment } from '@/lib/types';
 import { formatCurrency, formatCurrencyExact, formatDate, formatRelativeDate, cn } from '@/lib/utils';
-import { useAuth, rowOwner } from '@/features/auth/AuthContext';
+import { useAuth, rowOwner, getCoordinatorDisplayName } from '@/features/auth/AuthContext';
+import { SummaryTables } from '@/components/shared/SummaryTables';
+import { overdueSummary, summarySheetRows, OVERDUE_SUMMARY_COLUMNS } from '@/lib/ageing-summary';
 import { OwnerFilter, OwnerName } from '@/components/shared/OwnerFilter';
 import { SetAsideMatches } from '@/components/shared/SetAsideMatches';
 import { OWNER_ALL, OWNER_NOT_IN_CRM, matchesOwner, ownerOptions } from '@/lib/owner';
@@ -144,9 +146,12 @@ export function OverdueDashboardPage() {
    * always was), one of the three set-aside registers, or Trends. In the URL
    * so a link or a reload opens the same tab.
    */
-  type PageTab = BookSegment | 'trends';
+  type PageTab = BookSegment | 'trends' | 'summary';
   const tabParam = searchParams.get('tab');
-  const tab: PageTab = tabParam === 'trends' || BOOK_SEGMENTS.some((s) => s.key === tabParam) ? (tabParam as PageTab) : 'regular';
+  const tab: PageTab =
+    tabParam === 'trends' || (tabParam === 'summary' && canManageTeam) || BOOK_SEGMENTS.some((s) => s.key === tabParam)
+      ? (tabParam as PageTab)
+      : 'regular';
   const setTab = (next: PageTab) => {
     const params = new URLSearchParams(searchParams);
     if (next === 'regular') params.delete('tab');
@@ -338,6 +343,15 @@ export function OverdueDashboardPage() {
     }
     return groups;
   }, [payments]);
+  /** The pivot-sheet summary: a table per group, a line per coordinator (team leader and administrator). */
+  const summaryNameOf = (id: string | null) => (id ? getCoordinatorDisplayName(id) : 'Not in CRM');
+  const summary = useMemo(() => (canManageTeam ? overdueSummary(payments, summaryNameOf) : []), [payments, canManageTeam]);
+  const downloadSummary = async () => {
+    const { downloadWorkbook } = await import('@/features/snapshots/download');
+    downloadWorkbook(`Overdue summary ${new Date().toISOString().slice(0, 10)}.xlsx`, [
+      { name: 'Summary', rows: summarySheetRows(summary, OVERDUE_SUMMARY_COLUMNS, summaryNameOf) },
+    ]);
+  };
   const attentionCounts = useMemo(() => countByReason(payments, overdueAttention), [payments]);
   const attentionTotal = attentionCounts.critical + attentionCounts.overdue;
   const displayCounts = useMemo(() => countByReason(displayRows, overdueAttention), [displayRows]);
@@ -410,6 +424,27 @@ export function OverdueDashboardPage() {
             </button>
           );
         })}
+        {canManageTeam && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'summary'}
+            onClick={() => setTab('summary')}
+            className={cn(
+              'min-w-[140px] shrink-0 rounded-xl border px-4 py-2.5 text-left transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              tab === 'summary'
+                ? 'border-primary/60 bg-primary/10 shadow-sm'
+                : 'border-border/60 bg-card/60 hover:border-border hover:bg-muted/40'
+            )}
+            data-testid="tab-summary"
+          >
+            <span className={cn('flex items-center gap-1.5 text-sm font-medium', tab === 'summary' ? 'text-foreground' : 'text-muted-foreground')}>
+              <Table2 className="h-3.5 w-3.5" /> Summary
+            </span>
+            <span className="block text-xs text-muted-foreground">By coordinator · age</span>
+          </button>
+        )}
         <button
           type="button"
           role="tab"
@@ -430,7 +465,26 @@ export function OverdueDashboardPage() {
         </button>
       </div>
 
-      {tab !== 'regular' && tab !== 'trends' && (
+      {tab === 'summary' && canManageTeam && !isLoading && (
+        <SummaryTables
+          title="Overdue summary"
+          subtitle="Every balance the file lists, in its group: customers, balance and age per coordinator. Click a line to see those customers."
+          tables={summary}
+          columns={OVERDUE_SUMMARY_COLUMNS}
+          nameOf={summaryNameOf}
+          onDownload={downloadSummary}
+          onPick={(group, ownerId) => {
+            if (group === 'bankrupt') return;
+            const params = new URLSearchParams(searchParams);
+            if (group === 'regular') params.delete('tab');
+            else params.set('tab', group);
+            if (group === 'regular') params.set('owner', ownerId ?? OWNER_NOT_IN_CRM);
+            setSearchParams(params, { replace: true });
+          }}
+        />
+      )}
+
+      {tab !== 'regular' && tab !== 'trends' && tab !== 'summary' && (
         isLoading ? (
           <div className="flex justify-center p-12">
             <RefreshCcw className="h-8 w-8 animate-spin text-primary" />

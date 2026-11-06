@@ -71,6 +71,9 @@ WEEKLY KPI
 CREDIT / DEBIT NOTES
 - Money past 120 days held up by a credit or debit note gets special attention: when the latest follow-up on an overdue customer with a 121+ balance mentions a credit note, debit note, CN or DN, Robi gives a "Credit/debit note pending" task every day, first in the list and on top of the day's 8, even if a later follow-up date was set, until a newer follow-up no longer mentions a note.
 
+SUMMARY TABLES (team leader and administrator)
+- Overdue Payments > Summary tab, and Active Payments > "Summary tables" button (next to All payments / Critical & closing in): the team's pivot-sheet layout. One table per group - Regular Customer (green), Dispute Account (yellow), Export Customer (blue), Do Not take Follow-up (pink), Bankrupt (grey) - with a line per coordinator: number of customers, balance, and the balance by age, then a Grand Total. Overdue uses the file's 0-30, 31-60, 61-90, 91-120 and 121+ buckets; Active Payments puts each unpaid invoice by days past its due date (Not yet due, 0-30 ... 121+) and counts a customer once. A strip at the top shows each group's total; clicking a coordinator's line opens their customers; "Excel" downloads all tables stacked like the sheet.
+
 QUOTATIONS
 - The Quotations page (sidebar) holds every quotation, kept in the CRM since 13 Oct 2026 instead of the Quotation List workbook (its 661 rows were imported). A coordinator adds and edits their own quotations and sees only theirs; the team leader and administrator see everyone's, filter by coordinator and download Excel.
 - "New quotation": customer, concern person, contact, quotation number (the next free number is suggested), enquiry and quotation dates, source (Label, Sleeve, Label / Sleeve), sales employee, customer type (New or Existing), amount and status.
