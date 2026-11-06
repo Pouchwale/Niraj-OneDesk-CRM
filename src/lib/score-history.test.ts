@@ -16,6 +16,7 @@ import {
   periodRange,
   recentKeys,
   weekOf,
+  kpiWeekOf,
   type RobiDay,
   type ScoreEntry,
   type ScoreInputs,
@@ -62,6 +63,12 @@ describe('periods', () => {
     expect(weekOf('2026-11-06')).toBe('2026-11-02')
     expect(weekOf('2026-11-08')).toBe('2026-11-02')
     expect(weekOf('2026-11-09')).toBe('2026-11-09')
+    // A Weekly KPI score belongs to the week in the middle of its two days.
+    const local = (m: number, d: number, h: number, min = 0) => new Date(2026, m - 1, d, h, min).toISOString()
+    expect(kpiWeekOf(local(10, 31, 10), local(11, 7, 10))).toBe('2026-11-02') // Saturday to Saturday: the week it measured
+    expect(kpiWeekOf(local(11, 7, 10), local(11, 14, 10))).toBe('2026-11-09')
+    expect(kpiWeekOf(local(10, 19, 13, 1), local(10, 26, 9, 38))).toBe('2026-10-19') // Monday to Monday, as before
+    expect(kpiWeekOf(local(9, 29, 10, 48), local(10, 6, 10, 32))).toBe('2026-09-28') // a Tuesday pair, as before
     expect(periodRange('week', '2026-11-02')).toEqual({ start: '2026-11-02', end: '2026-11-08' })
     expect(periodRange('month', '2026-02').end).toBe('2026-02-28')
     expect(periodRange('month', '2028-02').end).toBe('2028-02-29')

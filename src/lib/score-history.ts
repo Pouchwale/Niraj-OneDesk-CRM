@@ -109,6 +109,18 @@ export function weekOf(day: string): string {
   return addDays(day, dow === 0 ? -6 : 1 - dow)
 }
 
+/**
+ * The week a Weekly KPI score measured: the one holding the middle of its two
+ * saved days (local time). Saturday-to-Saturday scores (the rule since 6 Nov
+ * 2026) and Monday-to-Monday ones both land in the week whose collections
+ * they count; each score saved before then stays in the week it was in.
+ */
+export function kpiWeekOf(oldSavedAt: string, newSavedAt: string): string {
+  const middle = new Date((new Date(oldSavedAt).getTime() + new Date(newSavedAt).getTime()) / 2)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return weekOf(`${middle.getFullYear()}-${pad(middle.getMonth() + 1)}-${pad(middle.getDate())}`)
+}
+
 export function periodKey(kind: PeriodKind, day: string): string {
   if (kind === 'week') return weekOf(day)
   if (kind === 'month') return day.slice(0, 7)
@@ -192,7 +204,7 @@ export interface RobiDay {
 /** A saved Weekly KPI score, per coordinator. */
 export interface KpiWeek {
   book: 'regular' | 'dispute'
-  /** Monday of the week it measured (the week of its older saved day). */
+  /** Monday of the week it measured (the week holding the middle of its two saved days, kpiWeekOf). */
   weekStart: string
   generatedAt: string
   rows: { coordinatorId: string | null; kpiScore: number }[]

@@ -5,7 +5,7 @@
 
 import type { AuthUser } from '../../../shared/auth'
 import { teamDayScores } from '../../../src/features/assistant/scores'
-import { attendanceLookup, weekOf, type KpiWeek, type ScoreInputs } from '../../../src/lib/score-history'
+import { attendanceLookup, kpiWeekOf, type KpiWeek, type ScoreInputs } from '../../../src/lib/score-history'
 import { toLocalISODate } from '../../../src/lib/utils'
 import type { DataStore } from '../data/store'
 import type { SnapshotStore } from '../snapshots/store'
@@ -38,7 +38,7 @@ export function scoreInputs(data: DataStore, snapshots: SnapshotStore, roster: (
     if (!result) continue
     kpiWeeks.push({
       book: result.book === 'dispute' ? 'dispute' : 'regular',
-      weekStart: weekOf(toLocalISODate(new Date(result.oldSavedAt))),
+      weekStart: kpiWeekOf(result.oldSavedAt, result.newSavedAt),
       generatedAt: result.generatedAt,
       rows: result.rows.map((r) => ({ coordinatorId: byName.get(clean(r.coordinatorName)) ?? null, kpiScore: r.kpiScore })),
     })

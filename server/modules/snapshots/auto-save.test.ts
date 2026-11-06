@@ -12,7 +12,16 @@ import { createSnapshotStore } from './store'
 const at = (day: number, hour: number) => new Date(2026, 9, day, hour, 0, 0)
 const isoAt = (day: number, hour: number) => at(day, hour).toISOString()
 
-describe('when the Monday day is saved', () => {
+describe('when the Monday and Saturday days are saved', () => {
+  it('saves on Saturday the same way, for the weekly score, and on no other day but Monday', () => {
+    expect(autoSaveDue(at(17, 9), [], isoAt(17, 9))).toBe('wait') // Saturday, too early
+    expect(autoSaveDue(at(17, 10), [], isoAt(17, 9))).toBe('save')
+    expect(autoSaveDue(at(17, 13), [], isoAt(16, 9))).toBe('save-stale')
+    expect(autoSaveDue(at(17, 11), ['2026-10-17'], isoAt(17, 9))).toBe('no') // already saved that Saturday
+    expect(autoSaveDue(at(18, 11), [], isoAt(18, 9))).toBe('no') // Sunday
+    expect(autoSaveDue(at(16, 11), [], isoAt(16, 9))).toBe('no') // Friday
+  })
+
   it('waits for the morning, then for that morning\'s Overdue import, then saves once', () => {
     expect(autoSaveDue(at(13, 11), [], isoAt(13, 9))).toBe('no') // Tuesday
     expect(autoSaveDue(at(12, 9), [], isoAt(12, 9))).toBe('wait') // too early
@@ -53,6 +62,16 @@ describe('the Monday save itself', () => {
     // A second check the same morning does nothing.
     expect(runAutoSave(deps)).toBe('no')
     expect(snapshots.listDays()).toHaveLength(1)
+  })
+
+  it('names Saturday’s save as Saturday’s', () => {
+    dir = mkdtempSync(join(tmpdir(), 'autosave-'))
+    const snapshots = createSnapshotStore(dir, { now: () => at(17, 10) })
+    snapshots.saveSettings(10, 'admin-1')
+    const rows = [row('a', 'coord-1', 50000)].map((r) => ({ ...r, imported_at: isoAt(17, 9) }))
+    const deps = { snapshots, overduePayments: () => rows, nameOf: (id: string) => id, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never, now: () => at(17, 10) }
+    expect(runAutoSave(deps)).toBe('save')
+    expect(snapshots.listDays()[0]).toMatchObject({ savedBy: 'system', savedByName: 'Automatic (Saturday)' })
   })
 })
 

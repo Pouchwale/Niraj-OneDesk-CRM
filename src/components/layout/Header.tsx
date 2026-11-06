@@ -23,6 +23,7 @@ const PAGE_TITLES: [string, string][] = [
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
   ['/otif', 'OTIF Analytics'],
+  ['/weekly-kpi', 'Weekly KPI'],
   ['/team', 'Team Overview'],
   ['/settings', 'Settings'],
 ];

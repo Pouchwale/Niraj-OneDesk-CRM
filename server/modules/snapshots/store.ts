@@ -26,8 +26,23 @@ import {
   type SnapshotSettings,
   type SnapshotTableRow,
 } from '../../../shared/snapshots'
+import { transformOverdueDay } from '../../../src/features/snapshots/transform'
+import type { OverduePayment } from '../../../src/lib/types'
 
 const DAY_MS = 86_400_000
+
+/**
+ * A day's figures for the accounts in dispute (the regular ones come from its
+ * frozen table): the same rows the dispute score counts, so each tab of Weekly
+ * KPI shows its own book.
+ */
+export function disputeSummary(rows: readonly Record<string, unknown>[]): { disputeBalance: number; disputeCoordinatorCount: number } {
+  const table = transformOverdueDay(rows as unknown as OverduePayment[], 0, (id) => id, 'dispute')
+  return {
+    disputeBalance: Math.round(table.reduce((sum, row) => sum + row.balanceDue, 0) * 100) / 100,
+    disputeCoordinatorCount: table.length,
+  }
+}
 
 /**
  * Ids become file names, so only letters, digits and hyphens are ever
@@ -213,7 +228,19 @@ export function createSnapshotStore(
   const listDays = (): OverdueSnapshotMeta[] => {
     prune()
     return summaries(daysDir)
-      .map((name) => readJson<OverdueSnapshotMeta>(join(daysDir, name)))
+      .map((name) => {
+        const meta = readJson<OverdueSnapshotMeta>(join(daysDir, name))
+        // Saved before the dispute figures were kept: worked out once from the full day.
+        if (meta && meta.disputeBalance === undefined && isSafeId(meta.id)) {
+          const day = readJson<OverdueSnapshot>(join(daysDir, `${meta.id}.json`))
+          if (day && Array.isArray(day.rows)) {
+            const filled: OverdueSnapshotMeta = { ...meta, ...disputeSummary(day.rows) }
+            writeJson(join(daysDir, name), filled)
+            return filled
+          }
+        }
+        return meta
+      })
       .filter((meta): meta is OverdueSnapshotMeta => Boolean(meta))
       .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
   }
@@ -237,6 +264,7 @@ export function createSnapshotStore(
       rowCount: day.rows.length,
       coordinatorCount: day.table.length,
       totalBalance: Math.round(day.table.reduce((sum, row) => sum + row.balanceDue, 0) * 100) / 100,
+      ...disputeSummary(day.rows),
     }
     writeJson(join(daysDir, `${id}.json`), { ...meta, rows: day.rows, table: day.table } satisfies OverdueSnapshot)
     writeJson(join(daysDir, `${id}.meta.json`), meta)

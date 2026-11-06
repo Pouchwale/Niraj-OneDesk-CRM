@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SnapshotTableRow } from '../../../shared/snapshots'
@@ -71,6 +71,29 @@ describe('saving a day', () => {
     expect(meta.coordinatorCount).toBe(2)
     expect(meta.totalBalance).toBe(2500000)
     expect(readdirSync(join(dir, 'days')).sort()).toEqual([`${meta.id}.json`, `${meta.id}.meta.json`])
+  })
+
+  it('keeps the dispute accounts’ own figures, and works them out once for older days', () => {
+    // Two customers in dispute (one bankrupt, so not counted) and one regular customer.
+    const rows = [
+      { id: 'r1', balance_due: 900000, due_121_plus: 900000, assigned_coordinator_id: 'coord-1', status: 'critical' },
+      { id: 'd1', balance_due: 300000, due_121_plus: 300000, assigned_coordinator_id: 'coord-1', status: 'critical', no_followup_at: '2026-09-01T00:00:00.000Z', no_followup_kind: 'dispute' },
+      { id: 'd2', balance_due: 50000, due_61_90: 50000, assigned_coordinator_id: 'coord-2', status: 'critical', no_followup_at: '2026-09-01T00:00:00.000Z', no_followup_kind: 'dispute' },
+      { id: 'd3', balance_due: 70000, assigned_coordinator_id: 'coord-2', status: 'bankrupt', no_followup_at: '2026-09-01T00:00:00.000Z', no_followup_kind: 'dispute' },
+    ]
+    const store = createSnapshotStore(dir)
+    const meta = store.saveDay(day({ rows }))
+    expect(meta).toMatchObject({ disputeBalance: 350000, disputeCoordinatorCount: 2 })
+
+    // A day saved before these figures existed gets them the first time the list is read.
+    const older = { ...meta, id: '20260901-100000-aaaa', savedAt: new Date(2026, 8, 1, 10).toISOString() }
+    delete (older as Partial<typeof older>).disputeBalance
+    delete (older as Partial<typeof older>).disputeCoordinatorCount
+    writeFileSync(join(dir, 'days', `${older.id}.json`), JSON.stringify({ ...older, rows, table: [] }))
+    writeFileSync(join(dir, 'days', `${older.id}.meta.json`), JSON.stringify(older))
+    const listed = createSnapshotStore(dir, { now: () => new Date(2026, 8, 11) }).listDays().find((d) => d.id === older.id)!
+    expect(listed).toMatchObject({ disputeBalance: 350000, disputeCoordinatorCount: 2 })
+    expect(JSON.parse(readFileSync(join(dir, 'days', `${older.id}.meta.json`), 'utf8'))).toMatchObject({ disputeBalance: 350000 })
   })
 
   it('keeps the percentage it was saved with', () => {

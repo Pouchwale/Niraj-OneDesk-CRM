@@ -63,8 +63,17 @@ export interface OverdueSnapshotMeta {
    */
   disputePercentage?: number | null
   rowCount: number
+  /** Regular accounts: how many coordinators the day's table has. */
   coordinatorCount: number
+  /** Regular accounts: the balance the day's table adds up to. */
   totalBalance: number
+  /**
+   * The accounts in dispute that day (since 6 Nov 2026): their balance and how
+   * many coordinators have any, worked out from the rows the way the dispute
+   * score is. Absent only until the server first lists an older day.
+   */
+  disputeBalance?: number
+  disputeCoordinatorCount?: number
 }
 
 export interface OverdueSnapshot extends OverdueSnapshotMeta {
