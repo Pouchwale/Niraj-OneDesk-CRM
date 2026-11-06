@@ -48,8 +48,16 @@ function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; e
 
 const dayName = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short' })
 
-/** On leave that day: shown as such and never scored (marked in Overview → Attendance). */
-const onLeave = (userId: string, date: string) => demoCompanyStore.getAttendance(userId, date)?.status === 'leave'
+/**
+ * Not scored that day, and why: on leave (marked in Overview → Attendance), or
+ * a Robi day off for everyone (Admin Panel), shown as N/A.
+ */
+const awayLabel = (userId: string, date: string): 'Leave' | 'N/A' | null => {
+  const away = demoCompanyStore.getAttendance(userId, date)
+  if (away?.status !== 'leave') return null
+  return away.robiOff ? 'N/A' : 'Leave'
+}
+const onLeave = (userId: string, date: string) => awayLabel(userId, date) !== null
 
 /** "+3 extra" under a day: customers followed up who were not on Robi's list. */
 function Extra({ n, credited }: { n?: number; credited?: number }) {
@@ -64,8 +72,13 @@ function Extra({ n, credited }: { n?: number; credited?: number }) {
   )
 }
 
-function Cell({ s, today, leave, extra }: { s?: DayScore; today: boolean; leave?: boolean; extra?: number }) {
-  if (leave) return <span className="text-xs text-muted-foreground" title="On leave: not scored">Leave</span>
+function Cell({ s, today, leave, extra }: { s?: DayScore; today: boolean; leave?: 'Leave' | 'N/A' | null; extra?: number }) {
+  if (leave)
+    return (
+      <span className="text-xs text-muted-foreground" title={leave === 'N/A' ? 'Robi day off: no tasks, not scored' : 'On leave: not scored'}>
+        {leave}
+      </span>
+    )
   if (!s) return extra ? <Extra n={extra} /> : <span className="text-muted-foreground">—</span>
   return (
     <span title={`${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}${s.credited ? `, plus ${s.credited} extra counted` : ''}`}>
@@ -99,7 +112,7 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
       r.name,
       ...r.week.map((s, i) => {
         const more = extra.get(`${r.id}|${days[i]}`)
-        if (onLeave(r.id, days[i])) return 'Leave'
+        if (onLeave(r.id, days[i])) return awayLabel(r.id, days[i])!
         if (!s) return more ? `+${more} extra` : '—'
         return `${s.score}% (${s.done}/${s.given}${s.extra ? `, +${s.extra} extra` : ''})`
       }),
@@ -173,7 +186,7 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
                   <td className="px-4 py-3 font-medium">{r.name}</td>
                   {r.week.map((s, i) => (
                     <td key={days[i]} className={cn('px-3 py-3 text-center', days[i] === today && 'bg-primary/5')}>
-                      <Cell s={s} today={days[i] === today} leave={onLeave(r.id, days[i])} extra={extra.get(`${r.id}|${days[i]}`)} />
+                      <Cell s={s} today={days[i] === today} leave={awayLabel(r.id, days[i])} extra={extra.get(`${r.id}|${days[i]}`)} />
                     </td>
                   ))}
                   <td className={cn('px-4 py-3 text-center text-base font-bold tabular-nums', scoreTone(r.average))}>{scoreLabel(r.average)}</td>
@@ -254,7 +267,7 @@ export function MyScoreCard({ userId }: { userId: string }) {
         {isThisWeek ? (
           <div className="rounded-lg border border-border/60 p-3">
             <p className="text-xs text-muted-foreground">Today so far</p>
-            <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(todayScore?.score))}>{onLeave(userId, today) ? 'Leave' : scoreLabel(todayScore?.score)}</p>
+            <p className={cn('mt-1 text-2xl font-bold tabular-nums', scoreTone(todayScore?.score))}>{awayLabel(userId, today) ?? scoreLabel(todayScore?.score)}</p>
             {todayScore && <p className="text-xs text-muted-foreground">{todayScore.done} of {todayScore.given} done</p>}
           </div>
         ) : (
@@ -281,7 +294,7 @@ export function MyScoreCard({ userId }: { userId: string }) {
               <p className="text-[11px] text-muted-foreground">
                 {dayName(d)} {new Date(`${d}T00:00:00`).getDate()}
               </p>
-              <p className={cn('text-sm tabular-nums', scoreTone(shown.week[i]?.score))}>{onLeave(userId, d) ? 'Leave' : scoreLabel(shown.week[i]?.score)}</p>
+              <p className={cn('text-sm tabular-nums', scoreTone(shown.week[i]?.score))}>{awayLabel(userId, d) ?? scoreLabel(shown.week[i]?.score)}</p>
               {shown.week[i] && <p className="text-[10px] tabular-nums text-muted-foreground">{shown.week[i]!.done}/{shown.week[i]!.given}</p>}
               <Extra n={extra.get(`${userId}|${d}`)} credited={shown.week[i]?.credited} />
             </div>

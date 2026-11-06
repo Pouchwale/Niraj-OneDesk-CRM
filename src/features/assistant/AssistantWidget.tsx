@@ -451,7 +451,11 @@ export function AssistantWidget() {
     const hello = back ? `Back again, ${firstName}.` : `${partOfDay()}, ${firstName}.`
 
     if (isCoordinator) {
-      const away = demoCompanyStore.getAttendance(user.id, todayISO())?.status
+      const awayEntry = demoCompanyStore.getAttendance(user.id, todayISO())
+      const away = awayEntry?.status
+      if (awayEntry?.robiOff) {
+        return assistantSays(`${hello} Robi is off today for everyone, so there's no plan and no score.`, 'Anything still open comes back on your next working day.')
+      }
       if (away === 'leave') {
         return assistantSays(`${hello} You're marked on leave today, so there's no plan.`, 'Anything still open comes back on your next working day.')
       }

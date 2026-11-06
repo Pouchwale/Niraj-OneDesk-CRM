@@ -1,4 +1,4 @@
-import type { AttendanceEntry, BillingIssue, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { AttendanceEntry, BillingIssue, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
@@ -457,6 +457,8 @@ export interface PersistedStore {
   serviceTargets?: ServiceCustomerTarget[]
   /** Leads coordinators found themselves, kept since 5 Nov 2026. Optional for older files. */
   selfLeads?: SelfLead[]
+  /** Days Robi gives nobody tasks (set by the administrator). Optional for older files. */
+  robiOffDays?: RobiOffDay[]
   /**
    * Every quotation number in use, team-wide. Sent to a coordinator, who only
    * holds their own quotations, so the next number suggested is never taken.
@@ -554,6 +556,7 @@ class DemoCompanyStore {
   serviceRecords: ServiceRecord[] = restored?.serviceRecords ?? []
   serviceTargets: ServiceCustomerTarget[] = restored?.serviceTargets ?? []
   selfLeads: SelfLead[] = restored?.selfLeads ?? []
+  robiOffDays: RobiOffDay[] = restored?.robiOffDays ?? []
   quotationNos: string[] = []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
@@ -1428,6 +1431,7 @@ class DemoCompanyStore {
       serviceRecords: this.serviceRecords,
       serviceTargets: this.serviceTargets,
       selfLeads: this.selfLeads,
+      robiOffDays: this.robiOffDays,
     }
   }
 
@@ -1603,8 +1607,36 @@ class DemoCompanyStore {
 
   /* ===== Who is in the office ===== */
 
+  /**
+   * Whether a coordinator is away that day. A Robi day off counts as leave for
+   * everyone (no plan, no proof checks, not scored), marked robiOff so screens
+   * show N/A rather than Leave.
+   */
   getAttendance(userId: string, date: string): AttendanceEntry | null {
+    const off = this.getRobiOffDay(date)
+    if (off) return { userId, date, status: 'leave', by: off.by, at: off.at, robiOff: true }
     return this.attendance.find((a) => a.userId === userId && a.date === date) ?? null
+  }
+
+  /* ===== Robi days off ===== */
+
+  getRobiOffDay(date: string): RobiOffDay | null {
+    return this.robiOffDays.find((d) => d.date === date) ?? null
+  }
+
+  getRobiOffDays(): RobiOffDay[] {
+    return [...this.robiOffDays].sort((a, b) => a.date.localeCompare(b.date))
+  }
+
+  /** Switches Robi's tasks off for everyone on that day; replaces what the day said before. */
+  setRobiOffDay(day: RobiOffDay): void {
+    if (!day?.date || !/^\d{4}-\d{2}-\d{2}$/.test(day.date)) return
+    this.robiOffDays = [...this.robiOffDays.filter((d) => d.date !== day.date), { date: day.date, by: day.by, at: day.at, note: day.note?.trim() || null }]
+  }
+
+  /** Robi plans that day again as usual. */
+  clearRobiOffDay(date: string): void {
+    this.robiOffDays = this.robiOffDays.filter((d) => d.date !== date)
   }
 
   getAttendanceEntries(): AttendanceEntry[] {
@@ -1759,6 +1791,7 @@ class DemoCompanyStore {
     this.serviceRecords = snapshot.serviceRecords ?? []
     this.serviceTargets = snapshot.serviceTargets ?? []
     this.selfLeads = snapshot.selfLeads ?? []
+    this.robiOffDays = snapshot.robiOffDays ?? []
     this.quotationNos = snapshot.quotationNos ?? []
     this.refreshStatuses()
   }

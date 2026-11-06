@@ -14,7 +14,7 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
-import { accountRefusal, billingIssueRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string) {
@@ -144,6 +144,12 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (service) {
         logger.warn('data: service record change refused', { method, user: user.id, refusal: service })
         next(ApiError.forbidden(service))
+        return
+      }
+      const robiOff = robiOffDayRefusal(user.role, method)
+      if (robiOff) {
+        logger.warn('data: Robi day off refused', { method, user: user.id, refusal: robiOff })
+        next(ApiError.forbidden(robiOff))
         return
       }
       const lead = selfLeadRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().selfLeads ?? [])

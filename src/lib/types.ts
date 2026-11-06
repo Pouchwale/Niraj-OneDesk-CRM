@@ -346,6 +346,21 @@ export interface AttendanceEntry {
   status: 'leave' | 'half_day'
   by: string
   at: string
+  /** Not a real absence: the whole day is a Robi day off (see RobiOffDay). Shown as N/A, not Leave. */
+  robiOff?: boolean
+}
+
+/**
+ * A day the administrator switched Robi's tasks off for everyone (since
+ * 6 Nov 2026): no plan, no proof checks, and the day is N/A in the scores.
+ */
+export interface RobiOffDay {
+  /** Local calendar date, yyyy-mm-dd. */
+  date: string
+  by: string
+  at: string
+  /** Why, e.g. a festival or a stock-taking day. */
+  note: string | null
 }
 
 /**

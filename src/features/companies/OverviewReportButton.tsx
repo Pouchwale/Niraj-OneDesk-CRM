@@ -55,6 +55,7 @@ export function OverviewReportButton({ coordinators }: { coordinators: { id: str
         proofRequests: demoCompanyStore.getProofRequests(),
         decisionRequests: demoCompanyStore.getDecisionRequests(),
         attendance: demoCompanyStore.getAttendanceEntries(),
+        robiOffDays: demoCompanyStore.getRobiOffDays().map((d) => d.date),
         nameOf: (id) => (id ? getCoordinatorDisplayName(id) : ''),
       })
       const { downloadOverviewPdf } = await import('./overview-report-pdf')

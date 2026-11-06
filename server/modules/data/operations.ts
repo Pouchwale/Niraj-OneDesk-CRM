@@ -91,6 +91,10 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   saveSelfLead: 'own',
   addSelfLeadRemark: 'own',
   deleteSelfLead: 'team',
+
+  // Robi days off: the administrator only (see robiOffDayRefusal).
+  setRobiOffDay: 'team',
+  clearRobiOffDay: 'team',
   /*
    * The ageing-row-only forms of the two above, which a browser still open on
    * the previous version sends. Left with the team, since they carry no
@@ -251,6 +255,12 @@ export function selfLeadRefusal(
     return 'A lead you save must be your own.'
   }
   return null
+}
+
+/** Only the administrator switches Robi's tasks off for a day, or back on. */
+export function robiOffDayRefusal(role: AuthRole | undefined, method: string): string | null {
+  if (method !== 'setRobiOffDay' && method !== 'clearRobiOffDay') return null
+  return role === 'admin' ? null : 'Only the administrator can switch Robi off for a day.'
 }
 
 /** True when this role may ask for that operation. */

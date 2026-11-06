@@ -27,6 +27,7 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { getCompanies } from '@/lib/companies-api'
 import { getOverduePayments } from '@/lib/overdue-api'
 import { ROLE_LABEL } from '@/lib/users/roles'
+import { RobiOffDaysCard } from './RobiOffDaysCard'
 import {
   blockedFromRemoval,
   changePassword,
@@ -168,6 +169,8 @@ export function AdminPanelPage() {
           </GlassCard>
         ))}
       </div>
+
+      <RobiOffDaysCard userId={signedIn?.id ?? 'admin-0'} />
 
       <GlassCard className="p-4 sm:p-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

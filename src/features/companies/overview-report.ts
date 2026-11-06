@@ -24,6 +24,8 @@ export interface ReportInput {
   proofRequests: ProofRequest[]
   decisionRequests: DecisionRequest[]
   attendance: AttendanceEntry[]
+  /** Robi days off: nobody had tasks, so every coordinator's day is N/A. */
+  robiOffDays?: string[]
   nameOf: (userId: string | null | undefined) => string
 }
 
@@ -75,6 +77,7 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
   const { from, to, nameOf } = input
   const coordinatorIds = new Set(input.coordinators.map((c) => c.id))
   const leave = new Map(input.attendance.map((a) => [`${a.userId}|${a.date}`, a.status]))
+  const robiOff = new Set(input.robiOffDays ?? [])
 
   /* ----- who the records belong to ----- */
   const companyById = new Map(input.companies.map((c) => [c.id, c]))
@@ -112,7 +115,7 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
     owed,
     mine,
     customerLookup(input.companies, input.overduePayments),
-    (u, d) => leave.get(`${u}|${d}`) ?? null
+    (u, d) => (robiOff.has(d) ? 'leave' : leave.get(`${u}|${d}`) ?? null)
   ).sort((a, b) => a.date.localeCompare(b.date) || nameOf(a.coordinatorId).localeCompare(nameOf(b.coordinatorId)))
   // Customers followed up outside Robi's list, once per customer per day.
   const extra = extraWork(
@@ -195,11 +198,13 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
   for (const c of input.coordinators) {
     const days = [...new Set([...scores.keys(), ...extra.keys()].filter((k) => k.startsWith(`${c.id}|`)).map((k) => k.split('|')[1]))]
     const leaveDays = attendance.filter((a) => a.userId === c.id && a.status === 'leave').map((a) => a.date)
-    for (const d of [...new Set([...days, ...leaveDays])].sort()) {
+    const offDays = [...robiOff].filter((d) => inPeriod(d, from, to))
+    for (const d of [...new Set([...days, ...leaveDays, ...offDays])].sort()) {
       const s: DayScore | undefined = scores.get(`${c.id}|${d}`)
       const status = leave.get(`${c.id}|${d}`)
       const more = extra.get(`${c.id}|${d}`)?.length ?? 0
-      if (status === 'leave') scoreRows.push([pretty(d), c.full_name, '-', '-', more || '-', 'Leave'])
+      if (robiOff.has(d)) scoreRows.push([pretty(d), c.full_name, '-', '-', more || '-', 'N/A (Robi day off)'])
+      else if (status === 'leave') scoreRows.push([pretty(d), c.full_name, '-', '-', more || '-', 'Leave'])
       else if (s) scoreRows.push([pretty(d), c.full_name, s.done, s.given, s.extra, `${scoreText(s.score)}${status === 'half_day' ? ' (half day)' : ''}`])
       else if (more) scoreRows.push([pretty(d), c.full_name, '-', '-', more, 'No plan'])
     }
