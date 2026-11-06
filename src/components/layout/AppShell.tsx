@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { AssistantWidget } from '@/features/assistant/AssistantWidget';
 import { ProofGate } from '@/features/assistant/ProofGate';
+import { FestivalOverlay } from '@/features/festivals/FestivalOverlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 
 export const AppShell = () => {
@@ -42,6 +43,8 @@ export const AppShell = () => {
       {/* Coordinator-only follow-up assistant; renders nothing for admins. */}
       <AssistantWidget />
       <ProofGate />
+      {/* Festival celebrations: one at a time, over everything. */}
+      <FestivalOverlay />
     </div>
   );
 };

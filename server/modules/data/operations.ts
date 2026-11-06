@@ -95,6 +95,9 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   // Robi days off: the administrator only (see robiOffDayRefusal).
   setRobiOffDay: 'team',
   clearRobiOffDay: 'team',
+
+  // Festival celebrations: the administrator only (see festivalConfigRefusal).
+  saveFestivalConfig: 'team',
   /*
    * The ageing-row-only forms of the two above, which a browser still open on
    * the previous version sends. Left with the team, since they carry no
@@ -261,6 +264,12 @@ export function selfLeadRefusal(
 export function robiOffDayRefusal(role: AuthRole | undefined, method: string): string | null {
   if (method !== 'setRobiOffDay' && method !== 'clearRobiOffDay') return null
   return role === 'admin' ? null : 'Only the administrator can switch Robi off for a day.'
+}
+
+/** Only the administrator changes how Robi celebrates festivals. */
+export function festivalConfigRefusal(role: AuthRole | undefined, method: string): string | null {
+  if (method !== 'saveFestivalConfig') return null
+  return role === 'admin' ? null : 'Only the administrator can change the festival settings.'
 }
 
 /** True when this role may ask for that operation. */

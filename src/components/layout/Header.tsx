@@ -2,6 +2,8 @@ import { useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { NotificationBell } from '../shared/NotificationBell';
 import { UserMenu } from './UserMenu';
+import { FestivalChip } from '@/features/festivals/FestivalChip';
+import { FestiveToran } from '@/features/festivals/FestiveToran';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -16,6 +18,7 @@ const PAGE_TITLES: [string, string][] = [
   ['/billing-issues', 'Billing Issues'],
   ['/service', 'Service'],
   ['/self-leads', 'Self Leads'],
+  ['/festivals', 'Festivals'],
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
   ['/otif', 'OTIF Analytics'],
@@ -49,9 +52,11 @@ export const Header = ({ onMenuClick }: HeaderProps) => {
       </div>
 
       <div className="flex items-center gap-3">
+        <FestivalChip />
         <NotificationBell />
         <UserMenu />
       </div>
+      <FestiveToran />
     </header>
   );
 };

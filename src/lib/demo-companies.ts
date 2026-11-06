@@ -1,4 +1,5 @@
-import type { AttendanceEntry, BillingIssue, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import { cleanFestivalConfig } from './festival-config'
+import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { todayISO } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
@@ -459,6 +460,8 @@ export interface PersistedStore {
   selfLeads?: SelfLead[]
   /** Days Robi gives nobody tasks (set by the administrator). Optional for older files. */
   robiOffDays?: RobiOffDay[]
+  /** How Robi celebrates festivals (set by the administrator); null = the defaults. */
+  festivalConfig?: FestivalConfig | null
   /**
    * Every quotation number in use, team-wide. Sent to a coordinator, who only
    * holds their own quotations, so the next number suggested is never taken.
@@ -557,6 +560,7 @@ class DemoCompanyStore {
   serviceTargets: ServiceCustomerTarget[] = restored?.serviceTargets ?? []
   selfLeads: SelfLead[] = restored?.selfLeads ?? []
   robiOffDays: RobiOffDay[] = restored?.robiOffDays ?? []
+  festivalConfig: FestivalConfig | null = restored?.festivalConfig ? cleanFestivalConfig(restored.festivalConfig) : null
   quotationNos: string[] = []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
@@ -1432,6 +1436,7 @@ class DemoCompanyStore {
       serviceTargets: this.serviceTargets,
       selfLeads: this.selfLeads,
       robiOffDays: this.robiOffDays,
+      festivalConfig: this.festivalConfig,
     }
   }
 
@@ -1639,6 +1644,19 @@ class DemoCompanyStore {
     this.robiOffDays = this.robiOffDays.filter((d) => d.date !== date)
   }
 
+  /* ===== Festivals (Robi's celebrations, set by the administrator) ===== */
+
+  /** The administrator's festival settings; null until they first save (the defaults apply). */
+  getFestivalConfig(): FestivalConfig | null {
+    return this.festivalConfig
+  }
+
+  /** Replaces the festival settings with a cleaned copy of these. */
+  saveFestivalConfig(config: FestivalConfig): void {
+    if (!config || typeof config !== 'object') return
+    this.festivalConfig = cleanFestivalConfig(config)
+  }
+
   getAttendanceEntries(): AttendanceEntry[] {
     return [...this.attendance]
   }
@@ -1792,6 +1810,7 @@ class DemoCompanyStore {
     this.serviceTargets = snapshot.serviceTargets ?? []
     this.selfLeads = snapshot.selfLeads ?? []
     this.robiOffDays = snapshot.robiOffDays ?? []
+    this.festivalConfig = snapshot.festivalConfig ? cleanFestivalConfig(snapshot.festivalConfig) : null
     this.quotationNos = snapshot.quotationNos ?? []
     this.refreshStatuses()
   }

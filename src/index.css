@@ -483,3 +483,49 @@
     animation: none;
   }
 }
+
+/* Festivals (6 Nov 2026): Robi's festive accessory bobs, its diya flame flickers, the toran sways. */
+@keyframes festive-bob {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-3px) rotate(4deg); }
+}
+@keyframes festive-flicker {
+  0% { transform: scale(1, 1); }
+  35% { transform: scale(0.92, 1.08); }
+  70% { transform: scale(1.06, 0.95); }
+  100% { transform: scale(0.97, 1.04); }
+}
+@keyframes festive-sway {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(0.6deg); }
+}
+@keyframes festive-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--festive, #f59e0b) 35%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--festive, #f59e0b) 0%, transparent); }
+}
+.festive-acc { animation: festive-bob 2.8s ease-in-out infinite; }
+.festive-flame { animation: festive-flicker 0.9s ease-in-out infinite alternate; }
+.festive-toran { transform-origin: 50% 0; animation: festive-sway 7s ease-in-out infinite; }
+.festive-chip { animation: festive-glow 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .festive-acc, .festive-flame, .festive-toran, .festive-chip { animation: none !important; }
+}
+
+/* Festivals: rays and a gentle float behind the deity at the heart of a celebration. */
+@keyframes festive-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes festive-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.festive-rays {
+  background: repeating-conic-gradient(from 0deg, rgba(255, 238, 180, 0.24) 0deg 7deg, rgba(255, 238, 180, 0) 7deg 20deg);
+  -webkit-mask-image: radial-gradient(circle, #000 22%, transparent 66%);
+  mask-image: radial-gradient(circle, #000 22%, transparent 66%);
+  animation: festive-spin 90s linear infinite;
+}
+.festive-float { animation: festive-float 5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .festive-rays, .festive-float { animation: none !important; }
+}

@@ -12,6 +12,7 @@ import { askAssistant, buildAiContext, type AssistantAnswer, type SystemSnapshot
 import { teamPlans } from './plan-store'
 import { getAiStatus, streamAiReply, type AiStatus } from './ai-client'
 import { buildAiRequest, type AiTurn } from './ai-prompt'
+import { robiFestivalContext } from '@/features/festivals/robi-festive'
 import type { AssistantTask } from './types'
 
 type Knowledge = Omit<SystemSnapshot, 'tasks'>
@@ -191,6 +192,7 @@ export function useKnowledge(tasks: AssistantTask[]) {
             context: buildAiContext(question, snapshot),
             ruleAnswer: rule.intent === 'unknown' ? null : rule,
             history,
+            festival: robiFestivalContext(),
           })
           const reply = await streamAiReply(request, onText ?? (() => undefined))
           if (reply.refused || !reply.text.trim()) return rule

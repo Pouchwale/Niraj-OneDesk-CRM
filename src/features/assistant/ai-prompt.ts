@@ -66,6 +66,8 @@ export interface AiRequestInput {
   ruleAnswer: AssistantAnswer | null
   /** Earlier turns of this conversation, oldest first, without the question. */
   history: AiTurn[]
+  /** Today's festival and the next one, in India time; absent when festivals are off. */
+  festival?: string | null
 }
 
 export function buildAiRequest(input: AiRequestInput): AiChatRequest {
@@ -78,6 +80,8 @@ export function buildAiRequest(input: AiRequestInput): AiChatRequest {
       })}`
     )
   }
+
+  if (input.festival) parts.push(`TODAY'S FESTIVALS (India, IST; dates from the Panchang, never guess others):\n${input.festival}`)
 
   const messages = [
     ...trimHistory(input.history).map((turn) => ({ role: turn.role, content: turn.text.trim() })),

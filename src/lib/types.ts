@@ -364,6 +364,68 @@ export interface RobiOffDay {
 }
 
 /**
+ * How Robi celebrates Indian festivals, set by the administrator (since
+ * 6 Nov 2026). Everyone reads it; each person can still mute sounds or turn
+ * the automatic celebration off for themselves.
+ */
+export interface FestivalConfig {
+  /** Everything festive on or off. */
+  enabled: boolean
+  /** The full-screen celebration plays once on a festival day when someone opens the CRM. */
+  autoCelebrate: boolean
+  /** Sounds for people who have not chosen for themselves. */
+  sound: boolean
+  /** Robi says greetings aloud. */
+  voice: boolean
+  /** The Play music button. */
+  music: boolean
+  /** Robi greets with the festival when he is opened. */
+  robiGreeting: boolean
+  /** A garland under the header on festival days. */
+  decorations: boolean
+  intensity: 'light' | 'normal' | 'rich'
+  /** How long the automatic celebration runs, in seconds (5-60). */
+  durationSec: number
+  /** Show the countdown this many days before a major festival (0-30). */
+  countdownDays: number
+  /** Per festival id: switched off, celebrated automatically or not, corrected dates, own greeting. */
+  festivals: Record<string, FestivalOverride>
+  /** The company's own days, such as a foundation day. */
+  custom: CustomCelebration[]
+  updatedBy: string | null
+  updatedAt: string | null
+}
+
+export interface FestivalOverride {
+  enabled?: boolean
+  auto?: boolean
+  /** Year -> the date the administrator set; end only for a festival that runs several days. */
+  dates?: Record<string, { start: string; end?: string }>
+  /** Used instead of the built-in wish in Robi's greeting and the greeting maker. */
+  greeting?: string
+  /** Navratri: the colour of each of the nine days. */
+  colours?: string[]
+}
+
+/** A day the company celebrates that is not on the festival list. */
+export interface CustomCelebration {
+  id: string
+  name: string
+  /** yyyy-mm-dd: the day, or the first year's day when it repeats. */
+  date: string
+  /** Every year on the same date. */
+  yearly: boolean
+  /** One of the festival looks (diwali, holi, celebration...). */
+  theme: string
+  emoji: string
+  greeting: string
+  about: string
+  enabled: boolean
+  /** Plays the full-screen celebration by itself. */
+  auto: boolean
+}
+
+/**
  * A line of finished goods ready for dispatch (the RFD sheet from SAP), with
  * money still to come before it can go. The sheet names only the customer; the
  * coordinator, BP code and the record follow-ups are logged against come from

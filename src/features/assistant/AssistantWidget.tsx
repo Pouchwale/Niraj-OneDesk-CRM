@@ -23,6 +23,8 @@ import { greetedToday, markGreeted } from './assistant-state'
 import { composeNudges, type Nudge, type NudgeAction } from './proactive'
 import { useFocusedRecord, useScreen } from './screen-context'
 import { RobiBuddy, TypingDots, type RobiReaction, type RobotMood } from './RobiBuddy'
+import { RobiFestiveBadge } from '@/features/festivals/FestiveAccessory'
+import { robiCelebrate, robiFestivalReply, robiFestiveHello, robiSpeak } from '@/features/festivals/robi-festive'
 import { planProgressLine, type ResolvedPlan, type ResolvedPlanItem } from './daily-plan'
 import type { TeamPlan } from './plan-store'
 import type { AssistantAction, AssistantMessage, AssistantTask } from './types'
@@ -448,7 +450,10 @@ export function AssistantWidget() {
     if (!user) return assistantSays('Hello.')
     const firstName = user.full_name.split(' ')[0]
     const back = greetedToday(user.id)
-    const hello = back ? `Back again, ${firstName}.` : `${partOfDay()}, ${firstName}.`
+    // On a festival Robi opens with its wishes; before a big one he counts down to it.
+    const festive = robiFestiveHello(firstName)
+    const plain = back ? `Back again, ${firstName}.` : `${partOfDay()}, ${firstName}.`
+    const hello = festive?.kind === 'today' ? festive.text : festive ? `${plain} ${festive.text}` : plain
 
     if (isCoordinator) {
       const awayEntry = demoCompanyStore.getAttendance(user.id, todayISO())
@@ -526,8 +531,14 @@ export function AssistantWidget() {
     startedRef.current = true
     setMessages([greeting()])
     markGreeted(user.id)
+    // A festival day: a little party, and Robi says the wishes aloud (he was opened with a click, so the browser allows it).
+    const festive = robiFestiveHello(user.full_name.split(' ')[0])
+    if (festive?.kind === 'today') {
+      react('party')
+      robiSpeak(user.id, festive.text)
+    }
     if (isCoordinator) presentNext(orderedTasks)
-  }, [open, isLoading, user, greeting, orderedTasks, presentNext, isCoordinator])
+  }, [open, isLoading, user, greeting, orderedTasks, presentNext, isCoordinator, react])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -616,6 +627,16 @@ export function AssistantWidget() {
 
     if (typed === undefined) setQuestion('')
     setMessages((m) => [...m, coordinatorSays(asked)])
+
+    // A festival wish or question: Robi answers it himself, warmly, with a small celebration on the day.
+    const festive = robiFestivalReply(asked, firstName)
+    if (festive) {
+      setMessages((m) => [...m, assistantSays(festive.text)])
+      react(festive.celebrate ? 'party' : 'celebrate')
+      if (festive.celebrate && festive.festivalId) robiCelebrate(festive.festivalId)
+      robiSpeak(user?.id, festive.speak)
+      return
+    }
 
     // Robi's words land as they are written: one message grows in place.
     const draftId = nextId('a')
@@ -890,7 +911,7 @@ export function AssistantWidget() {
             <div className="robi-header relative flex items-center gap-3 px-4 pb-3 pt-3.5">
               <button
                 type="button"
-                className="-my-1 -ml-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative -my-1 -ml-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label="Boop Robi"
                 title="Boop!"
                 onClick={() => {
@@ -899,6 +920,7 @@ export function AssistantWidget() {
                 }}
               >
                 <RobiBuddy mood={mood} size={84} interactive reaction={reaction} say={chip} />
+                <RobiFestiveBadge size={30} className="-left-1 -top-1" />
               </button>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -1136,6 +1158,8 @@ export function AssistantWidget() {
             className="robi-launcher-buddy"
           />
         )}
+        {/* On a festival Robi holds something festive: a diya, a kite, dandiya sticks. */}
+        {!open && <RobiFestiveBadge size={34} className="left-1 top-1" />}
 
         {!open && pending > 0 && (
           <Badge
