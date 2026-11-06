@@ -1,11 +1,14 @@
 /**
  * The festival chip in the header (6 Nov 2026): today's festival, or the
  * countdown to the next big one, or a small icon on ordinary days. It opens
- * the festival panel.
+ * the festival panel. Coordinators and team leaders see it on a festival day
+ * only: they celebrate on the day, and only the administrator sees the
+ * festival calendar (the user's rule).
  */
 
 import { lazy, Suspense, useEffect, useState, type CSSProperties } from 'react'
 import { PartyPopper } from 'lucide-react'
+import { useAuth } from '@/features/auth/AuthContext'
 import { cn } from '@/lib/utils'
 import { onFestivalPanel } from './festival-bus'
 import { THEMES } from './festival-themes'
@@ -14,6 +17,7 @@ import { useFestivals } from './useFestivals'
 const FestivalPanel = lazy(() => import('./FestivalPanel'))
 
 export function FestivalChip() {
+  const { isAdmin } = useAuth()
   const { config, primary, soon } = useFestivals()
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -30,6 +34,7 @@ export function FestivalChip() {
   )
 
   if (!config.enabled) return null
+  if (!isAdmin && !primary) return null
   const f = primary?.festival ?? soon?.festival ?? null
   const label = primary ? primary.festival.name : soon ? (soon.inDays === 1 ? `${soon.festival.name} tomorrow` : `${soon.festival.name} in ${soon.inDays} days`) : null
   const accent = f ? THEMES[f.theme].accent : undefined

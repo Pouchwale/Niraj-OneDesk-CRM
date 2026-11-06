@@ -134,7 +134,7 @@ function AppContent() {
           <Route path="billing-issues" element={<BillingIssuesPage />} />
           <Route path="service" element={<NotForRfdOnly><ServicePage /></NotForRfdOnly>} />
           <Route path="self-leads" element={<NotForRfdOnly><SelfLeadsPage /></NotForRfdOnly>} />
-          <Route path="festivals" element={<FestivalsPage />} />
+          <Route path="festivals" element={<ProtectedRoute requiredRole="admin"><FestivalsPage /></ProtectedRoute>} />
           <Route path="score-history" element={<NotForRfdOnly><ScoreHistoryPage /></NotForRfdOnly>} />
         </Route>
 

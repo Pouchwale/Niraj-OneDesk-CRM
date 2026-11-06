@@ -2,7 +2,9 @@
  * The festival panel (6 Nov 2026), opened from the chip in the header: the
  * festival of the day (or the next one) with its live countdown, and Robi's
  * festival buttons: celebrate now, play the animation, tell me about it,
- * play the music, make a greeting and share it.
+ * play the music, make a greeting and share it. Coordinators and team leaders
+ * get today's festival only: no other festivals, countdowns or calendar links
+ * (the user's rule: only the administrator sees the festival calendar).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -66,32 +68,36 @@ function Tile({ value, unit }: { value: number; unit: string }) {
 }
 
 export default function FestivalPanel({ open, onOpenChange, festivalId }: { open: boolean; onOpenChange: (open: boolean) => void; festivalId: string | null }) {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const { config, festivals, today, todays, soon } = useFestivals()
   const [prefs, setPrefs] = useFestivalPrefs(user?.id, config)
   const bodyRef = useRef<HTMLDivElement>(null)
+  // Coordinators and team leaders: the festival that is on today, nothing else.
+  const todayOnly = !isAdmin
+  const isToday = (id: string | null) => !!id && todays.some((d) => d.festival.id === id)
 
-  const upcoming = useMemo(() => upcomingFestivals(today, festivals, 400), [today, festivals])
+  const upcoming = useMemo(() => (todayOnly ? [] : upcomingFestivals(today, festivals, 400)), [todayOnly, today, festivals])
   const options = useMemo(() => {
     const seen = new Set<string>()
     const list: { festival: Festival; when: string }[] = []
     for (const d of todays) if (!seen.has(d.festival.id)) seen.add(d.festival.id), list.push({ festival: d.festival, when: 'today' })
     for (const u of upcoming) if (!seen.has(u.festival.id)) seen.add(u.festival.id), list.push({ festival: u.festival, when: shortDate(u.start) })
     // Opened for a festival that is not coming up (one already past this year): list it too.
-    const asked = festivalId ? festivals.find((f) => f.id === festivalId) : null
+    const asked = festivalId && !todayOnly ? festivals.find((f) => f.id === festivalId) : null
     if (asked && !seen.has(asked.id)) list.unshift({ festival: asked, when: 'this year' })
     return list
-  }, [todays, upcoming, festivalId, festivals])
+  }, [todays, upcoming, festivalId, festivals, todayOnly])
 
-  const fallbackId = todays[0]?.festival.id ?? soon?.festival.id ?? upcoming[0]?.festival.id ?? null
-  const [selectedId, setSelectedId] = useState<string | null>(festivalId ?? fallbackId)
+  const fallbackId = todays[0]?.festival.id ?? (todayOnly ? null : (soon?.festival.id ?? upcoming[0]?.festival.id)) ?? null
+  const askedId = festivalId && (!todayOnly || isToday(festivalId)) ? festivalId : null
+  const [selectedId, setSelectedId] = useState<string | null>(askedId ?? fallbackId)
   useEffect(() => {
-    if (open) setSelectedId(festivalId ?? fallbackId)
+    if (open) setSelectedId(askedId ?? fallbackId)
     // Only when it opens: the choice stays while it is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, festivalId])
 
-  const festival = festivals.find((f) => f.id === selectedId) ?? null
+  const festival = (!todayOnly || isToday(selectedId) ? festivals.find((f) => f.id === selectedId) : null) ?? null
   const fd = festival ? festivalsOn(today, festivals).find((d) => d.festival.id === festival.id) ?? null : null
   const span = festival && !fd ? nextSpan(festival, today) : null
   const theme = festival ? THEMES[festival.theme] : THEMES.celebration
@@ -206,7 +212,9 @@ export default function FestivalPanel({ open, onOpenChange, festivalId }: { open
         {!festival ? (
           <div className="p-6">
             <DialogTitle>Festivals</DialogTitle>
-            <DialogDescription className="mt-2">No festival dates are confirmed for the coming months. The administrator can add them on the Festivals page.</DialogDescription>
+            <DialogDescription className="mt-2">
+              {todayOnly ? 'No festival today. Robi will celebrate with you on the day.' : 'No festival dates are confirmed for the coming months. The administrator can add them on the Festivals page.'}
+            </DialogDescription>
           </div>
         ) : (
           <>
@@ -250,24 +258,27 @@ export default function FestivalPanel({ open, onOpenChange, festivalId }: { open
             </div>
 
             <div ref={bodyRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium text-muted-foreground">Festival</span>
-                <Select value={festival.id} onValueChange={setSelectedId}>
-                  <SelectTrigger className="h-9 w-auto min-w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {options.map(({ festival: f, when }) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.emoji} {f.name} · {when}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Coordinators and team leaders choose only between festivals on the same day. */}
+              {(!todayOnly || options.length > 1) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Festival</span>
+                  <Select value={festival.id} onValueChange={setSelectedId}>
+                    <SelectTrigger className="h-9 w-auto min-w-56">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {options.map(({ festival: f, when }) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.emoji} {f.name} · {when}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Robi's festival buttons. */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className={cn('grid gap-2', config.music || !todayOnly ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3')}>
                 <Button onClick={() => start('full')} className="h-auto flex-col gap-1 py-3 text-white" style={{ background: theme.accent }}>
                   <PartyPopper className="h-5 w-5" />
                   <span className="text-xs font-semibold">Celebrate now</span>
@@ -286,12 +297,14 @@ export default function FestivalPanel({ open, onOpenChange, festivalId }: { open
                     <span className="text-xs font-semibold">{music ? 'Stop music' : 'Play music'}</span>
                   </Button>
                 ) : (
-                  <Button variant="outline" asChild className="h-auto flex-col gap-1 py-3">
-                    <Link to="/festivals" onClick={() => onOpenChange(false)}>
-                      <CalendarDays className="h-5 w-5" />
-                      <span className="text-xs font-semibold">Calendar</span>
-                    </Link>
-                  </Button>
+                  !todayOnly && (
+                    <Button variant="outline" asChild className="h-auto flex-col gap-1 py-3">
+                      <Link to="/festivals" onClick={() => onOpenChange(false)}>
+                        <CalendarDays className="h-5 w-5" />
+                        <span className="text-xs font-semibold">Calendar</span>
+                      </Link>
+                    </Button>
+                  )
                 )}
               </div>
 
@@ -395,9 +408,11 @@ export default function FestivalPanel({ open, onOpenChange, festivalId }: { open
                   <Switch checked={prefs.auto} onCheckedChange={(on) => setPrefs({ auto: on })} aria-label="Automatic celebrations" />
                   Celebrate automatically
                 </label>
-                <Link to="/festivals" onClick={() => onOpenChange(false)} className="font-medium text-primary hover:underline">
-                  All festivals →
-                </Link>
+                {!todayOnly && (
+                  <Link to="/festivals" onClick={() => onOpenChange(false)} className="font-medium text-primary hover:underline">
+                    All festivals →
+                  </Link>
+                )}
               </div>
             </div>
           </>

@@ -41,7 +41,7 @@ const RULES_ONLY_INTENTS = new Set(['remind', 'remind_denied', 'remind_ambiguous
  * Without a key, or if Claude cannot answer, the rule engine's answer stands.
  */
 export function useKnowledge(tasks: AssistantTask[]) {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const [isThinking, setIsThinking] = useState(false)
   const [aiReady, setAiReady] = useState(false)
   const [aiModel, setAiModel] = useState<string | null>(null)
@@ -192,7 +192,7 @@ export function useKnowledge(tasks: AssistantTask[]) {
             context: buildAiContext(question, snapshot),
             ruleAnswer: rule.intent === 'unknown' ? null : rule,
             history,
-            festival: robiFestivalContext(),
+            festival: robiFestivalContext(isAdmin),
           })
           const reply = await streamAiReply(request, onText ?? (() => undefined))
           if (reply.refused || !reply.text.trim()) return rule
@@ -218,7 +218,7 @@ export function useKnowledge(tasks: AssistantTask[]) {
         setIsThinking(false)
       }
     },
-    [load, tasks, applyStatus]
+    [load, tasks, applyStatus, isAdmin]
   )
 
   return { ask, isThinking, aiReady, aiModel, aiKeyError }

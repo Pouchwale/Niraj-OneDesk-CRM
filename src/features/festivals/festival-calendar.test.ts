@@ -13,6 +13,7 @@ import {
   datesFor,
   dayLabel,
   festivalChatReply,
+  festivalContextLine,
   festivalsOn,
   festiveHello,
   istDate,
@@ -180,6 +181,31 @@ describe('what Robi says', () => {
   it('uses the administrator’s own greeting first', () => {
     const own = resolveFestivals(config({ festivals: { dhanteras: { greeting: 'Team, the sweets are in the pantry.' } } }))
     expect(festiveHello('Niraj', '2026-11-06', own, 7)!.text).toBe('Happy Dhanteras, Niraj! 🪙 Team, the sweets are in the pantry.')
+  })
+
+  it('tells coordinators and team leaders about the festival on its day only', () => {
+    // No countdown before the day; the same hello on it.
+    expect(festiveHello('Niraj', '2026-11-01', festivals, 7, true)).toBeNull()
+    expect(festiveHello('Niraj', '2026-11-06', festivals, 7, true)).toEqual(festiveHello('Niraj', '2026-11-06', festivals, 7))
+    expect(festivalContextLine('2026-11-01', festivals)).toMatch(/Next festival: Dhanteras/)
+    expect(festivalContextLine('2026-11-01', festivals, true)).not.toMatch(/Next festival/)
+    expect(festivalContextLine('2026-11-06', festivals, true)).toMatch(/Festival today: Dhanteras/)
+
+    const only = (message: string, today = '2026-11-06') => festivalChatReply(message, festivals, today, 'Niraj', true)
+    // The festival on the day: wishes, a celebration, about and when.
+    expect(only('Happy Dhanteras Robi!')).toMatchObject({ kind: 'wish', festivalId: 'dhanteras', celebrate: true })
+    expect(only('tell me about dhanteras')).toMatchObject({ kind: 'about', festivalId: 'dhanteras' })
+    expect(only('when is dhanteras?')!.text).toMatch(/Dhanteras is today/)
+    // Festivals still to come: a thank-you without the date; no dates, lists or greetings for them.
+    const early = only('happy diwali')!
+    expect(early).toMatchObject({ kind: 'wish', festivalId: 'diwali', celebrate: false })
+    expect(early.text).toBe('Thank you, Niraj! Shubh Deepavali to you in advance. 🪔 I’ll save the big celebration for the day!')
+    expect(only('when is holi?')).toBeNull()
+    expect(only('tell me about onam')).toBeNull()
+    expect(only('which festivals are coming up?')).toBeNull()
+    expect(only('write a diwali greeting for my clients')).toBeNull()
+    // The day after: a thank-you, no date.
+    expect(only('happy dhanteras', '2026-11-07')!.text).toMatch(/Dhanteras was yesterday/)
   })
 
   const reply = (message: string, today = '2026-11-06') => festivalChatReply(message, festivals, today, 'Niraj')

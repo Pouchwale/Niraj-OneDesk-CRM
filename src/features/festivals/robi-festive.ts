@@ -2,6 +2,8 @@
  * What Robi's widget asks of the festival system (6 Nov 2026), kept here so
  * the widget itself only gains a few lines: his festive hello, his own answer
  * to a festival wish or question, his voice, and a small celebration.
+ * seesCalendar: only the administrator hears about festivals still to come;
+ * coordinators and team leaders celebrate on the day (the user's rule).
  */
 
 import { demoCompanyStore } from '@/lib/demo-companies'
@@ -20,18 +22,18 @@ function current(): { config: FestivalConfig; festivals: Festival[] } {
   return { config: saved ?? DEFAULT_FESTIVAL_CONFIG, festivals: memo.festivals }
 }
 
-/** Robi's hello on a festival day (or the countdown line before a big one); null on an ordinary day. */
-export function robiFestiveHello(firstName: string): FestiveHello | null {
+/** Robi's hello on a festival day (or, for the administrator, the countdown line before a big one); null on an ordinary day. */
+export function robiFestiveHello(firstName: string, seesCalendar: boolean): FestiveHello | null {
   const { config, festivals } = current()
   if (!config.enabled || !config.robiGreeting) return null
-  return festiveHello(firstName, istDate(), festivals, config.countdownDays)
+  return festiveHello(firstName, istDate(), festivals, config.countdownDays, !seesCalendar)
 }
 
 /** Robi's own answer to a festival wish or question; null sends the message to his usual answer. */
-export function robiFestivalReply(message: string, firstName: string): FestivalReply | null {
+export function robiFestivalReply(message: string, firstName: string, seesCalendar: boolean): FestivalReply | null {
   const { config, festivals } = current()
   if (!config.enabled) return null
-  return festivalChatReply(message, festivals, istDate(), firstName)
+  return festivalChatReply(message, festivals, istDate(), firstName, !seesCalendar)
 }
 
 /** Robi says it aloud when this person has sound and his voice on. */
@@ -47,8 +49,8 @@ export function robiCelebrate(festivalId: string): void {
   celebrate({ festivalId, mode: 'ambient', reason: 'robi', seconds: 7 })
 }
 
-/** A line for Robi's AI about today's and the next festival; null when festivals are off. */
-export function robiFestivalContext(): string | null {
+/** A line for Robi's AI about today's (and, for the administrator, the next) festival; null when festivals are off. */
+export function robiFestivalContext(seesCalendar: boolean): string | null {
   const { config, festivals } = current()
-  return config.enabled ? festivalContextLine(istDate(), festivals) : null
+  return config.enabled ? festivalContextLine(istDate(), festivals, !seesCalendar) : null
 }

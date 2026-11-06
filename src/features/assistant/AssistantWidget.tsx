@@ -190,7 +190,7 @@ function noteSaid(userId: string, nudge: Nudge, today: string): void {
  * worth saying about what is in front of the person (proactive.ts).
  */
 export function AssistantWidget() {
-  const { user, isCoordinator } = useAuth()
+  const { user, isAdmin, isCoordinator } = useAuth()
   const navigate = useNavigate()
   const isLeader = seesAllAccounts(user?.role)
 
@@ -450,8 +450,8 @@ export function AssistantWidget() {
     if (!user) return assistantSays('Hello.')
     const firstName = user.full_name.split(' ')[0]
     const back = greetedToday(user.id)
-    // On a festival Robi opens with its wishes; before a big one he counts down to it.
-    const festive = robiFestiveHello(firstName)
+    // On a festival Robi opens with its wishes; before a big one he counts down to it (to the administrator only).
+    const festive = robiFestiveHello(firstName, isAdmin)
     const plain = back ? `Back again, ${firstName}.` : `${partOfDay()}, ${firstName}.`
     const hello = festive?.kind === 'today' ? festive.text : festive ? `${plain} ${festive.text}` : plain
 
@@ -500,7 +500,7 @@ export function AssistantWidget() {
       hello,
       'Ask me about any customer, invoice or colleague and I will read the live records.'
     )
-  }, [user, isCoordinator, isLeader, plan, pending, team.team])
+  }, [user, isAdmin, isCoordinator, isLeader, plan, pending, team.team])
 
   const presentNext = useCallback(
     (queue: AssistantTask[], skipId?: string) => {
@@ -532,13 +532,13 @@ export function AssistantWidget() {
     setMessages([greeting()])
     markGreeted(user.id)
     // A festival day: a little party, and Robi says the wishes aloud (he was opened with a click, so the browser allows it).
-    const festive = robiFestiveHello(user.full_name.split(' ')[0])
+    const festive = robiFestiveHello(user.full_name.split(' ')[0], isAdmin)
     if (festive?.kind === 'today') {
       react('party')
       robiSpeak(user.id, festive.text)
     }
     if (isCoordinator) presentNext(orderedTasks)
-  }, [open, isLoading, user, greeting, orderedTasks, presentNext, isCoordinator, react])
+  }, [open, isLoading, user, isAdmin, greeting, orderedTasks, presentNext, isCoordinator, react])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -629,7 +629,7 @@ export function AssistantWidget() {
     setMessages((m) => [...m, coordinatorSays(asked)])
 
     // A festival wish or question: Robi answers it himself, warmly, with a small celebration on the day.
-    const festive = robiFestivalReply(asked, firstName)
+    const festive = robiFestivalReply(asked, firstName, isAdmin)
     if (festive) {
       setMessages((m) => [...m, assistantSays(festive.text)])
       react(festive.celebrate ? 'party' : 'celebrate')

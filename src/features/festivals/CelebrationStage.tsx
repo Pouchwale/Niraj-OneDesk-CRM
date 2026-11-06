@@ -353,7 +353,7 @@ export default function CelebrationStage({ festival, mode, reason, seconds, onCl
           </div>
           {reason === 'auto' && (
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Plays once a day on festivals. Turn it off for yourself on the Festivals page.
+              Plays once a day on festivals. To turn it off for yourself, open Wishes and switch off Celebrate automatically.
             </p>
           )}
         </div>

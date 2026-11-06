@@ -402,9 +402,11 @@ export function festivalLine(f: Festival, firstName: string, today: string, fd: 
 }
 
 /** Robi's hello on a festival day, or the countdown line before a major one. */
-export function festiveHello(firstName: string, today: string, festivals: readonly Festival[], countdownDays: number): FestiveHello | null {
+export function festiveHello(firstName: string, today: string, festivals: readonly Festival[], countdownDays: number, todayOnly = false): FestiveHello | null {
   const fd = festivalsOn(today, festivals)[0]
   if (fd) return { kind: 'today', festivalId: fd.festival.id, text: festivalLine(fd.festival, firstName, today, fd) }
+  // Coordinators and team leaders celebrate on the day only: no countdown.
+  if (todayOnly) return null
   const soon = comingSoon(today, festivals, countdownDays)
   if (!soon) return null
   return {
@@ -414,10 +416,10 @@ export function festiveHello(firstName: string, today: string, festivals: readon
   }
 }
 
-/** One line for Robi's AI about today's and the next festival, so his answers know the day. */
-export function festivalContextLine(today: string, festivals: readonly Festival[]): string {
+/** One line for Robi's AI about today's and the next festival, so his answers know the day (todayOnly: today's only). */
+export function festivalContextLine(today: string, festivals: readonly Festival[], todayOnly = false): string {
   const on = festivalsOn(today, festivals)
-  const next = upcomingFestivals(today, festivals, 60).find((u) => u.festival.major) ?? upcomingFestivals(today, festivals, 60)[0]
+  const next = todayOnly ? undefined : (upcomingFestivals(today, festivals, 60).find((u) => u.festival.major) ?? upcomingFestivals(today, festivals, 60)[0])
   const parts = [`Today in India (IST) is ${longDate(today)}.`]
   if (on.length) parts.push(`Festival today: ${on.map((d) => d.festival.name + (dayLabel(d) ? ` (${dayLabel(d)})` : '')).join(', ')}.`)
   if (next) parts.push(`Next festival: ${next.festival.name} on ${longDate(next.start)}, in ${plural(next.inDays, 'day')}.`)
@@ -548,13 +550,33 @@ function wishText(f: Festival, today: string, firstName: string): { text: string
  * question about a festival ("when is Holi?", "tell me about Onam") or a
  * request for a greeting. Null for anything else, so the message goes to his
  * usual AI answer: work questions that mention a name like Ganesh are left alone.
+ *
+ * todayOnly is for coordinators and team leaders (the user's rule, 6 Nov 2026:
+ * only the administrator sees the festival calendar, everyone else celebrates
+ * on the day): Robi answers about the festival that is on today; a wish for one
+ * still to come is thanked without its date; lists, dates and other festivals
+ * are left to his usual answer.
  */
-export function festivalChatReply(
-  message: string,
-  festivals: readonly Festival[],
-  today: string,
-  firstName: string
-): FestivalReply | null {
+export function festivalChatReply(message: string, festivals: readonly Festival[], today: string, firstName: string, todayOnly = false): FestivalReply | null {
+  const reply = chatReply(message, festivals, today, firstName)
+  if (!reply || !todayOnly) return reply
+  if (reply.kind !== 'list' && festivalsOn(today, festivals).some((d) => d.festival.id === reply.festivalId)) return reply
+  const f = reply.kind === 'wish' ? festivals.find((x) => x.id === reply.festivalId) : undefined
+  if (!f) return null
+  // "Diwali was yesterday" and a plain thank-you carry no date: those stay.
+  const yesterday = addDays(today, -1)
+  if (nextSpan(f, yesterday)?.end === yesterday || !nextSpan(f, today)) return { ...reply, celebrate: false }
+  const name = firstName || 'friend'
+  return {
+    text: `Thank you, ${name}! ${f.salutation} to you in advance. ${f.emoji} I’ll save the big celebration for the day!`,
+    speak: `Thank you, ${name}! ${f.salutation} to you in advance.`,
+    festivalId: f.id,
+    celebrate: false,
+    kind: 'wish',
+  }
+}
+
+function chatReply(message: string, festivals: readonly Festival[], today: string, firstName: string): FestivalReply | null {
   const m = norm(message)
   if (m.trim().length < 3 || m.length > 240) return null
   const generate = has(m, GENERATE) && has(m, GREETING_WORDS)
