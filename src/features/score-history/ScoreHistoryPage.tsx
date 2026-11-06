@@ -1,5 +1,6 @@
 /**
- * Score history (6 Nov 2026): every module's scores by week, month and year,
+ * Final score (6 Nov 2026; first called Score history, renamed by the user the same
+ * day; the address stays /score-history): every module's scores by week, month and year,
  * for review, with each coordinator's final score out of 100. The team leader
  * and the administrator see everyone, a coordinator their own. Periods that
  * have ended are locked (two days after they end); the current one is live.
@@ -178,7 +179,7 @@ export function ScoreHistoryPage() {
       setData(body)
       setSelectedId((id) => (id && body.periods.some((p) => p.id === id) ? id : body.periods[body.periods.length - 1]?.id ?? null))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load the score history.')
+      setError(err instanceof Error ? err.message : 'Could not load the final scores.')
     } finally {
       setLoading(false)
     }
@@ -260,11 +261,11 @@ export function ScoreHistoryPage() {
       }
     }
     const what = view === 'all' ? (selected ? periodLabel(selected.kind, selected.key) : kind) : moduleLabel(view)
-    downloadWorkbook(`Score history - ${what}.xlsx`, [{ name: 'Scores', rows }])
+    downloadWorkbook(`Final score - ${what}.xlsx`, [{ name: 'Scores', rows }])
   }
 
   const header = (
-    <PageHeader title="Score history" subtitle="Every module’s scores and a final score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
+    <PageHeader title="Final score" subtitle="Each coordinator’s final score and every module’s score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
       <Button variant="outline" onClick={() => void download()} disabled={!periods.length}>
         <Download className="mr-2 h-4 w-4" /> Excel
       </Button>

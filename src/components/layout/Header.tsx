@@ -19,7 +19,7 @@ const PAGE_TITLES: [string, string][] = [
   ['/service', 'Service'],
   ['/self-leads', 'Self Leads'],
   ['/festivals', 'Festivals'],
-  ['/score-history', 'Score history'],
+  ['/score-history', 'Final score'],
   ['/admin/overview', 'Overview'],
   ['/admin/users', 'Admin Panel'],
   ['/otif', 'OTIF Analytics'],

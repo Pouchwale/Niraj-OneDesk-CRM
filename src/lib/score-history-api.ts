@@ -7,7 +7,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } })
   } catch {
-    throw new Error('The server is not answering. The score history is kept on the machine that runs the app.')
+    throw new Error('The server is not answering. The final scores are kept on the machine that runs the app.')
   }
   const body = await response.json().catch(() => null)
   if (!response.ok) {
