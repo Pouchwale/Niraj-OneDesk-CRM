@@ -9,6 +9,7 @@ import {
   attendanceLookup,
   computePeriod,
   earliestDay,
+  finalScoreOf,
   keysBetween,
   lockable,
   periodLabel,
@@ -153,6 +154,32 @@ describe('scoring a month and a year', () => {
     expect(pick(year.entries, 'billing', 'c1')?.score).toBe(100)
     expect(pick(year.entries, 'service', 'c1')).toMatchObject({ score: 50, detail: { months: 1 } })
     expect(pick(year.entries, 'robi', 'c1')?.score).toBe(-12)
+  })
+})
+
+describe('the final score', () => {
+  it('averages the modules that have a score on a 0-100 scale: Robi as tasks done, billing as it is', () => {
+    const final = finalScoreOf([
+      { module: 'robi', score: -25 },
+      { module: 'kpi', score: 60 },
+      { module: 'quotations', score: 50 },
+      { module: 'billing', score: -25 },
+      { module: 'service', score: null },
+    ])
+    // (75 + 60 + 50 - 25) / 4 = 40; the service week without a score is left out.
+    expect(final.score).toBe(40)
+    expect(final.parts.map((p) => p.module)).toEqual(['robi', 'kpi', 'quotations', 'billing'])
+  })
+
+  it('has no final score when no module has one', () => {
+    expect(finalScoreOf([{ module: 'service', score: null }]).score).toBeNull()
+    expect(finalScoreOf([]).score).toBeNull()
+  })
+
+  it('works on a whole period for one coordinator', () => {
+    const week = computePeriod(inputs, 'week', '2026-10-26', '2026-11-06')
+    // Asha: Robi -13 → 87, KPI 90, quotations 50, billing 100, self leads 50 → 377 / 5 = 75.4.
+    expect(finalScoreOf(week.entries.filter((e) => e.coordinatorId === 'c1')).score).toBe(75.4)
   })
 })
 

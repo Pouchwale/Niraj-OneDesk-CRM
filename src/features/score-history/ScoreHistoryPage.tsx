@@ -1,9 +1,14 @@
 /**
  * Score history (6 Nov 2026): every module's scores by week, month and year,
- * for review. The team leader and the administrator see everyone, a
- * coordinator their own. Periods that have ended are locked (two days after
- * they end); the current one is live. The administrator can work a locked
- * period out again if old records were corrected.
+ * for review, with each coordinator's final score out of 100. The team leader
+ * and the administrator see everyone, a coordinator their own. Periods that
+ * have ended are locked (two days after they end); the current one is live.
+ * The administrator can work a locked period out again if old records were
+ * corrected.
+ *
+ * Every table is fixed to the page width, so no desktop screen needs a
+ * sideways scroll; the final score sits next to the name, where Robi's
+ * button can never cover it.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -18,9 +23,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getAllCoordinators, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { scoreLabel, scoreTone } from '@/features/assistant/scores'
 import { kpiGap } from '@/features/snapshots/transform'
-import { addDays, LOCK_GRACE_DAYS, periodLabel, SCORE_MODULES, type PeriodKind, type PeriodScores, type ScoreEntry, type ScoreHistoryResponse, type ScoreModule } from '@/lib/score-history'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
+import {
+  addDays,
+  FINAL_HINT,
+  finalScoreOf,
+  LOCK_GRACE_DAYS,
+  periodLabel,
+  SCORE_MODULES,
+  type PeriodKind,
+  type PeriodScores,
+  type ScoreEntry,
+  type ScoreHistoryResponse,
+  type ScoreModule,
+} from '@/lib/score-history'
 import { getScoreHistory, recalculatePeriod } from '@/lib/score-history-api'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
+
+type View = ScoreModule | 'final' | 'all'
 
 const KINDS: { value: PeriodKind; label: string }[] = [
   { value: 'week', label: 'Week' },
@@ -31,6 +51,13 @@ const KINDS: { value: PeriodKind; label: string }[] = [
 const GOOD = 'text-emerald-600 dark:text-emerald-400'
 const WARN = 'text-amber-600 dark:text-amber-400'
 const BAD = 'text-rose-600 dark:text-rose-400'
+
+/* Shared cell styles: compact below wide screens so every column fits. */
+const TH = 'px-2 py-2 text-right text-[11px] font-medium xl:text-xs'
+const TD = 'px-2 py-2 text-right text-[13px] tabular-nums xl:text-sm'
+const NAME_TD = 'truncate px-3 py-2 text-left text-[13px] font-medium xl:text-sm'
+/** The final score column: tinted, bold, a divider after it. */
+const FINAL_COL = 'border-r border-border/60 bg-primary/5 font-semibold'
 
 /** A score written the way its own module writes it. */
 function formatScore(module: ScoreModule, score: number | null): string {
@@ -53,7 +80,15 @@ function toneOf(module: ScoreModule, score: number | null): string {
   return 'text-foreground'
 }
 
+/** A final score from one module only is marked: a 100 from billing alone is not an all-round 100. */
+const OneModule = ({ final }: { final: ReturnType<typeof finalScoreOf> }) =>
+  final.parts.length === 1 ? <span className="ml-0.5 text-muted-foreground" title="Only one module had a score this period">*</span> : null
+
+const formatFinal = (score: number | null) => (score === null || score === undefined ? '—' : score.toFixed(1))
+const finalTone = (score: number | null) => (score === null || score === undefined ? 'text-muted-foreground' : score >= 80 ? GOOD : score >= 50 ? WARN : BAD)
+
 const plural = (n: number | null | undefined, word: string) => `${n ?? 0} ${word}${n === 1 ? '' : 's'}`
+const moduleLabel = (m: ScoreModule) => SCORE_MODULES.find((x) => x.id === m)?.label ?? m
 
 /** The figures behind a score, for its tooltip and the Excel sheet. */
 function detailText(e: ScoreEntry, kind: PeriodKind): string {
@@ -89,6 +124,12 @@ const averageOf = (scores: (number | null | undefined)[]) => {
   return list.length ? Math.round((list.reduce((a, s) => a + s, 0) / list.length) * 100) / 100 : null
 }
 
+/** "Average of 4 modules: Robi tasks 75, Weekly KPI 60, …" */
+function finalDetail(final: ReturnType<typeof finalScoreOf>): string {
+  if (final.score === null) return 'No module has a score in this period'
+  return `Average of ${plural(final.parts.length, 'module')} out of 100: ${final.parts.map((p) => `${moduleLabel(p.module)} ${Math.round(p.value * 10) / 10}`).join(', ')}`
+}
+
 function PeriodStatus({ period }: { period: PeriodScores }) {
   if (period.lockedAt) {
     const by = period.lockedBy && period.lockedBy !== 'auto' ? `, worked out again by ${getCoordinatorDisplayName(period.lockedBy)}` : ''
@@ -106,10 +147,22 @@ function PeriodStatus({ period }: { period: PeriodScores }) {
   )
 }
 
+/** A period column's heading: lock or live dot, and its short name. */
+function PeriodHead({ p }: { p: PeriodScores }) {
+  return (
+    <th className={TH} title={p.lockedAt ? `Locked ${formatDate(p.lockedAt.slice(0, 10))}` : 'Live'}>
+      <span className="inline-flex items-center justify-end gap-1">
+        {p.lockedAt ? <Lock className="h-3 w-3 shrink-0" /> : <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
+        {periodLabel(p.kind, p.key, true)}
+      </span>
+    </th>
+  )
+}
+
 export function ScoreHistoryPage() {
   const { user, isAdmin, canManageTeam } = useAuth()
   const [kind, setKind] = useState<PeriodKind>('week')
-  const [module, setModule] = useState<ScoreModule | 'all'>('all')
+  const [view, setView] = useState<View>('all')
   const [data, setData] = useState<ScoreHistoryResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -134,6 +187,13 @@ export function ScoreHistoryPage() {
   }, [kind, load])
 
   const periods = data?.periods ?? []
+  // As many periods as fit beside the names: no desktop screen scrolls sideways. Averages and Excel use them all.
+  const wide = useMediaQuery('(min-width: 1440px)')
+  const xl = useMediaQuery('(min-width: 1280px)')
+  const lg = useMediaQuery('(min-width: 1024px)')
+  const md = useMediaQuery('(min-width: 768px)')
+  const fit = wide ? 12 : xl ? 10 : lg ? 8 : md ? 6 : 2
+  const visible = periods.slice(-fit)
   const selected = periods.find((p) => p.id === selectedId) ?? periods[periods.length - 1] ?? null
   const selectedIndex = selected ? periods.indexOf(selected) : -1
 
@@ -147,6 +207,7 @@ export function ScoreHistoryPage() {
 
   const entryOf = (period: PeriodScores | null, personId: string, m: ScoreModule) =>
     period?.entries.find((e) => e.coordinatorId === personId && e.module === m)
+  const finalOf = (period: PeriodScores | null, personId: string) => finalScoreOf(period?.entries.filter((e) => e.coordinatorId === personId) ?? [])
 
   const workOutAgain = async () => {
     if (!selected?.lockedAt) return
@@ -168,35 +229,44 @@ export function ScoreHistoryPage() {
     const { downloadWorkbook } = await import('@/features/snapshots/download')
     type Cell = string | number | null
     const rows: Cell[][] = []
+    const me = user?.id ?? ''
     if (!canManageTeam) {
-      rows.push(['Module', ...periods.map((p) => periodLabel(p.kind, p.key)), 'Details (latest)'])
-      for (const m of SCORE_MODULES) {
-        const last = [...periods].reverse().map((p) => entryOf(p, user?.id ?? '', m.id)).find(Boolean)
-        rows.push([m.label, ...periods.map((p) => cellText(entryOf(p, user?.id ?? '', m.id), kind)), last ? detailText(last, kind) : ''])
+      rows.push(['', ...periods.map((p) => periodLabel(p.kind, p.key))])
+      rows.push(['Final score (out of 100)', ...periods.map((p) => formatFinal(finalOf(p, me).score))])
+      for (const m of SCORE_MODULES) rows.push([m.label, ...periods.map((p) => cellText(entryOf(p, me, m.id), kind))])
+    } else if (view === 'all' && selected) {
+      rows.push(['Coordinator', 'Final score (out of 100)', ...SCORE_MODULES.map((m) => m.label)])
+      for (const person of people) {
+        rows.push([person.name, formatFinal(finalOf(selected, person.id).score), ...SCORE_MODULES.map((m) => cellText(entryOf(selected, person.id, m.id), kind))])
       }
-    } else if (module === 'all' && selected) {
-      rows.push(['Coordinator', ...SCORE_MODULES.map((m) => m.label)])
-      for (const person of people) rows.push([person.name, ...SCORE_MODULES.map((m) => cellText(entryOf(selected, person.id, m.id), kind))])
       rows.push([])
       rows.push(['Details'])
-      for (const person of people)
+      for (const person of people) {
+        rows.push([person.name, 'Final score', finalDetail(finalOf(selected, person.id))])
         for (const m of SCORE_MODULES) {
           const e = entryOf(selected, person.id, m.id)
           if (e) rows.push([person.name, m.label, detailText(e, kind)])
         }
-    } else if (module !== 'all') {
+      }
+    } else if (view === 'final') {
       rows.push(['Coordinator', ...periods.map((p) => periodLabel(p.kind, p.key)), 'Average'])
       for (const person of people) {
-        const scores = periods.map((p) => entryOf(p, person.id, module)?.score ?? null)
-        rows.push([person.name, ...periods.map((p) => cellText(entryOf(p, person.id, module), kind)), formatScore(module, averageOf(scores))])
+        const scores = periods.map((p) => finalOf(p, person.id).score)
+        rows.push([person.name, ...scores.map(formatFinal), formatFinal(averageOf(scores))])
+      }
+    } else if (view !== 'all') {
+      rows.push(['Coordinator', ...periods.map((p) => periodLabel(p.kind, p.key)), 'Average'])
+      for (const person of people) {
+        const scores = periods.map((p) => entryOf(p, person.id, view)?.score ?? null)
+        rows.push([person.name, ...periods.map((p) => cellText(entryOf(p, person.id, view), kind)), formatScore(view, averageOf(scores))])
       }
     }
-    const what = module === 'all' ? (selected ? periodLabel(selected.kind, selected.key) : kind) : SCORE_MODULES.find((m) => m.id === module)?.label
+    const what = view === 'all' ? (selected ? periodLabel(selected.kind, selected.key) : kind) : view === 'final' ? 'Final score' : moduleLabel(view)
     downloadWorkbook(`Score history - ${what}.xlsx`, [{ name: 'Scores', rows }])
   }
 
   const header = (
-    <PageHeader title="Score history" subtitle="Every module’s scores by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
+    <PageHeader title="Score history" subtitle="Every module’s scores and a final score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
       <Button variant="outline" onClick={() => void download()} disabled={!periods.length}>
         <Download className="mr-2 h-4 w-4" /> Excel
       </Button>
@@ -225,12 +295,13 @@ export function ScoreHistoryPage() {
       {canManageTeam && (
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Show</p>
-          <Select value={module} onValueChange={(v) => setModule(v as ScoreModule | 'all')}>
+          <Select value={view} onValueChange={(v) => setView(v as View)}>
             <SelectTrigger className="h-9 w-64" aria-label="Module">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All modules, one period</SelectItem>
+              <SelectItem value="final">Final score over time</SelectItem>
               {SCORE_MODULES.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
                   {m.label} over time
@@ -246,6 +317,12 @@ export function ScoreHistoryPage() {
     </GlassCard>
   )
 
+  const finalNote = (
+    <p className="text-xs text-muted-foreground">
+      <span className="font-semibold text-foreground">Final score:</span> {FINAL_HINT} <span className="text-foreground">*</span> only one module had a score that period. Point at a score to see the figures behind it.
+    </p>
+  )
+
   const body = (() => {
     if (loading && !data) {
       return (
@@ -257,35 +334,48 @@ export function ScoreHistoryPage() {
     if (error) return <GlassCard className="p-6 text-sm text-rose-600">{error}</GlassCard>
     if (!periods.length) return <GlassCard className="p-6 text-sm text-muted-foreground">No scores yet.</GlassCard>
 
-    /* A coordinator: their own modules, period by period. */
+    /* A coordinator: their final score and each module, period by period. */
     if (!canManageTeam) {
       const me = user?.id ?? ''
       return (
-        <GlassCard className="overflow-x-auto p-0">
-          <table className="w-full min-w-max text-sm">
-            <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <GlassCard className="space-y-3 p-4">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] table-fixed lg:min-w-0">
+            <colgroup>
+              <col className="w-32 xl:w-40" />
+            </colgroup>
+            <thead className="bg-muted/50 text-muted-foreground">
               <tr>
-                <th className="sticky left-0 bg-muted/90 px-3 py-2 text-left font-medium">Module</th>
-                {periods.map((p) => (
-                  <th key={p.id} className="whitespace-nowrap px-2 py-2 text-right font-medium">
-                    <span className="inline-flex items-center gap-1">
-                      {p.lockedAt ? <Lock className="h-3 w-3" /> : <span className="h-2 w-2 rounded-full bg-emerald-500" />}
-                      {periodLabel(p.kind, p.key, true)}
-                    </span>
-                  </th>
+                <th className={cn(TH, 'text-left')}>Module</th>
+                {visible.map((p) => (
+                  <PeriodHead key={p.id} p={p} />
                 ))}
               </tr>
             </thead>
             <tbody>
+              <tr className="border-t border-border/50 bg-primary/5">
+                <td className={cn(NAME_TD, 'font-semibold')} title={FINAL_HINT}>
+                  Final score
+                </td>
+                {visible.map((p) => {
+                  const f = finalOf(p, me)
+                  return (
+                    <td key={p.id} className={cn(TD, 'font-semibold', finalTone(f.score))} title={finalDetail(f)}>
+                      {formatFinal(f.score)}
+                      <OneModule final={f} />
+                    </td>
+                  )
+                })}
+              </tr>
               {SCORE_MODULES.map((m) => (
                 <tr key={m.id} className="border-t border-border/50">
-                  <td className="sticky left-0 bg-background/95 px-3 py-2 font-medium" title={m.hint}>
+                  <td className={NAME_TD} title={m.hint}>
                     {m.label}
                   </td>
-                  {periods.map((p) => {
+                  {visible.map((p) => {
                     const e = entryOf(p, me, m.id)
                     return (
-                      <td key={p.id} className={cn('px-2 py-2 text-right tabular-nums', e ? toneOf(m.id, e.score) : 'text-muted-foreground')} title={e ? detailText(e, kind) : 'Nothing to score'}>
+                      <td key={p.id} className={cn(TD, e ? toneOf(m.id, e.score) : 'text-muted-foreground')} title={e ? detailText(e, kind) : 'Nothing to score'}>
                         {cellText(e, kind)}
                       </td>
                     )
@@ -294,12 +384,15 @@ export function ScoreHistoryPage() {
               ))}
             </tbody>
           </table>
+          </div>
+          {finalNote}
         </GlassCard>
       )
     }
 
-    /* The team leader and the administrator: all modules for one period. */
-    if (module === 'all' && selected) {
+    /* The team leader and the administrator: all modules for one period, the final score first. */
+    if (view === 'all' && selected) {
+      const finals = people.map((person) => finalOf(selected, person.id))
       return (
         <GlassCard className="space-y-3 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -334,98 +427,137 @@ export function ScoreHistoryPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-max text-sm">
-              <thead className="bg-muted/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium">Coordinator</th>
-                  {SCORE_MODULES.map((m) => (
-                    <th key={m.id} className="px-3 py-2 text-right font-medium" title={m.hint}>
-                      {m.short}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {people.map((person) => (
-                  <tr key={person.id} className="border-t border-border/50">
-                    <td className="px-3 py-2 font-medium">{person.name}</td>
-                    {SCORE_MODULES.map((m) => {
-                      const e = entryOf(selected, person.id, m.id)
-                      return (
-                        <td key={m.id} className={cn('px-2 py-2 text-right tabular-nums', e ? toneOf(m.id, e.score) : 'text-muted-foreground')} title={e ? detailText(e, kind) : 'Nothing to score'}>
-                          {cellText(e, kind)}
-                        </td>
-                      )
-                    })}
-                  </tr>
+          <table className="w-full min-w-[720px] table-fixed lg:min-w-0" data-testid="score-table">
+            <colgroup>
+              <col className="w-[19%]" />
+              <col className="w-[10%]" />
+            </colgroup>
+            <thead className="bg-muted/50 text-muted-foreground">
+              <tr>
+                <th className={cn(TH, 'text-left')}>Coordinator</th>
+                <th className={cn(TH, FINAL_COL, 'text-foreground')} title={FINAL_HINT}>
+                  Final score
+                </th>
+                {SCORE_MODULES.map((m) => (
+                  <th key={m.id} className={TH} title={m.hint}>
+                    {m.short}
+                  </th>
                 ))}
-                <tr className="border-t-2 border-border bg-muted/30 font-semibold">
-                  <td className="px-3 py-2">Team average</td>
+              </tr>
+            </thead>
+            <tbody>
+              {people.map((person, i) => (
+                <tr key={person.id} className="border-t border-border/50">
+                  <td className={NAME_TD} title={person.name}>
+                    {person.name}
+                  </td>
+                  <td className={cn(TD, FINAL_COL, finalTone(finals[i].score))} title={finalDetail(finals[i])}>
+                    {formatFinal(finals[i].score)}
+                    <OneModule final={finals[i]} />
+                  </td>
                   {SCORE_MODULES.map((m) => {
-                    const avg = averageOf(selected.entries.filter((e) => e.module === m.id).map((e) => e.score))
+                    const e = entryOf(selected, person.id, m.id)
                     return (
-                      <td key={m.id} className={cn('px-3 py-2 text-right tabular-nums', toneOf(m.id, avg))}>
-                        {m.id === 'service' && kind === 'week' ? '—' : formatScore(m.id, avg)}
+                      <td key={m.id} className={cn(TD, e ? toneOf(m.id, e.score) : 'text-muted-foreground')} title={e ? detailText(e, kind) : 'Nothing to score'}>
+                        {cellText(e, kind)}
                       </td>
                     )
                   })}
                 </tr>
-              </tbody>
-            </table>
+              ))}
+              <tr className="border-t-2 border-border bg-muted/30 font-semibold">
+                <td className={NAME_TD}>Team average</td>
+                {(() => {
+                  const avg = averageOf(finals.map((f) => f.score))
+                  return <td className={cn(TD, FINAL_COL, finalTone(avg))}>{formatFinal(avg === null ? null : Math.round(avg * 10) / 10)}</td>
+                })()}
+                {SCORE_MODULES.map((m) => {
+                  const avg = averageOf(selected.entries.filter((e) => e.module === m.id).map((e) => e.score))
+                  return (
+                    <td key={m.id} className={cn(TD, toneOf(m.id, avg))}>
+                      {m.id === 'service' && kind === 'week' ? '—' : formatScore(m.id, avg)}
+                    </td>
+                  )
+                })}
+              </tr>
+            </tbody>
+          </table>
           </div>
-          <p className="text-xs text-muted-foreground">Point at a score to see the figures behind it.</p>
+          {finalNote}
         </GlassCard>
       )
     }
 
-    /* One module, period by period. */
-    const m = SCORE_MODULES.find((x) => x.id === module)!
+    /* The final score, or one module, period by period. */
+    const isFinal = view === 'final'
+    const m = isFinal ? null : SCORE_MODULES.find((x) => x.id === view)!
     return (
       <GlassCard className="space-y-3 p-4">
-        <p className="text-sm text-muted-foreground">{m.hint}</p>
+        <p className="text-sm text-muted-foreground">{isFinal ? FINAL_HINT : m!.hint}</p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-max text-sm">
-            <thead className="bg-muted/50 text-xs text-muted-foreground">
-              <tr>
-                <th className="sticky left-0 bg-muted/90 px-3 py-2 text-left font-medium">Coordinator</th>
-                {periods.map((p) => (
-                  <th key={p.id} className="whitespace-nowrap px-2 py-2 text-right font-medium" title={p.lockedAt ? `Locked ${formatDate(p.lockedAt.slice(0, 10))}` : 'Live'}>
-                    <span className="inline-flex items-center gap-1">
-                      {p.lockedAt ? <Lock className="h-3 w-3" /> : <span className="h-2 w-2 rounded-full bg-emerald-500" />}
-                      {periodLabel(p.kind, p.key, true)}
-                    </span>
-                  </th>
-                ))}
-                <th className="px-3 py-2 text-right font-medium">Average</th>
-              </tr>
-            </thead>
-            <tbody>
-              {people.map((person) => {
-                const avg = averageOf(periods.map((p) => entryOf(p, person.id, m.id)?.score))
+          <table className="w-full min-w-[720px] table-fixed lg:min-w-0" data-testid="score-table">
+          <colgroup>
+            <col className="w-32 xl:w-40" />
+          </colgroup>
+          <thead className="bg-muted/50 text-muted-foreground">
+            <tr>
+              <th className={cn(TH, 'text-left')}>Coordinator</th>
+              {visible.map((p) => (
+                <PeriodHead key={p.id} p={p} />
+              ))}
+              <th className={cn(TH, 'border-l border-border/60 text-foreground')} title={`Average of the last ${periods.length} ${kind}s`}>
+                Average
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.map((person) => {
+              if (isFinal) {
+                const finals = visible.map((p) => finalOf(p, person.id))
+                const avg = averageOf(periods.map((p) => finalOf(p, person.id).score))
                 return (
                   <tr key={person.id} className="border-t border-border/50">
-                    <td className="sticky left-0 bg-background/95 px-3 py-2 font-medium">{person.name}</td>
-                    {periods.map((p) => {
-                      const e = entryOf(p, person.id, m.id)
-                      return (
-                        <td key={p.id} className={cn('px-2 py-2 text-right tabular-nums', e ? toneOf(m.id, e.score) : 'text-muted-foreground')} title={e ? detailText(e, kind) : 'Nothing to score'}>
-                          {cellText(e, kind)}
-                        </td>
-                      )
-                    })}
-                    <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', toneOf(m.id, avg))}>{m.id === 'service' && kind === 'week' ? '—' : formatScore(m.id, avg)}</td>
+                    <td className={NAME_TD} title={person.name}>
+                      {person.name}
+                    </td>
+                    {finals.map((f, i) => (
+                      <td key={visible[i].id} className={cn(TD, finalTone(f.score))} title={finalDetail(f)}>
+                        {formatFinal(f.score)}
+                        <OneModule final={f} />
+                      </td>
+                    ))}
+                    <td className={cn(TD, 'border-l border-border/60 font-semibold', finalTone(avg))}>{formatFinal(avg === null ? null : Math.round(avg * 10) / 10)}</td>
                   </tr>
                 )
-              })}
-            </tbody>
-          </table>
+              }
+              const avg = averageOf(periods.map((p) => entryOf(p, person.id, m!.id)?.score))
+              return (
+                <tr key={person.id} className="border-t border-border/50">
+                  <td className={NAME_TD} title={person.name}>
+                    {person.name}
+                  </td>
+                  {visible.map((p) => {
+                    const e = entryOf(p, person.id, m!.id)
+                    return (
+                      <td key={p.id} className={cn(TD, e ? toneOf(m!.id, e.score) : 'text-muted-foreground')} title={e ? detailText(e, kind) : 'Nothing to score'}>
+                        {cellText(e, kind)}
+                      </td>
+                    )
+                  })}
+                  <td className={cn(TD, 'border-l border-border/60 font-semibold', toneOf(m!.id, avg))}>{m!.id === 'service' && kind === 'week' ? '—' : formatScore(m!.id, avg)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
         </div>
       </GlassCard>
     )
   })()
 
   return (
-    <div className="space-y-6">
+    // Room at the foot of the page, so the last row can scroll clear of Robi's button.
+    <div className="space-y-6 pb-24">
       {header}
       {controls}
       {body}

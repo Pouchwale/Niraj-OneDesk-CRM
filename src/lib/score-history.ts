@@ -42,6 +42,26 @@ export const SCORE_MODULES: { id: ScoreModule; label: string; short: string; hin
 
 export const SCORE_HISTORY_ROUTE = '/api/score-history'
 
+/* ===================== The final score ===================== */
+
+export const FINAL_HINT =
+  'Out of 100: the average of the modules that have a score that period. Robi counts as tasks done (100 plus its gap, so -25% is 75), Weekly KPI as its score out of 100, Billing as it is (its minus scores pull the final down), and Quotations, Service and Self Leads as they are. A module with no score is left out, not counted as 0.'
+
+/** A module's score on the final score's 0-100 scale; null when it has none. */
+export function finalPart(e: Pick<ScoreEntry, 'module' | 'score'>): number | null {
+  if (e.score === null || e.score === undefined) return null
+  return e.module === 'robi' ? 100 + e.score : e.score
+}
+
+/** One coordinator's final score for a period, from their module entries. */
+export function finalScoreOf(entries: readonly Pick<ScoreEntry, 'module' | 'score'>[]): { score: number | null; parts: { module: ScoreModule; value: number }[] } {
+  const parts = entries
+    .map((e) => ({ module: e.module, value: finalPart(e) }))
+    .filter((p): p is { module: ScoreModule; value: number } => p.value !== null)
+  if (!parts.length) return { score: null, parts }
+  return { score: Math.round((parts.reduce((a, p) => a + p.value, 0) / parts.length) * 10) / 10, parts }
+}
+
 /** Days after a period ends before it is locked, so entries made late for its last days still count. */
 export const LOCK_GRACE_DAYS = 2
 
