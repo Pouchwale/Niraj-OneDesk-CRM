@@ -7,9 +7,9 @@
  * follow-up no longer mentions one.
  */
 
-import { isSetAside } from '@/lib/no-followup'
-import type { Followup, OverduePayment } from '@/lib/types'
-import { formatCurrency } from '@/lib/utils'
+import { isSetAside } from '../../lib/no-followup'
+import type { Followup, OverduePayment } from '../../lib/types'
+import { formatCurrency } from '../../lib/utils'
 import { PLAN_MIN_AMOUNT, type CustomerOf, type PlanItem } from './daily-plan'
 
 /** "credit note", "debit note", "C.N", "CN", "D.N", "DN" - however it is written. */

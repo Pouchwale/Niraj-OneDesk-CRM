@@ -9,7 +9,7 @@
  */
 
 import { keepForHalfDay, type AttendanceStatus } from './attendance'
-import type { Followup } from '@/lib/types'
+import type { Followup } from '../../lib/types'
 import {
   completingFollowup,
   endOfDay,

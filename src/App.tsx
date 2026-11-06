@@ -34,6 +34,7 @@ const ServicePage = lazyPage(() => import('@/features/service/ServicePage'), 'Se
 const SelfLeadsPage = lazyPage(() => import('@/features/self-leads/SelfLeadsPage'), 'SelfLeadsPage');
 const WeeklyKpiPage = lazyPage(() => import('@/features/snapshots/WeeklyKpiPage'), 'WeeklyKpiPage');
 const FestivalsPage = lazyPage(() => import('@/features/festivals/FestivalsPage'), 'FestivalsPage');
+const ScoreHistoryPage = lazyPage(() => import('@/features/score-history/ScoreHistoryPage'), 'ScoreHistoryPage');
 
 function RouteFallback() {
   return (
@@ -134,6 +135,7 @@ function AppContent() {
           <Route path="service" element={<NotForRfdOnly><ServicePage /></NotForRfdOnly>} />
           <Route path="self-leads" element={<NotForRfdOnly><SelfLeadsPage /></NotForRfdOnly>} />
           <Route path="festivals" element={<FestivalsPage />} />
+          <Route path="score-history" element={<NotForRfdOnly><ScoreHistoryPage /></NotForRfdOnly>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

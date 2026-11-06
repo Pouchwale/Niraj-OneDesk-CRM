@@ -25,6 +25,9 @@ import { snapshotRoutes } from './modules/snapshots/routes'
 import { startAutoSave } from './modules/snapshots/auto-save'
 import { createAgeingTrendStore, startMonthCloses } from './modules/ageing-trend/store'
 import { ageingTrendRoutes } from './modules/ageing-trend/routes'
+import { createScoreHistoryStore, startScoreLocks } from './modules/score-history/store'
+import { scoreInputs } from './modules/score-history/inputs'
+import { scoreHistoryRoutes } from './modules/score-history/routes'
 import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
@@ -131,6 +134,23 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
     )
   }
   router.use('/ageing-trend', requireSession(accounts, sessions), ageingTrendRoutes(ageingTrend))
+
+  // Every module's scores by week, month and year: each period locked two days
+  // after it ends (the first run fills in the past). Everyone signed in reads
+  // it; a coordinator gets only their own lines.
+  const scoreHistory = createScoreHistoryStore(
+    config.snapshotDir,
+    () => scoreInputs(data, snapshots, () => accounts.roster()),
+    () => new Date(),
+    () => [data.version(), snapshots.listResults().map((r) => r.id).join(','), accounts.roster().map((u) => u.id + u.role).join(',')].join('|')
+  )
+  if (deps.weeklyAutoSave ?? config.isProduction) {
+    startScoreLocks(
+      scoreHistory,
+      (ids) => logger.info('score history: periods locked', { count: ids.length, last: ids[ids.length - 1] }),
+      (err) => logger.error('score history: locking failed', { error: err instanceof Error ? err.message : String(err) })
+    )
+  }
   /*
    * The working dataset is mounted first, with a body limit of its own: a day's
    * import arrives as one batch of a few thousand rows, which is megabytes, and
@@ -159,6 +179,7 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   router.use('/auth', authRoutes(accounts, sessions, logger))
   router.use('/ai', requireSession(accounts, sessions), aiRoutes(ai))
   router.use('/excel', requireSession(accounts, sessions), excelRoutes(excel, logger))
+  router.use('/score-history', requireSession(accounts, sessions), scoreHistoryRoutes(scoreHistory, logger))
 
   router.use(notFoundHandler)
   router.use(errorHandler(logger))

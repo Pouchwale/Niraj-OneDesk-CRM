@@ -14,10 +14,11 @@
  * other work can cover a shortfall, never beat doing the list.
  */
 
-import type { Followup } from '@/lib/types'
-import { addDaysISO } from '@/lib/utils'
-import { entityKeyOf, type CustomerOf, type DailyPlan } from './daily-plan'
-import { summariseHistory, type HistoryRow } from './plan-history'
+import type { Company, Followup, OverduePayment } from '../../lib/types'
+import { addDaysISO } from '../../lib/utils'
+import type { AttendanceStatus } from './attendance'
+import { customerLookup, entityKeyOf, openAccountKeys, type CustomerOf, type DailyPlan } from './daily-plan'
+import { planHistory, summariseHistory, type HistoryRow } from './plan-history'
 
 export interface DayScore {
   done: number
@@ -89,6 +90,42 @@ export function dailyScores(rows: HistoryRow[], extra?: Map<string, Followup[]>)
     scores.set(key, { done: s.done, given, score, extra: more, credited })
   }
   return scores
+}
+
+export interface TeamScoreInput {
+  companies: readonly Company[]
+  overduePayments: readonly OverduePayment[]
+  dailyPlans: readonly DailyPlan[]
+  followups: readonly Followup[]
+  coordinatorIds: readonly string[]
+  today: string
+  /** Leave and Robi days off are left out of the scores. */
+  attendanceOf?: (userId: string, date: string) => AttendanceStatus | null
+}
+
+/**
+ * Every coordinator's day scores and extra work, from the shared records: the
+ * one calculation behind Overview → Scores and the saved score history.
+ */
+export function teamDayScores(input: TeamScoreInput): { scores: Map<string, DayScore>; extra: Map<string, Followup[]> } {
+  const companies = [...input.companies]
+  const overdue = [...input.overduePayments]
+  const owed = openAccountKeys(companies, overdue)
+  const mine = new Map(
+    input.coordinatorIds.map((id) => [
+      id,
+      openAccountKeys(
+        companies.filter((c) => c.assigned_coordinator_id === id),
+        overdue.filter((p) => p.assigned_coordinator_id === id)
+      ),
+    ])
+  )
+  const plans = input.dailyPlans.filter((p) => mine.has(p.userId))
+  const followups = [...input.followups]
+  const customerOf = customerLookup(companies, overdue)
+  const rows = planHistory(plans, followups, input.today, owed, mine, customerOf, input.attendanceOf)
+  const extra = extraWork(plans, followups.filter((f) => mine.has(f.coordinator_id)), customerOf)
+  return { scores: dailyScores(rows, extra), extra }
 }
 
 /** The average of the days that have a score, or null when none do. */

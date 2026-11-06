@@ -11,9 +11,7 @@ import { GlassCard } from '@/components/shared/GlassCard'
 import { Button } from '@/components/ui/button'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { addDaysISO, cn, formatDate, todayISO } from '@/lib/utils'
-import { customerLookup, openAccountKeys } from './daily-plan'
-import { planHistory } from './plan-history'
-import { dailyScores, extraWork, scoreLabel, scoreTone, weekAverage, weekDays, weekStart, type DayScore } from './scores'
+import { scoreLabel, scoreTone, teamDayScores, weekAverage, weekDays, weekStart, type DayScore } from './scores'
 
 /** Every coordinator's day scores, and extra work per day, live from the shared records. */
 function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; extra: Map<string, number> } {
@@ -22,26 +20,16 @@ function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; e
   const key = coordinatorIds.join(',')
   return useMemo(() => {
     void version
-    const companies = demoCompanyStore.getAllCompanies()
-    const overdue = demoCompanyStore.getAllOverduePayments()
-    const owed = openAccountKeys(companies, overdue)
-    const mine = new Map(
-      coordinatorIds.map((id) => [
-        id,
-        openAccountKeys(
-          companies.filter((c) => c.assigned_coordinator_id === id),
-          overdue.filter((p) => p.assigned_coordinator_id === id)
-        ),
-      ])
-    )
-    const plans = demoCompanyStore.getDailyPlans().filter((p) => mine.has(p.userId))
-    const followups = demoCompanyStore.getAllFollowups()
-    const customerOf = customerLookup(companies, overdue)
-    const rows = planHistory(plans, followups, todayISO(), owed, mine, customerOf, (u, d) =>
-      demoCompanyStore.getAttendance(u, d)?.status ?? null
-    )
-    const extra = extraWork(plans, followups.filter((f) => mine.has(f.coordinator_id)), customerOf)
-    return { scores: dailyScores(rows, extra), extra: new Map([...extra].map(([k, v]) => [k, v.length])) }
+    const { scores, extra } = teamDayScores({
+      companies: demoCompanyStore.getAllCompanies(),
+      overduePayments: demoCompanyStore.getAllOverduePayments(),
+      dailyPlans: demoCompanyStore.getDailyPlans(),
+      followups: demoCompanyStore.getAllFollowups(),
+      coordinatorIds,
+      today: todayISO(),
+      attendanceOf: (u, d) => demoCompanyStore.getAttendance(u, d)?.status ?? null,
+    })
+    return { scores, extra: new Map([...extra].map(([k, v]) => [k, v.length])) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, key])
 }
