@@ -139,6 +139,8 @@ export interface ConversionSummary {
   existingConversions: number
   /** Converted out of all quotations, 0-100; null with none. */
   conversionRate: number | null
+  /** Order value of the conversions (only a Closed quotation carries an amount). */
+  amount: number
   score: number
   /** Different customers quoted (names compared ignoring case and spaces), as the sheet's COUNT OF CUSTOMER. */
   customers: number
@@ -160,6 +162,7 @@ export function conversionsOf(list: readonly Quotation[]): ConversionSummary {
     newConversions: closed.filter((q) => q.customer_type === 'new').length,
     existingConversions: closed.filter((q) => q.customer_type === 'existing').length,
     conversionRate: list.length ? Math.round((closed.length / list.length) * 100) : null,
+    amount: Math.round(closed.reduce((sum, q) => sum + (q.amount ?? 0), 0) * 100) / 100,
     score,
     customers,
     averageScore: customers ? Math.round((score / customers) * 100) / 100 : null,

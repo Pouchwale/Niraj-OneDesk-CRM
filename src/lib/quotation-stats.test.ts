@@ -133,6 +133,7 @@ describe('conversionsOf', () => {
       newConversions: 1,
       existingConversions: 2,
       conversionRate: 60,
+      amount: 0,
       score: 200,
       customers: 1,
       averageScore: 200,

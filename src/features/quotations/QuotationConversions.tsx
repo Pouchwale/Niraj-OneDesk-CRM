@@ -13,7 +13,7 @@ import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { GlassCard } from '@/components/shared/GlassCard'
 import { conversionsByPerson, conversionsOf, QUOTATION_SCORE, type ConversionSummary } from '@/lib/quotation-stats'
 import type { Quotation } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
 
 const personName = (id: string) => (id ? getCoordinatorDisplayName(id) : 'Unassigned')
 const n = (v: number) => v.toLocaleString('en-IN')
@@ -24,13 +24,29 @@ const COLUMNS: { key: keyof ConversionSummary; label: string }[] = [
   { key: 'conversions', label: 'Total conversion' },
   { key: 'newConversions', label: 'New conversion' },
   { key: 'existingConversions', label: 'Existing conversion' },
+  { key: 'amount', label: 'Total amount' },
   { key: 'score', label: 'Total score' },
   { key: 'customers', label: 'Count of customer' },
   { key: 'averageScore', label: 'Avg score' },
 ]
 
-const cellOf = (s: ConversionSummary, key: keyof ConversionSummary) =>
-  key === 'averageScore' ? avg(s.averageScore) : n(s[key] as number)
+/** A cell's text; the amount is written short on narrower screens (₹1.22Cr) and in full on wide ones. */
+function cellOf(s: ConversionSummary, key: keyof ConversionSummary) {
+  if (key === 'averageScore') return avg(s.averageScore)
+  if (key !== 'amount') return n(s[key] as number)
+  if (!s.amount) return '—'
+  return (
+    <>
+      <span className="hidden 2xl:inline">{formatCurrency(s.amount)}</span>
+      <span className="2xl:hidden" title={formatCurrency(s.amount)}>
+        {formatCurrency(s.amount, true)}
+      </span>
+    </>
+  )
+}
+
+/** Where the Conversion, amount and Score groups begin: a thin divider before them. */
+const GROUP_START = new Set<keyof ConversionSummary>(['conversions', 'amount', 'score'])
 
 /** One block of the summary: a total with its new / existing split. */
 function SplitTile({ label, total, hint, split }: { label: string; total: string; hint?: string; split: [string, string][] }) {
@@ -86,7 +102,9 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
         <SplitTile
           label="Total conversion"
           total={n(team.conversions)}
-          hint={team.conversionRate === null ? undefined : `${team.conversionRate}% of quotations`}
+          hint={[team.conversionRate === null ? null : `${team.conversionRate}% of quotations`, team.amount ? `${formatCurrency(team.amount)} total amount` : null]
+            .filter(Boolean)
+            .join(' · ') || undefined}
           split={[
             ['New', n(team.newConversions)],
             ['Existing', n(team.existingConversions)],
@@ -105,12 +123,24 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
       {showPeople && (
         <div className="overflow-x-auto rounded-md border border-border/50">
           <table className="w-full text-sm" data-testid="quotation-conversions-people">
-            <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+            {/* Grouped like the sheet, so each column is only as wide as its numbers. */}
+            <thead className="bg-muted/50 text-[11px] uppercase leading-tight text-muted-foreground">
               <tr>
-                <th className="px-4 py-2.5 text-left font-medium">Coordinator</th>
-                {COLUMNS.map((c) => (
-                  <th key={c.key} className="whitespace-nowrap px-3 py-2.5 text-right font-medium">
-                    {c.label}
+                <th rowSpan={2} className="px-3 py-2 text-left align-bottom font-medium">Coordinator</th>
+                <th rowSpan={2} className="px-2 py-2 text-right align-bottom font-medium">Total quotations</th>
+                <th colSpan={3} className="border-b border-l border-border/50 px-2 pb-1 pt-2 text-center font-medium">Conversion</th>
+                <th rowSpan={2} className="border-l border-border/50 px-2 py-2 text-right align-bottom font-medium">Total amount</th>
+                <th colSpan={3} className="border-b border-l border-border/50 px-2 pb-1 pt-2 text-center font-medium">Score</th>
+              </tr>
+              <tr>
+                {['Total', 'New', 'Existing'].map((label, i) => (
+                  <th key={`c-${label}`} className={cn('px-2 pb-2 pt-1 text-right font-medium', i === 0 && 'border-l border-border/50')}>
+                    {label}
+                  </th>
+                ))}
+                {['Total', 'Customers', 'Avg'].map((label, i) => (
+                  <th key={`s-${label}`} className={cn('px-2 pb-2 pt-1 text-right font-medium', i === 0 && 'border-l border-border/50')}>
+                    {label}
                   </th>
                 ))}
               </tr>
@@ -123,9 +153,16 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
                   onClick={() => onPickPerson?.(personId || 'none')}
                   title={onPickPerson ? 'Show only this person' : undefined}
                 >
-                  <td className={cn('whitespace-nowrap px-4 py-2.5 font-medium', !personId && 'text-amber-600')}>{personName(personId)}</td>
+                  <td className={cn('whitespace-nowrap px-3 py-2.5 font-medium', !personId && 'text-amber-600')}>{personName(personId)}</td>
                   {COLUMNS.map((c) => (
-                    <td key={c.key} className={cn('whitespace-nowrap px-3 py-2.5 text-right tabular-nums', c.key === 'averageScore' && 'font-semibold')}>
+                    <td
+                      key={c.key}
+                      className={cn(
+                        'whitespace-nowrap px-2 py-2.5 text-right text-[13px] tabular-nums xl:text-sm',
+                        GROUP_START.has(c.key) && 'border-l border-border/40',
+                        c.key === 'averageScore' && 'font-semibold'
+                      )}
+                    >
                       {cellOf(summary, c.key)}
                     </td>
                   ))}
@@ -134,9 +171,9 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
             </tbody>
             <tfoot className="border-t-2 border-border bg-muted/50 font-semibold">
               <tr>
-                <td className="px-4 py-2.5">Team</td>
+                <td className="px-3 py-2.5">Team</td>
                 {COLUMNS.map((c) => (
-                  <td key={c.key} className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
+                  <td key={c.key} className={cn('whitespace-nowrap px-2 py-2.5 text-right text-[13px] tabular-nums xl:text-sm', GROUP_START.has(c.key) && 'border-l border-border/40')}>
                     {cellOf(team, c.key)}
                   </td>
                 ))}
@@ -147,7 +184,7 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
       )}
 
       <p className="text-xs text-muted-foreground">
-        Conversion = a Closed quotation. Score per quotation: Closed + New customer = {QUOTATION_SCORE.closedNew}, Closed + Existing
+        Conversion = a Closed quotation; Total amount = the order value of the conversions. Score per quotation: Closed + New customer = {QUOTATION_SCORE.closedNew}, Closed + Existing
         customer = {QUOTATION_SCORE.closedExisting}, Open or Lost = 0. Count of customer = different customers quoted in the period;
         Avg score = total score ÷ count of customer. Choose "Enquiry date" above to count the period the way the team sheet does.
       </p>
