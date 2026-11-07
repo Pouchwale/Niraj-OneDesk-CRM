@@ -1,15 +1,16 @@
 /**
  * Score history (6 Nov 2026): every module's score for each coordinator, by
- * week (Monday to Sunday), month and year, so the team can be reviewed over
- * time. The server keeps each period once it has ended (two days' grace for
- * late entries) and locks it: later edits to old records do not change it.
- * The current week, month and year are worked out live until they end.
+ * week, month and year, so the team can be reviewed over time. A week is the
+ * company's week, Saturday to Friday (since 7 Nov 2026; Monday to Sunday
+ * before). The server keeps each period once it has ended (a few days' grace
+ * for late entries) and locks it: later edits to old records do not change
+ * it. The current week, month and year are worked out live until they end.
  *
  * Each module is scored the way its own screen scores it:
  * - Robi tasks: the average of the day scores (gap from 100%, 0% is all done).
  * - Weekly KPI, Regular and Dispute: the saved weekly scores (out of 100); a
- *   week belongs to the Monday it was measured from, a month or year is the
- *   average of its weeks.
+ *   score belongs to the week holding the middle of its two saved days, a
+ *   month or year is the average of its weeks.
  * - Quotations: score ÷ customers (the sheet's AVG SCORE), by enquiry date.
  * - Billing Issues: the stepped score from the number of issues as
  *   Responsible Person 1; a year is the average of its months.
@@ -71,8 +72,18 @@ export function finalScoreOf(entries: readonly Pick<ScoreEntry, 'module' | 'scor
   return { score: Math.round((parts.reduce((a, p) => a + p.value, 0) / parts.length) * 10) / 10, parts }
 }
 
-/** Days after a period ends before it is locked, so entries made late for its last days still count. */
+/** Days after a month or year ends before it is locked, so entries made late for its last days still count. */
 export const LOCK_GRACE_DAYS = 2
+
+/**
+ * A week (Saturday to Friday) locks on the Tuesday after it ends: Saturday and
+ * Monday stay open for late entries (Sunday is off), and Monday's automatic
+ * Weekly KPI score lands in its week before the week is locked.
+ */
+export const WEEK_LOCK_GRACE_DAYS = 3
+
+/** The days of grace before a period of this kind is locked. */
+export const lockGraceDays = (kind: PeriodKind) => (kind === 'week' ? WEEK_LOCK_GRACE_DAYS : LOCK_GRACE_DAYS)
 
 export interface ScoreEntry {
   coordinatorId: string
@@ -86,7 +97,7 @@ export interface ScoreEntry {
 }
 
 export interface PeriodScores {
-  /** "week:2026-10-26", "month:2026-10", "year:2026". */
+  /** "week:2026-10-31" (its Saturday), "month:2026-10", "year:2026". */
   id: string
   kind: PeriodKind
   key: string
@@ -112,17 +123,21 @@ const utc = (day: string) => Date.UTC(Number(day.slice(0, 4)), Number(day.slice(
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10)
 export const addDays = (day: string, n: number) => iso(utc(day) + n * 86_400_000)
 
-/** The Monday of the week (Monday to Sunday) a day falls in. */
+/**
+ * The Saturday that starts the week a day falls in. The company's week runs
+ * Saturday to Friday (the user's rule, 7 Nov 2026; Monday to Sunday before).
+ */
 export function weekOf(day: string): string {
-  const dow = new Date(utc(day)).getUTCDay()
-  return addDays(day, dow === 0 ? -6 : 1 - dow)
+  const dow = new Date(utc(day)).getUTCDay() // 0 Sunday … 6 Saturday
+  return addDays(day, -((dow + 1) % 7)) // Saturday 0 days back, Sunday 1, … Friday 6
 }
 
 /**
  * The week a Weekly KPI score measured: the one holding the middle of its two
- * saved days (local time). Saturday-to-Saturday scores (the rule since 6 Nov
- * 2026) and Monday-to-Monday ones both land in the week whose collections
- * they count; each score saved before then stays in the week it was in.
+ * saved days (local time). A Saturday-to-Saturday score (the rule since 6 Nov
+ * 2026) lands in the week starting on its first Saturday, the week whose
+ * collections it counts; an older Monday-to-Monday score in the week holding
+ * its Thursday.
  */
 export function kpiWeekOf(oldSavedAt: string, newSavedAt: string): string {
   const middle = new Date((new Date(oldSavedAt).getTime() + new Date(newSavedAt).getTime()) / 2)
@@ -181,9 +196,9 @@ export function recentKeys(kind: PeriodKind, today: string, count: number): stri
   return out
 }
 
-/** A period is locked once it ended more than the grace days ago. */
+/** A period is locked once it ended more than its grace days ago (a week: on the Tuesday after it). */
 export function lockable(kind: PeriodKind, key: string, today: string): boolean {
-  return addDays(periodRange(kind, key).end, LOCK_GRACE_DAYS) < today
+  return addDays(periodRange(kind, key).end, lockGraceDays(kind)) < today
 }
 
 export const periodId = (kind: PeriodKind, key: string) => `${kind}:${key}`
@@ -191,7 +206,7 @@ export const periodId = (kind: PeriodKind, key: string) => `${kind}:${key}`
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const dayMonth = (day: string) => `${Number(day.slice(8, 10))} ${MONTHS[Number(day.slice(5, 7)) - 1]}`
 
-/** "26 Oct – 1 Nov 2026", "Oct 2026", "2026". */
+/** "31 Oct – 6 Nov 2026", "Oct 2026", "2026". */
 export function periodLabel(kind: PeriodKind, key: string, short = false): string {
   if (kind === 'year') return key
   if (kind === 'month') return `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`
@@ -213,7 +228,7 @@ export interface RobiDay {
 /** A saved Weekly KPI score, per coordinator. */
 export interface KpiWeek {
   book: 'regular' | 'dispute'
-  /** Monday of the week it measured (the week holding the middle of its two saved days, kpiWeekOf). */
+  /** The Saturday starting the week it measured (the week holding the middle of its two saved days, kpiWeekOf). */
   weekStart: string
   generatedAt: string
   rows: { coordinatorId: string | null; kpiScore: number }[]
@@ -262,7 +277,7 @@ const average = (values: number[]) => (values.length ? values.reduce((a, v) => a
 /** Halves away from zero (-12.5 → -13), as Robi's weekly average rounds. */
 const roundAway = (v: number) => Math.sign(v) * Math.round(Math.abs(v)) || 0
 
-/** Robi's week is Monday to Saturday (as Overview → Scores): a plan made on a Sunday is not scored. */
+/** Robi's week is Saturday to Friday with Sunday off (as Overview → Scores): a plan made on a Sunday is not scored. */
 const isSunday = (day: string) => new Date(utc(day)).getUTCDay() === 0
 
 function robiEntries(inputs: ScoreInputs, start: string, end: string, nameOf: (id: string) => string): ScoreEntry[] {

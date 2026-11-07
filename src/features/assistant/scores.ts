@@ -5,8 +5,9 @@
  * plus any leftovers, so work left undone counts against every day it stays
  * open - written as the gap from 100%: 6 of 8 is -25%, everything done is 0%.
  * Extra overdue rounds, and accounts paid or handed over before anyone acted,
- * are left out (the same rule as Robi task history). The week is Monday to
- * Saturday; a day with no plan is left out of the average.
+ * are left out (the same rule as Robi task history). The week is the
+ * company's, Saturday to Friday with Sunday off (since 7 Nov 2026; Monday to
+ * Saturday before); a day with no plan is left out of the average.
  *
  * Extra work (since 13 Oct 2026): a follow-up on a customer who was not on
  * that day's list, counted once per customer per day. Each extra customer
@@ -59,15 +60,18 @@ export function extraWork(plans: DailyPlan[], followups: Followup[], customerOf?
   return extra
 }
 
-/** The Monday on or before the date (local calendar). */
+/**
+ * The Saturday on or before the date (local calendar): the company's week runs
+ * Saturday to Friday (the user's rule, 7 Nov 2026; Monday to Saturday before).
+ */
 export function weekStart(date: string): string {
   const day = new Date(`${date}T00:00:00`).getDay() // 0 Sunday … 6 Saturday
-  return addDaysISO(date, day === 0 ? -6 : 1 - day)
+  return addDaysISO(date, -((day + 1) % 7)) // Saturday 0 days back, Sunday 1, … Friday 6
 }
 
-/** Monday to Saturday of the week starting on `monday`. */
-export function weekDays(monday: string): string[] {
-  return Array.from({ length: 6 }, (_, i) => addDaysISO(monday, i))
+/** The working days of the week starting on Saturday `start`: Saturday, then Monday to Friday (Sunday is off). */
+export function weekDays(start: string): string[] {
+  return [0, 2, 3, 4, 5, 6].map((i) => addDaysISO(start, i))
 }
 
 /** Each coordinator's score for each day they had a plan, by `${coordinatorId}|${date}`. */

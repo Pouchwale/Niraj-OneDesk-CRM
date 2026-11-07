@@ -2,8 +2,9 @@
  * Overdue Payments → Trends: the book month by month, quarter by quarter and
  * person by person, and the 31–120 and 121+ money week by week.
  *
- * Read-only. The weeks are the Monday books Weekly KPI saves on its own (one
- * per week, kept for good as small sums, see server/modules/ageing-trend);
+ * Read-only. The weeks run Saturday to Friday (the company's week, since 7 Nov
+ * 2026), each shown by the first book Weekly KPI saved in it on its own, the
+ * Saturday morning's (kept for good as small sums, see server/modules/ageing-trend);
  * each month closes on the server's half-hourly sum of the live book (older
  * months on their last saved week), a quarter with its last month; "Today" is
  * the live book on this screen, summed by the same rules
@@ -188,9 +189,13 @@ function ChartTooltip({
 const sumOf = (f: AgeFigures) => Math.round((f.d0_30 + f.d31_120 + f.d121_plus) * 100) / 100;
 const over30 = (f: AgeFigures) => Math.round((f.d31_120 + f.d121_plus) * 100) / 100;
 
+/** When a saved book was saved: "Saturday, 07 Nov 2026, 10:03 am". */
+const savedWhen = (iso: string) =>
+  new Date(iso).toLocaleString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
 /** Where a period's figures come from, in words. */
 function sourceNote(p: BookPoint, by: Period | 'week'): string {
-  if (by === 'week') return p.source === 'live' ? 'Today' : `Saved on Monday ${formatDate(p.date)}, morning`;
+  if (by === 'week') return p.source === 'live' ? 'Today' : p.savedAt ? `Saved ${savedWhen(p.savedAt)}` : `Saved in the week of ${formatDate(p.date)}`;
   if (p.source === 'live') return `Today — this ${by} is still running`;
   if (p.source === 'month') return `${by === 'month' ? 'Month' : by === 'quarter' ? 'Quarter' : 'Year'} close`;
   return `As of the week of ${formatDate(p.date)} (the last saved week in it)`;
@@ -238,7 +243,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
 
   /** Today first, then every saved week, latest first: the week-wise table. */
   const weekPoints: BookPoint[] = useMemo(
-    () => [live, ...weeks.map((w) => ({ date: w.weekStart, rows: w.rows }))],
+    () => [live, ...weeks.map((w) => ({ date: w.weekStart, rows: w.rows, savedAt: w.savedAt }))],
     [live, weeks]
   );
 
@@ -252,7 +257,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
     () =>
       [...weeks]
         .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
-        .map((w) => ({ date: w.weekStart, rows: w.rows, source: 'week' as const, key: w.weekStart, label: `Week of ${formatDate(w.weekStart)}` })),
+        .map((w) => ({ date: w.weekStart, rows: w.rows, savedAt: w.savedAt, source: 'week' as const, key: w.weekStart, label: `Week of ${formatDate(w.weekStart)}` })),
     [weeks]
   );
   const choices = useMemo(() => periodChoices(closes), [closes]);
@@ -768,7 +773,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
           </div>
         )}
         {!loading && weeks.length === 0 && chartMode !== 'person' && (
-          <p className="text-xs text-muted-foreground">No saved weeks yet: Weekly KPI saves one every Monday morning.</p>
+          <p className="text-xs text-muted-foreground">No saved weeks yet: Weekly KPI saves the book every Saturday morning.</p>
         )}
       </GlassCard>
 
@@ -781,7 +786,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
               {chosen ? ` — ${chosen.by === 'week' ? periodLabel(chosen.key.slice(0, 7)) : periodLabel(chosen.key)}` : ''}
             </h3>
             <p className="text-xs text-muted-foreground">
-              Built by itself from the book saved every Monday morning
+              Weeks run Saturday to Friday, each built by itself from its first saved book (Saturday morning)
               {chosen ? '; only the weeks in this period, each compared with the week before it.' : '; the top line is today.'}
             </p>
           </div>

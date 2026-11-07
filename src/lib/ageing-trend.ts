@@ -10,8 +10,10 @@
  *   - Dispute, No follow-up and Export are the three set-aside registers;
  *   - a bankrupt customer is in none of the four (it keeps its own register).
  *
- * The history comes from the Overdue days Weekly KPI saves every Monday, one
- * save per week, so the week-wise figures are the Monday-morning book.
+ * The history comes from the Overdue days Weekly KPI saves (every Saturday and
+ * Monday), one save per week: the first of the week. Weeks run Saturday to
+ * Friday, the company's week (since 7 Nov 2026), so a week's figures are its
+ * Saturday-morning book; a week before Saturday saves began shows its Monday's.
  */
 
 import { API_PREFIX } from '../../shared/api'
@@ -70,7 +72,7 @@ export interface BookWeek {
   /** The saved day it was summed from. */
   dayId: string
   savedAt: string
-  /** Local yyyy-mm-dd of the Monday that starts the week. */
+  /** Local yyyy-mm-dd of the Saturday that starts the week (Saturday to Friday). */
   weekStart: string
   rows: PersonSegmentRow[]
 }
@@ -156,16 +158,17 @@ export function figuresFor(
 const pad = (n: number) => String(n).padStart(2, '0')
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
-/** The Monday (local time) of the week a moment falls in, as yyyy-mm-dd. */
+/** The Saturday (local time) that starts the week a moment falls in (Saturday to Friday), as yyyy-mm-dd. */
 export function weekStartOf(iso: string): string {
   const d = new Date(iso)
-  const back = (d.getDay() + 6) % 7 // Monday 0 ... Sunday 6
+  const back = (d.getDay() + 1) % 7 // Saturday 0 ... Friday 6
   return localDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back))
 }
 
 /**
- * One save per week: the earliest of the week, closest to the Monday morning
- * Weekly KPI compares against. Latest week first.
+ * One save per week: the earliest of the week, the Saturday-morning book
+ * Weekly KPI compares (a Monday's for weeks before Saturday saves began).
+ * Latest week first.
  */
 export function pickWeekly<T extends { id: string; savedAt: string }>(days: readonly T[]): (T & { weekStart: string })[] {
   const byWeek = new Map<string, T>()
@@ -220,6 +223,8 @@ export interface BookPoint {
   live?: boolean
   /** Where the figures come from, for saying so on screen. */
   source?: 'week' | 'month' | 'live'
+  /** For a saved week: when the book standing for it was saved. */
+  savedAt?: string
 }
 
 /**
@@ -251,7 +256,7 @@ export function monthOf(iso: string | Date): string {
 /** A chosen month ('m:2026-10') or quarter ('q:2026-Q4'), or every period. */
 /**
  * What is chosen: every period, a year ('y:2026'), a quarter ('q:2026-Q4'),
- * a month ('m:2026-10') or one saved week ('w:2026-10-05', its Monday).
+ * a month ('m:2026-10') or one saved week ('w:2026-10-31', its Saturday).
  */
 export type PeriodChoice = 'all' | `y:${string}` | `q:${string}` | `m:${string}` | `w:${string}`
 

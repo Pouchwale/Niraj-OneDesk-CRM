@@ -1,6 +1,6 @@
 /**
  * OTIF Analytics → Live file (7 Nov 2026): the OTIF-SCORE workbook, read as
- * last saved, analysed one week (Monday to Sunday) at a time. Pick the week
+ * last saved, analysed one week (Saturday to Friday, the company week) at a time. Pick the week
  * and the date that places an order in it (PO Closed Date by default, or PO
  * Due Date or SO Date); the page shows the OTIF score, the delay buckets, the
  * departments, each Relation Manager, the last 8 weeks and the orders with the
@@ -23,7 +23,6 @@ import {
   filterRows,
   latestWeekWithRows,
   liveSummary,
-  mondayOf,
   NO_DEPARTMENT,
   NO_LIVE_FILTERS,
   NOT_CLOSED,
@@ -33,6 +32,7 @@ import {
   rowsInWeek,
   WEEK_BASES,
   weeklyTrend,
+  weekStartOf,
   type OtifLiveFilters,
   type OtifLiveRow,
   type WeekBasis,
@@ -191,7 +191,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
   const { status, data: ready, reading, error } = live
   const today = todayISO()
   const [basis, setBasis] = useState<WeekBasis>(readBasis)
-  const [week, setWeek] = useState(() => mondayOf(today))
+  const [week, setWeek] = useState(() => weekStartOf(today))
   const [filters, setFilters] = useState<OtifLiveFilters>(NO_LIVE_FILTERS)
   const [search, setSearch] = useState('')
 
@@ -211,6 +211,19 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
   // The trend follows the department and person chosen (not the delay filter, which would make every week 100% or 0%).
   const trend = useMemo(() => weeklyTrend(filterRows(rows, { ...filters, bucket: null }), basis, week, 8), [rows, filters, basis, week])
   const latest = useMemo(() => latestWeekWithRows(rows, basis, today), [rows, basis, today])
+
+  // The week opens on this week; when it has no orders yet (on a Saturday, the first day of the company week,
+  // it usually has none), on the latest week that has, until the viewer picks a week themselves.
+  const [weekPicked, setWeekPicked] = useState(false)
+  const pickWeek = (start: string) => {
+    setWeekPicked(true)
+    setWeek(start)
+  }
+  useEffect(() => {
+    if (weekPicked || !ready || !latest) return
+    const current = weekStartOf(today)
+    setWeek(rowsInWeek(rows, basis, current).length > 0 ? current : latest)
+  }, [weekPicked, ready, latest, rows, basis, today])
 
   const departments = useMemo(() => [...new Set(rows.map((r) => r.department ?? NO_DEPARTMENT))].sort(), [rows])
   const people = useMemo(() => {
@@ -310,9 +323,9 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
 
         <GlassCard className="flex flex-wrap items-end gap-4 p-4" data-testid="otif-live-controls">
           <div className="space-y-1.5">
-            <Label htmlFor="otif-week">Week (Monday to Sunday)</Label>
+            <Label htmlFor="otif-week">Week (Saturday to Friday)</Label>
             <div className="flex items-center gap-2">
-              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">
+              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => pickWeek(addDays(week, -7))} aria-label="Previous week">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Input
@@ -320,10 +333,10 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
                 type="date"
                 className="h-9 w-[150px]"
                 value={week}
-                onChange={(e) => e.target.value && setWeek(mondayOf(e.target.value))}
-                title="Pick any day: its Monday-to-Sunday week is shown"
+                onChange={(e) => e.target.value && pickWeek(weekStartOf(e.target.value))}
+                title="Pick any day: its Saturday-to-Friday week is shown"
               />
-              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">
+              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => pickWeek(addDays(week, 7))} aria-label="Next week">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -371,7 +384,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
                 : 'No orders this week match these filters.'}
             </p>
             {weekAll.length === 0 && latest && latest !== week && (
-              <Button size="sm" variant="outline" onClick={() => setWeek(latest)}>
+              <Button size="sm" variant="outline" onClick={() => pickWeek(latest)}>
                 Go to the latest week with orders ({otifWeekLabel(latest)})
               </Button>
             )}
@@ -438,13 +451,13 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
             <div className="space-y-1">
               {trend.map((t) => (
                 <button
-                  key={t.monday}
+                  key={t.start}
                   type="button"
-                  onClick={() => setWeek(t.monday)}
-                  className={cn('w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/40', t.monday === week && 'bg-primary/10')}
+                  onClick={() => pickWeek(t.start)}
+                  className={cn('w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/40', t.start === week && 'bg-primary/10')}
                 >
                   <span className="grid grid-cols-[minmax(0,1fr)_auto_4.5rem] items-center gap-3">
-                    <span className="truncate">{otifWeekLabel(t.monday)}</span>
+                    <span className="truncate">{otifWeekLabel(t.start)}</span>
                     <span className="text-xs text-muted-foreground tabular-nums">{t.total} orders</span>
                     <span className={cn('text-right font-semibold tabular-nums', pctTone(t.pct))}>{pct(t.pct)}</span>
                   </span>

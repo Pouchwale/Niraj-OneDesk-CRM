@@ -242,30 +242,30 @@ export const WEEK_BASES: { id: WeekBasis; label: string; field: 'poClosedDate' |
 
 export const basisDate = (row: OtifLiveRow, basis: WeekBasis): string | null => row[WEEK_BASES.find((b) => b.id === basis)!.field]
 
-/** The Monday of the week (Monday to Sunday) a day falls in. */
-export const mondayOf = (day: string) => weekOf(day)
+/** The Saturday that starts the week (Saturday to Friday, the company week) a day falls in. */
+export const weekStartOf = (day: string) => weekOf(day)
 
 /** "2 Nov – 8 Nov 2026" */
-export const otifWeekLabel = (monday: string) => periodLabel('week', monday)
+export const otifWeekLabel = (start: string) => periodLabel('week', start)
 
-/** The orders whose basis date falls in the week starting `monday` (Monday to Sunday). */
-export function rowsInWeek(rows: readonly OtifLiveRow[], basis: WeekBasis, monday: string): OtifLiveRow[] {
-  const sunday = addDays(monday, 6)
+/** The orders whose basis date falls in the week starting `start` (a Saturday; Saturday to Friday). */
+export function rowsInWeek(rows: readonly OtifLiveRow[], basis: WeekBasis, start: string): OtifLiveRow[] {
+  const friday = addDays(start, 6)
   return rows.filter((r) => {
     const day = basisDate(r, basis)
-    return day !== null && day >= monday && day <= sunday
+    return day !== null && day >= start && day <= friday
   })
 }
 
 /** The newest week with any order on that basis, up to the week holding `today`; null with none. */
 export function latestWeekWithRows(rows: readonly OtifLiveRow[], basis: WeekBasis, today: string): string | null {
-  const last = addDays(mondayOf(today), 6)
+  const last = addDays(weekStartOf(today), 6)
   let best: string | null = null
   for (const r of rows) {
     const day = basisDate(r, basis)
     if (day && day <= last && (!best || day > best)) best = day
   }
-  return best ? mondayOf(best) : null
+  return best ? weekStartOf(best) : null
 }
 
 /* ===================== Analysis ===================== */
@@ -332,15 +332,15 @@ export function byRelationManager(rows: readonly OtifLiveRow[]): ManagerLine[] {
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
 
-/** Each of the `count` weeks up to the one starting `monday`, oldest first: orders, OTIF YES and OTIF %. */
-export function weeklyTrend(rows: readonly OtifLiveRow[], basis: WeekBasis, monday: string, count = 8): { monday: string; total: number; yes: number; pct: number | null }[] {
-  const weeks = Array.from({ length: count }, (_, i) => addDays(monday, -7 * (count - 1 - i)))
+/** Each of the `count` weeks up to the one starting `start` (a Saturday), oldest first: orders, OTIF YES and OTIF %. */
+export function weeklyTrend(rows: readonly OtifLiveRow[], basis: WeekBasis, start: string, count = 8): { start: string; total: number; yes: number; pct: number | null }[] {
+  const weeks = Array.from({ length: count }, (_, i) => addDays(start, -7 * (count - 1 - i)))
   const index = new Map(weeks.map((w, i) => [w, i]))
-  const tally = weeks.map((w) => ({ monday: w, total: 0, yes: 0, pct: null as number | null }))
+  const tally = weeks.map((w) => ({ start: w, total: 0, yes: 0, pct: null as number | null }))
   for (const r of rows) {
     const day = basisDate(r, basis)
     if (!day) continue
-    const i = index.get(mondayOf(day))
+    const i = index.get(weekStartOf(day))
     if (i === undefined) continue
     tally[i].total++
     if (r.otifScore === 'YES') tally[i].yes++

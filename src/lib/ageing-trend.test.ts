@@ -75,22 +75,26 @@ describe('summariseBook', () => {
 })
 
 describe('weeks', () => {
-  it('starts a week on Monday, local time', () => {
-    expect(weekStartOf('2026-11-02T07:34:35')).toBe('2026-11-02') // Monday
-    expect(weekStartOf('2026-11-08T23:00:00')).toBe('2026-11-02') // Sunday
-    expect(weekStartOf('2026-11-09T00:30:00')).toBe('2026-11-09')
+  it('starts a week on Saturday (the company week, Saturday to Friday), local time', () => {
+    expect(weekStartOf('2026-11-02T07:34:35')).toBe('2026-10-31') // Monday
+    expect(weekStartOf('2026-11-06T23:59:00')).toBe('2026-10-31') // Friday ends the week
+    expect(weekStartOf('2026-11-07T10:03:31')).toBe('2026-11-07') // Saturday starts the next
+    expect(weekStartOf('2026-11-08T23:00:00')).toBe('2026-11-07') // Sunday
   })
 
   it('keeps the earliest save of each week, latest week first', () => {
     const weeks = pickWeekly([
       { id: 'b', savedAt: '2026-09-28T09:42:00' },
       { id: 'a', savedAt: '2026-09-28T09:35:00' },
-      { id: 'c', savedAt: '2026-10-02T10:34:00' },
+      { id: 'c', savedAt: '2026-10-02T10:34:00' }, // Friday: still the week of Saturday 26 Sep
       { id: 'd', savedAt: '2026-10-06T10:32:00' },
+      { id: 'f', savedAt: '2026-10-12T09:59:00' }, // Monday
+      { id: 'e', savedAt: '2026-10-10T10:03:00' }, // Saturday: the first save of its week wins over Monday's
     ])
     expect(weeks.map((w) => [w.weekStart, w.id])).toEqual([
-      ['2026-10-05', 'd'],
-      ['2026-09-28', 'a'],
+      ['2026-10-10', 'e'],
+      ['2026-10-03', 'd'],
+      ['2026-09-26', 'a'],
     ])
   })
 })

@@ -34,6 +34,7 @@ import {
   FINAL_HINT,
   finalScoreOf,
   LOCK_GRACE_DAYS,
+  lockGraceDays,
   periodLabel,
   SCORE_MODULES,
   type PeriodKind,
@@ -138,7 +139,7 @@ function PeriodStatus({ period }: { period: PeriodScores }) {
   }
   return (
     <Badge variant="outline" className="gap-1 border-emerald-500/40 font-normal text-emerald-700 dark:text-emerald-400">
-      <span className="h-2 w-2 rounded-full bg-emerald-500" /> Live · locks on {formatDate(addDays(period.end, LOCK_GRACE_DAYS + 1))}
+      <span className="h-2 w-2 rounded-full bg-emerald-500" /> Live · locks on {formatDate(addDays(period.end, lockGraceDays(period.kind) + 1))}
     </Badge>
   )
 }
@@ -304,7 +305,8 @@ export function ScoreHistoryPage() {
         </div>
       )}
       <p className="ml-auto max-w-md text-xs text-muted-foreground">
-        A period is locked {LOCK_GRACE_DAYS} days after it ends, so entries made late for its last days still count. After that, edits to old records do not change it.
+        Weeks run Saturday to Friday. A week is locked on the Tuesday after it ends (Saturday and Monday stay open for late entries and Monday’s automatic KPI score); a month or
+        year {LOCK_GRACE_DAYS} days after it ends. After that, edits to old records do not change it.
       </p>
     </GlassCard>
   )

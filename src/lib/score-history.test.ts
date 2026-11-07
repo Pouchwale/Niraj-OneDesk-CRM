@@ -12,6 +12,7 @@ import {
   finalScoreOf,
   keysBetween,
   lockable,
+  lockGraceDays,
   periodLabel,
   periodRange,
   recentKeys,
@@ -59,41 +60,51 @@ const inputs: ScoreInputs = {
 const pick = (entries: ScoreEntry[], module: ScoreEntry['module'], who: string) => entries.find((e) => e.module === module && e.coordinatorId === who)
 
 describe('periods', () => {
-  it('runs weeks Monday to Sunday and months to their last day', () => {
-    expect(weekOf('2026-11-06')).toBe('2026-11-02')
-    expect(weekOf('2026-11-08')).toBe('2026-11-02')
-    expect(weekOf('2026-11-09')).toBe('2026-11-09')
+  it('runs weeks Saturday to Friday (the company week) and months to their last day', () => {
+    expect(weekOf('2026-11-06')).toBe('2026-10-31') // Friday: the week that began the Saturday before
+    expect(weekOf('2026-11-07')).toBe('2026-11-07') // Saturday starts a week
+    expect(weekOf('2026-11-08')).toBe('2026-11-07') // Sunday
+    expect(weekOf('2026-11-09')).toBe('2026-11-07') // Monday
+    expect(weekOf('2026-11-13')).toBe('2026-11-07') // Friday ends it
+    expect(weekOf('2027-01-01')).toBe('2026-12-26') // across the new year
     // A Weekly KPI score belongs to the week in the middle of its two days.
     const local = (m: number, d: number, h: number, min = 0) => new Date(2026, m - 1, d, h, min).toISOString()
-    expect(kpiWeekOf(local(10, 31, 10), local(11, 7, 10))).toBe('2026-11-02') // Saturday to Saturday: the week it measured
-    expect(kpiWeekOf(local(11, 7, 10), local(11, 14, 10))).toBe('2026-11-09')
-    expect(kpiWeekOf(local(10, 19, 13, 1), local(10, 26, 9, 38))).toBe('2026-10-19') // Monday to Monday, as before
-    expect(kpiWeekOf(local(9, 29, 10, 48), local(10, 6, 10, 32))).toBe('2026-09-28') // a Tuesday pair, as before
-    expect(periodRange('week', '2026-11-02')).toEqual({ start: '2026-11-02', end: '2026-11-08' })
+    expect(kpiWeekOf(local(10, 31, 10), local(11, 7, 10))).toBe('2026-10-31') // Saturday to Saturday: the week it measured, 31 Oct – 6 Nov
+    expect(kpiWeekOf(local(11, 7, 10), local(11, 14, 10))).toBe('2026-11-07')
+    expect(kpiWeekOf(local(10, 19, 13, 1), local(10, 26, 9, 38))).toBe('2026-10-17') // an old Monday pair: the week holding its Thursday
+    expect(kpiWeekOf(local(9, 29, 10, 48), local(10, 6, 10, 32))).toBe('2026-09-26') // an old Tuesday pair: the week holding its Friday
+    expect(periodRange('week', '2026-10-31')).toEqual({ start: '2026-10-31', end: '2026-11-06' })
     expect(periodRange('month', '2026-02').end).toBe('2026-02-28')
     expect(periodRange('month', '2028-02').end).toBe('2028-02-29')
     expect(periodRange('year', '2026')).toEqual({ start: '2026-01-01', end: '2026-12-31' })
   })
 
   it('lists recent periods and every period between two days', () => {
-    expect(recentKeys('week', '2026-11-06', 3)).toEqual(['2026-10-19', '2026-10-26', '2026-11-02'])
+    expect(recentKeys('week', '2026-11-06', 3)).toEqual(['2026-10-17', '2026-10-24', '2026-10-31'])
+    expect(recentKeys('week', '2026-11-07', 2)).toEqual(['2026-10-31', '2026-11-07'])
+    expect(keysBetween('week', '2026-10-30', '2026-11-09')).toEqual(['2026-10-24', '2026-10-31', '2026-11-07'])
     expect(recentKeys('month', '2026-01-15', 2)).toEqual(['2025-12', '2026-01'])
     expect(keysBetween('month', '2026-10-30', '2027-01-02')).toEqual(['2026-10', '2026-11', '2026-12', '2027-01'])
     expect(keysBetween('year', '2025-03-01', '2026-11-06')).toEqual(['2025', '2026'])
   })
 
-  it('locks a period two days after it ends', () => {
-    // The week of 26 Oct ends on Sunday 1 Nov.
-    expect(lockable('week', '2026-10-26', '2026-11-03')).toBe(false)
-    expect(lockable('week', '2026-10-26', '2026-11-04')).toBe(true)
+  it('locks a week on the Tuesday after it ends, a month or year two days after', () => {
+    expect(lockGraceDays('week')).toBe(3)
+    expect(lockGraceDays('month')).toBe(2)
+    expect(lockGraceDays('year')).toBe(2)
+    // The week of 31 Oct ends on Friday 6 Nov: Saturday 7 and Monday 9 stay open, Tuesday 10 locks it.
+    expect(lockable('week', '2026-10-31', '2026-11-07')).toBe(false)
+    expect(lockable('week', '2026-10-31', '2026-11-09')).toBe(false)
+    expect(lockable('week', '2026-10-31', '2026-11-10')).toBe(true)
     expect(lockable('month', '2026-10', '2026-11-02')).toBe(false)
     expect(lockable('month', '2026-10', '2026-11-03')).toBe(true)
     expect(lockable('year', '2026', '2026-12-31')).toBe(false)
   })
 
   it('names periods for the screen', () => {
-    expect(periodLabel('week', '2026-10-26')).toBe('26 Oct – 1 Nov 2026')
-    expect(periodLabel('week', '2026-10-26', true)).toBe('26 Oct')
+    expect(periodLabel('week', '2026-10-31')).toBe('31 Oct – 6 Nov 2026')
+    expect(periodLabel('week', '2026-10-31', true)).toBe('31 Oct')
+    expect(periodLabel('week', '2026-12-26')).toBe('26 Dec – 1 Jan 2027')
     expect(periodLabel('month', '2026-10')).toBe('Oct 2026')
   })
 })

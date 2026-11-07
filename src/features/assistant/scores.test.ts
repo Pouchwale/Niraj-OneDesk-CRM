@@ -42,10 +42,13 @@ describe('coordinator scores', () => {
     expect(dailyScores(rows).get('coord-1|2026-10-07')).toEqual({ done: 9, given: 10, score: -10, extra: 0, credited: 0 })
   })
 
-  it('weeks run Monday to Saturday, and days with no plan stay out of the average', () => {
-    expect(weekStart('2026-10-07')).toBe('2026-10-05') // Wednesday → Monday
-    expect(weekStart('2026-10-11')).toBe('2026-10-05') // Sunday belongs to the week before
-    expect(weekDays('2026-10-05')).toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'])
+  it('weeks run Saturday to Friday with Sunday off (the company week), and days with no plan stay out of the average', () => {
+    expect(weekStart('2026-10-07')).toBe('2026-10-03') // Wednesday → the Saturday before
+    expect(weekStart('2026-10-09')).toBe('2026-10-03') // Friday ends the week
+    expect(weekStart('2026-10-10')).toBe('2026-10-10') // Saturday starts the next
+    expect(weekStart('2026-10-11')).toBe('2026-10-10') // Sunday belongs to the week begun on Saturday
+    // Saturday, then Monday to Friday: Sunday 4 Oct is not a working day.
+    expect(weekDays('2026-10-03')).toEqual(['2026-10-03', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09'])
     expect(weekAverage([{ done: 6, given: 8, score: -25, extra: 0, credited: 0 }, undefined, { done: 8, given: 8, score: 0, extra: 0, credited: 0 }])).toBe(-13)
     expect(weekAverage([undefined, undefined])).toBeNull()
   })

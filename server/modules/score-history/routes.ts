@@ -9,7 +9,7 @@ import { Router } from 'express'
 import { ApiError } from '../../http/errors'
 import type { Logger } from '../../logger'
 import { requireRole } from '../auth/middleware'
-import { LOCK_GRACE_DAYS, type PeriodKind, type ScoreHistoryResponse } from '../../../src/lib/score-history'
+import { lockGraceDays, type PeriodKind, type ScoreHistoryResponse } from '../../../src/lib/score-history'
 import { toLocalISODate } from '../../../src/lib/utils'
 import type { ScoreHistoryStore } from './store'
 
@@ -28,7 +28,7 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
       const body: ScoreHistoryResponse = {
         kind,
         today: toLocalISODate(new Date()),
-        graceDays: LOCK_GRACE_DAYS,
+        graceDays: lockGraceDays(kind),
         periods: store.periods(kind, count).map((p) => ({ ...p, entries: seesTeam ? p.entries : p.entries.filter((e) => e.coordinatorId === user.id) })),
       }
       res.json(body)

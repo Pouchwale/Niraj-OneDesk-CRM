@@ -46,8 +46,9 @@ describe('locking', () => {
     const store = createScoreHistoryStore(dir, () => (reads++, baseInputs(quotations)), () => clock)
 
     const first = store.lockDue()
-    // Weeks from 28 Sep to the one ending 1 Nov, and October; not November, not 2026.
-    expect(first).toEqual(['week:2026-09-28', 'week:2026-10-05', 'week:2026-10-12', 'week:2026-10-19', 'week:2026-10-26', 'month:2026-10'])
+    // Saturday-to-Friday weeks from the one holding 1 Oct (26 Sep) to the one ending 30 Oct, and October.
+    // Not the week ending Friday 6 Nov (it locks on Tuesday 10 Nov), not November, not 2026.
+    expect(first).toEqual(['week:2026-09-26', 'week:2026-10-03', 'week:2026-10-10', 'week:2026-10-17', 'week:2026-10-24', 'month:2026-10'])
     expect(store.lockDue()).toEqual([])
     expect(reads).toBe(1)
 
@@ -62,7 +63,7 @@ describe('locking', () => {
     expect(months[1].entries.find((e) => e.module === 'quotations')?.score).toBe(100)
 
     clock = new Date('2026-11-12T10:00:00')
-    expect(store.lockDue()).toEqual(['week:2026-11-02'])
+    expect(store.lockDue()).toEqual(['week:2026-10-31'])
   })
 
   it('works a locked period out again for the administrator only when it is locked', () => {

@@ -79,11 +79,11 @@ function Cell({ s, today, leave, extra }: { s?: DayScore; today: boolean; leave?
   )
 }
 
-/** Overview → Scores: the team, Monday to Saturday, with the weekly average and an Excel download. */
+/** Overview → Scores: the team, Saturday to Friday (Sunday off, the company week), with the weekly average and an Excel download. */
 export function WeeklyScores({ coordinators }: { coordinators: { id: string; full_name: string }[] }) {
   const today = todayISO()
-  const [monday, setMonday] = useState(() => weekStart(today))
-  const days = weekDays(monday)
+  const [weekFrom, setWeekFrom] = useState(() => weekStart(today))
+  const days = weekDays(weekFrom)
   const { scores, extra } = useScores(coordinators.map((c) => c.id))
 
   const table = coordinators.map((c) => {
@@ -112,7 +112,7 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
         days.flatMap((d, i) => (r.week[i] ? [[r.name, d, r.week[i]!.done, r.week[i]!.given, r.week[i]!.extra, r.week[i]!.credited, r.week[i]!.score]] : []))
       ),
     ]
-    downloadWorkbook(`Coordinator scores - week of ${monday}.xlsx`, [
+    downloadWorkbook(`Coordinator scores - week of ${weekFrom}.xlsx`, [
       { name: 'Weekly scores', rows: [header, ...body, ['Team average', ...days.map(() => ''), teamAverage === null ? '—' : `${teamAverage}%`]] },
       { name: 'Daily detail', rows: raw },
     ])
@@ -130,19 +130,19 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
             <p className="text-xs text-muted-foreground">
               Each day: tasks done ÷ tasks on Robi's list (8 fresh + any leftovers), shown as the gap from 100% —
               0% is every task done, -20% is 80% done. Customers followed up outside Robi's list show as +extra and make
-              up for missed tasks, up to 0%. Monday to Saturday; days with no plan, and leave days
+              up for missed tasks, up to 0%. Saturday to Friday, Sunday off; days with no plan, and leave days
               marked in Attendance, show — or Leave and are left out of the average.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setMonday(addDaysISO(monday, -7))} aria-label="Previous week">
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekFrom(addDaysISO(weekFrom, -7))} aria-label="Previous week">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="min-w-[170px] text-center text-sm font-medium tabular-nums">
             {formatDate(days[0])} – {formatDate(days[5])}
           </span>
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setMonday(addDaysISO(monday, 7))} disabled={monday >= weekStart(today)} aria-label="Next week">
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekFrom(addDaysISO(weekFrom, 7))} disabled={weekFrom >= weekStart(today)} aria-label="Next week">
             <ChevronRight className="h-4 w-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={download} disabled={rows.length === 0} data-testid="scores-download">
@@ -198,15 +198,15 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
 /**
  * A coordinator's own score on their Dashboard, one week at a time: ‹ › step
  * back through earlier weeks (to the first week with a plan). This week shows
- * today so far; an earlier week shows its tasks done. Then the week's Mon–Sat
+ * today so far; an earlier week shows its tasks done. Then the week's Sat–Fri
  * average against the week before, and each day.
  */
 export function MyScoreCard({ userId }: { userId: string }) {
   const today = todayISO()
-  const thisMonday = weekStart(today)
-  const [monday, setMonday] = useState(thisMonday)
+  const thisWeek = weekStart(today)
+  const [weekFrom, setWeekFrom] = useState(thisWeek)
   const { scores, extra } = useScores([userId])
-  const isThisWeek = monday === thisMonday
+  const isThisWeek = weekFrom === thisWeek
 
   const weekOf = (start: string) => {
     const days = weekDays(start)
@@ -221,15 +221,15 @@ export function MyScoreCard({ userId }: { userId: string }) {
       extra: days.reduce((n, d) => n + (extra.get(`${userId}|${d}`) ?? 0), 0),
     }
   }
-  const shown = weekOf(monday)
-  const before = weekOf(addDaysISO(monday, -7)).average
+  const shown = weekOf(weekFrom)
+  const before = weekOf(addDaysISO(weekFrom, -7)).average
   const change = shown.average !== null && before !== null ? shown.average - before : null
   const todayScore = scores.get(`${userId}|${today}`)
   const firstPlan = demoCompanyStore
     .getDailyPlans()
     .filter((p) => p.userId === userId)
     .reduce<string | null>((first, p) => (!first || p.date < first ? p.date : first), null)
-  const canGoBack = firstPlan !== null && monday > weekStart(firstPlan)
+  const canGoBack = firstPlan !== null && weekFrom > weekStart(firstPlan)
 
   return (
     <GlassCard className="space-y-3 p-4 sm:p-5" data-testid="my-score">
@@ -240,13 +240,13 @@ export function MyScoreCard({ userId }: { userId: string }) {
           <span className="hidden text-xs text-muted-foreground sm:inline">0% means every task on Robi's list done</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setMonday(addDaysISO(monday, -7))} disabled={!canGoBack} aria-label="Previous week">
+          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setWeekFrom(addDaysISO(weekFrom, -7))} disabled={!canGoBack} aria-label="Previous week">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="min-w-[150px] text-center text-xs font-medium tabular-nums" data-testid="score-week">
             {isThisWeek ? 'This week' : `${formatDate(shown.days[0])} – ${formatDate(shown.days[5])}`}
           </span>
-          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setMonday(addDaysISO(monday, 7))} disabled={isThisWeek} aria-label="Next week">
+          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setWeekFrom(addDaysISO(weekFrom, 7))} disabled={isThisWeek} aria-label="Next week">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -272,7 +272,7 @@ export function MyScoreCard({ userId }: { userId: string }) {
             className={cn('text-xs', change === null ? 'text-muted-foreground' : change > 0 ? 'text-emerald-600' : change < 0 ? 'text-rose-600' : 'text-muted-foreground')}
             title={`Week before: ${scoreLabel(before)}`}
           >
-            {change === null ? 'Mon–Sat average' : change > 0 ? `${change} points better than the week before` : change < 0 ? `${-change} points behind the week before` : 'Same as the week before'}
+            {change === null ? 'Sat–Fri average' : change > 0 ? `${change} points better than the week before` : change < 0 ? `${-change} points behind the week before` : 'Same as the week before'}
           </p>
           {shown.extra > 0 && <p className="text-xs text-sky-600 dark:text-sky-400">+{shown.extra} extra customer{shown.extra === 1 ? '' : 's'}</p>}
         </div>

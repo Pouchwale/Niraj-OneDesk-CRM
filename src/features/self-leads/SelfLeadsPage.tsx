@@ -330,7 +330,7 @@ export function SelfLeadsPage() {
         <GlassCard className="space-y-3 p-4 sm:p-6">
           <div>
             <h3 className="text-base font-medium">{canManageTeam ? 'Weekly by team' : 'My weeks'}</h3>
-            <p className="text-xs text-muted-foreground">{periodLabel} · weeks run Monday to Sunday, newest first</p>
+            <p className="text-xs text-muted-foreground">{periodLabel} · weeks run Saturday to Friday, newest first</p>
           </div>
           {weekly.length === 0 ? (
             <p className="p-8 text-center text-sm text-muted-foreground">No leads in this period.</p>

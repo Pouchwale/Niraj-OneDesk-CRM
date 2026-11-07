@@ -2,8 +2,10 @@
  * Weekly KPI: saves the Overdue day by itself, the same day the "Save today's
  * data" button saves. Saturday's (since 6 Nov 2026) is the one the weekly score
  * uses: it compares Saturday with Saturday (the user's rule; auto-score.ts makes
- * it on Monday). Monday's (since 13 Oct 2026) stays: Overdue Trends is built
- * from each week's Monday-morning book.
+ * it on Monday). Since the company week became Saturday to Friday (7 Nov 2026)
+ * Saturday's book also starts each week in Overdue Trends (each week is shown
+ * by its first save). Monday's (since 13 Oct 2026) stays as a spare: it stands
+ * for a week whose Saturday was not saved.
  *
  * The workbook is refreshed from SAP at 09:30 and reaches the CRM when the team
  * leader's screen syncs it. So from 10:00 the server waits for an Overdue import
@@ -19,7 +21,7 @@ import type { OverduePayment } from '../../../src/lib/types'
 import { runAutoScore } from './auto-score'
 import type { SnapshotStore } from './store'
 
-/** Monday (1) for Overdue Trends, Saturday (6) for the weekly score. */
+/** Saturday (6) for the weekly score and Overdue Trends, Monday (1) as a spare. */
 export const AUTO_SAVE = { weekdays: [1, 6], from: 10, latest: 13, everyMs: 5 * 60_000 } as const
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']

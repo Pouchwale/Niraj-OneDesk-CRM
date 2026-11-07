@@ -12,7 +12,7 @@ import {
   latestWeekWithRows,
   liveSummary,
   mapOtifHeaders,
-  mondayOf,
+  weekStartOf,
   NO_LIVE_FILTERS,
   NOT_CLOSED,
   NOT_SET,
@@ -212,18 +212,21 @@ describe('weeks and analysis', () => {
     row({ poNo: 'd', poClosedDate: null, poDueDate: '2026-11-04', soDate: '2026-11-01', otifScore: 'NO', delayDays: null, relationManager: 'Pragati Patel' }),
   ]
 
-  it('weeks run Monday to Sunday', () => {
-    expect(mondayOf('2026-11-08')).toBe('2026-11-02') // a Sunday belongs to the week before
-    expect(mondayOf('2026-11-02')).toBe('2026-11-02')
-    expect(mondayOf('2026-11-07')).toBe('2026-11-02')
+  it('weeks run Saturday to Friday (the company week)', () => {
+    expect(weekStartOf('2026-11-02')).toBe('2026-10-31') // Monday
+    expect(weekStartOf('2026-11-06')).toBe('2026-10-31') // Friday ends the week
+    expect(weekStartOf('2026-11-07')).toBe('2026-11-07') // Saturday starts the next
+    expect(weekStartOf('2026-11-08')).toBe('2026-11-07') // Sunday
   })
 
   it('puts an order in the week of the chosen date', () => {
-    expect(rowsInWeek(rows, 'closed', '2026-11-02').map((r) => r.poNo)).toEqual(['a', 'b'])
-    expect(rowsInWeek(rows, 'due', '2026-11-02').map((r) => r.poNo)).toEqual(['b', 'd'])
-    expect(rowsInWeek(rows, 'so', '2026-10-26').map((r) => r.poNo)).toEqual(['a', 'd'])
-    expect(rowsInWeek(rows, 'closed', '2026-11-09').map((r) => r.poNo)).toEqual(['c'])
-    expect(latestWeekWithRows(rows, 'closed', '2026-11-07')).toBe('2026-11-02')
+    expect(rowsInWeek(rows, 'closed', '2026-10-31').map((r) => r.poNo)).toEqual(['a'])
+    expect(rowsInWeek(rows, 'closed', '2026-11-07').map((r) => r.poNo)).toEqual(['b', 'c'])
+    expect(rowsInWeek(rows, 'due', '2026-10-31').map((r) => r.poNo)).toEqual(['b', 'c', 'd'])
+    expect(rowsInWeek(rows, 'so', '2026-10-24').map((r) => r.poNo)).toEqual(['a'])
+    expect(rowsInWeek(rows, 'so', '2026-10-31').map((r) => r.poNo)).toEqual(['b', 'd'])
+    expect(latestWeekWithRows(rows, 'closed', '2026-11-07')).toBe('2026-11-07')
+    expect(latestWeekWithRows(rows, 'closed', '2026-11-06')).toBe('2026-10-31')
     expect(latestWeekWithRows([], 'closed', '2026-11-07')).toBeNull()
   })
 
@@ -234,8 +237,8 @@ describe('weeks and analysis', () => {
   })
 
   it('scores the week: OTIF % = YES ÷ orders', () => {
-    const s = liveSummary(rowsInWeek(rows, 'due', '2026-11-02'))
-    expect(s.totalPOs).toBe(2)
+    const s = liveSummary(rowsInWeek(rows, 'due', '2026-10-31'))
+    expect(s.totalPOs).toBe(3)
     expect(s.onTimeCount).toBe(0)
     expect(s.otifPercentage).toBe(0)
     const all = liveSummary(rows)
@@ -261,10 +264,10 @@ describe('weeks and analysis', () => {
   })
 
   it('gives the last weeks, oldest first', () => {
-    expect(weeklyTrend(rows, 'closed', '2026-11-09', 3)).toEqual([
-      { monday: '2026-10-26', total: 0, yes: 0, pct: null },
-      { monday: '2026-11-02', total: 2, yes: 1, pct: 50 },
-      { monday: '2026-11-09', total: 1, yes: 0, pct: 0 },
+    expect(weeklyTrend(rows, 'closed', '2026-11-07', 3)).toEqual([
+      { start: '2026-10-24', total: 0, yes: 0, pct: null },
+      { start: '2026-10-31', total: 1, yes: 1, pct: 100 },
+      { start: '2026-11-07', total: 2, yes: 0, pct: 0 },
     ])
   })
 

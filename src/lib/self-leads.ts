@@ -9,7 +9,7 @@
  *   Value won     value of the closed leads.
  *   Referrals     leads a client gave as a reference (Referred by is set).
  *
- * Weeks run Monday to Sunday, as Weekly KPI's do. Teams are the users'
+ * Weeks run Saturday to Friday, the company's week (since 7 Nov 2026). Teams are the users'
  * module: GP3 or Pouchwale.
  */
 
@@ -89,16 +89,17 @@ export function referencesFrom(lead: Pick<SelfLead, 'id' | 'company_name'>, all:
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** The Monday of a day's week (yyyy-mm-dd). */
+/** The Saturday that starts a day's week (yyyy-mm-dd): the company's week runs Saturday to Friday (since 7 Nov 2026). */
 export function weekStart(day: string): string {
   const t = new Date(`${day}T00:00:00Z`)
-  const back = (t.getUTCDay() + 6) % 7
+  const back = (t.getUTCDay() + 1) % 7 // Saturday 0 days back, Sunday 1, … Friday 6
   t.setUTCDate(t.getUTCDate() - back)
   return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`
 }
 
-export function weekEnd(monday: string): string {
-  const t = new Date(`${monday}T00:00:00Z`)
+/** The Friday that ends the week starting on Saturday `start`. */
+export function weekEnd(start: string): string {
+  const t = new Date(`${start}T00:00:00Z`)
   t.setUTCDate(t.getUTCDate() + 6)
   return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`
 }

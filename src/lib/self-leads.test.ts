@@ -56,11 +56,12 @@ describe('references', () => {
 })
 
 describe('weeks and teams', () => {
-  it('puts a day in its Monday-to-Sunday week', () => {
-    expect(weekStart('2026-11-05')).toBe('2026-11-02')
-    expect(weekStart('2026-11-02')).toBe('2026-11-02')
-    expect(weekStart('2026-11-08')).toBe('2026-11-02')
-    expect(weekEnd('2026-11-02')).toBe('2026-11-08')
+  it('puts a day in its Saturday-to-Friday week (the company week)', () => {
+    expect(weekStart('2026-11-05')).toBe('2026-10-31') // Thursday
+    expect(weekStart('2026-11-06')).toBe('2026-10-31') // Friday ends the week
+    expect(weekStart('2026-11-07')).toBe('2026-11-07') // Saturday starts the next
+    expect(weekStart('2026-11-08')).toBe('2026-11-07') // Sunday
+    expect(weekEnd('2026-10-31')).toBe('2026-11-06')
   })
 
   it('splits each week by team, newest week first, with a total', () => {
@@ -73,7 +74,7 @@ describe('weeks and teams', () => {
       ],
       (id) => (id ? teams[id] ?? null : null)
     )
-    expect(weeks.map((w) => w.week)).toEqual(['2026-11-02', '2026-10-26'])
+    expect(weeks.map((w) => w.week)).toEqual(['2026-10-31', '2026-10-24'])
     expect(weeks[0].teams.GP3).toMatchObject({ leads: 1, closed: 1, valueWon: 1000 })
     expect(weeks[0].teams.Pouchwale.leads).toBe(1)
     expect(weeks[0].total.leads).toBe(2)

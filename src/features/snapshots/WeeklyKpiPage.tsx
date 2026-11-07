@@ -363,7 +363,7 @@ export function WeeklyKpiPage() {
     <div className="space-y-6 pb-12">
       <PageHeader
         title="Weekly KPI"
-        subtitle="Save the Overdue data on a day, then compare two saved days to score each coordinator. Every Monday is saved automatically from 10:00, once that morning's Overdue sync is in (by 13:00 at the latest)."
+        subtitle="Save the Overdue data on a day, then compare two saved days to score each coordinator. Every Saturday (the first day of the company week, Saturday to Friday) and every Monday are saved automatically from 10:00, once that morning's Overdue sync is in (by 13:00 at the latest)."
         icon={<CalendarRange className="h-6 w-6" />}
       >
         <SaveTodayButton variant="default" onSaved={load} />
