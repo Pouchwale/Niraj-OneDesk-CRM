@@ -17,6 +17,10 @@
  *   Customers is a monthly number) and a year is the average of its months.
  * - Self Leads: conversion, closed ÷ connected, by lead date.
  *
+ * Scores are kept and worked out as each module scores them (out of 100);
+ * since 7 Nov 2026 the screens write every score as its gap from 100 (minus
+ * scoring, src/lib/minus-score.ts), which changes none of the figures here.
+ *
  * Pure and shared by the server and the browser; relative imports only, so
  * the server bundle can read it.
  */
@@ -34,18 +38,23 @@ export const SCORE_MODULES: { id: ScoreModule; label: string; short: string; hin
   { id: 'robi', label: 'Robi tasks', short: 'Robi tasks', hint: 'Average of the daily scores: Robi’s tasks done, as the gap from 100% (0% is everything done).' },
   { id: 'kpi', label: 'Weekly KPI (Regular)', short: 'Weekly KPI', hint: 'The saved weekly KPI score as the gap from 100%; a month or year is the average of its weeks.' },
   { id: 'kpi_dispute', label: 'Weekly KPI (Dispute)', short: 'Dispute KPI', hint: 'The dispute accounts’ weekly KPI score as the gap from 100%; a month or year is the average of its weeks.' },
-  { id: 'quotations', label: 'Quotations', short: 'Quotations', hint: 'Average score per customer (Closed + New 100, Closed + Existing 50), counted by enquiry date.' },
-  { id: 'billing', label: 'Billing Issues', short: 'Billing', hint: 'From the number of issues as Responsible Person 1: 0 → 100, 1 → 50, 2 → 0, 3-5 → -25, 6-10 → -50, more → -100. A year is the average of its months.' },
-  { id: 'service', label: 'Service', short: 'Service', hint: 'The monthly Final score (capped at 100). A week shows the mails only; a year is the average of its months.' },
-  { id: 'self_leads', label: 'Self Leads', short: 'Self Leads', hint: 'Conversion: closed ÷ connected leads, by lead date.' },
+  { id: 'quotations', label: 'Quotations', short: 'Quotations', hint: 'Average points per customer (Closed + New 100, Closed + Existing 50) as the gap from 100, counted by enquiry date: 85 points shows as -15.' },
+  { id: 'billing', label: 'Billing Issues', short: 'Billing', hint: 'From the number of issues as Responsible Person 1, as the gap from 100: 0 issues → 0, 1 → -50, 2 → -100, 3-5 → -125, 6-10 → -150, more → -200. A year is the average of its months.' },
+  { id: 'service', label: 'Service', short: 'Service', hint: 'The monthly Final score as the gap from 100 (0 at best). A week shows the mails only; a year is the average of its months.' },
+  { id: 'self_leads', label: 'Self Leads', short: 'Self Leads', hint: 'Conversion (closed ÷ connected leads) as the gap from 100%, by lead date: 40% converted shows as -60%.' },
 ]
 
 export const SCORE_HISTORY_ROUTE = '/api/score-history'
 
 /* ===================== The final score ===================== */
 
+/**
+ * Minus scoring (7 Nov 2026): the final score, like every score, is shown as
+ * its gap from 100. It is still worked out of 100 (finalScoreOf), so the
+ * screen writes it less 100: the average of the modules' gaps.
+ */
 export const FINAL_HINT =
-  'Out of 100: the average of the modules that have a score that period. Robi counts as tasks done (100 plus its gap, so -25% is 75), Weekly KPI as its score out of 100, Billing as it is (its minus scores pull the final down), and Quotations, Service and Self Leads as they are. A module with no score is left out, not counted as 0.'
+  'Minus scoring: every score is its gap from 100, so 0 is full marks and a score of 70 shows as -30. The final score is the average of the module scores that period (Robi’s -25% counts as -25, Billing’s -125 as -125). A module with no score is left out, not counted as -100.'
 
 /** A module's score on the final score's 0-100 scale; null when it has none. */
 export function finalPart(e: Pick<ScoreEntry, 'module' | 'score'>): number | null {

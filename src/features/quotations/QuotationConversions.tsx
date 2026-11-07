@@ -3,21 +3,26 @@
  * (total / new / existing quotations and conversions, one line per
  * coordinator) with the score, for whatever the filters above hold.
  *
- * Conversion = a Closed quotation. Score: Closed + New customer 100, Closed +
- * Existing customer 50, anything else 0 (src/lib/quotation-stats.ts).
+ * Conversion = a Closed quotation. Points: Closed + New customer 100, Closed +
+ * Existing customer 50, anything else 0 (src/lib/quotation-stats.ts). The
+ * average score (points ÷ customers) is written in minus scoring since 7 Nov
+ * 2026, as its gap from 100 (src/lib/minus-score.ts); the points stay as the
+ * formula adds them up.
  */
 
 import { useMemo } from 'react'
 
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { GlassCard } from '@/components/shared/GlassCard'
+import { minusFixed } from '@/lib/minus-score'
 import { conversionsByPerson, conversionsOf, QUOTATION_SCORE, type ConversionSummary } from '@/lib/quotation-stats'
 import type { Quotation } from '@/lib/types'
 import { cn, formatCurrency } from '@/lib/utils'
 
 const personName = (id: string) => (id ? getCoordinatorDisplayName(id) : 'Unassigned')
 const n = (v: number) => v.toLocaleString('en-IN')
-const avg = (v: number | null) => (v === null ? '—' : v.toFixed(2))
+/** The average score in minus scoring, two decimals as before: 85.00 reads "-15.00". */
+const avg = (v: number | null) => minusFixed(v, 2)
 
 const COLUMNS: { key: keyof ConversionSummary; label: string }[] = [
   { key: 'quotations', label: 'Total quotations' },
@@ -25,7 +30,7 @@ const COLUMNS: { key: keyof ConversionSummary; label: string }[] = [
   { key: 'newConversions', label: 'New conversion' },
   { key: 'existingConversions', label: 'Existing conversion' },
   { key: 'amount', label: 'Total amount' },
-  { key: 'score', label: 'Total score' },
+  { key: 'score', label: 'Total points' },
   { key: 'customers', label: 'Count of customer' },
   { key: 'averageScore', label: 'Avg score' },
 ]
@@ -114,7 +119,7 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
           label="Avg score (per customer)"
           total={avg(team.averageScore)}
           split={[
-            ['Total score', n(team.score)],
+            ['Total points', n(team.score)],
             ['Count of customer', n(team.customers)],
           ]}
         />
@@ -138,7 +143,7 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
                     {label}
                   </th>
                 ))}
-                {['Total', 'Customers', 'Avg'].map((label, i) => (
+                {['Points', 'Customers', 'Avg'].map((label, i) => (
                   <th key={`s-${label}`} className={cn('px-2 pb-2 pt-1 text-right font-medium', i === 0 && 'border-l border-border/50')}>
                     {label}
                   </th>
@@ -184,9 +189,10 @@ export function QuotationConversions({ list, period, showPeople, people, onPickP
       )}
 
       <p className="text-xs text-muted-foreground">
-        Conversion = a Closed quotation; Total amount = the order value of the conversions. Score per quotation: Closed + New customer = {QUOTATION_SCORE.closedNew}, Closed + Existing
+        Conversion = a Closed quotation; Total amount = the order value of the conversions. Points per quotation: Closed + New customer = {QUOTATION_SCORE.closedNew}, Closed + Existing
         customer = {QUOTATION_SCORE.closedExisting}, Open or Lost = 0. Count of customer = different customers quoted in the period;
-        Avg score = total score ÷ count of customer. Choose "Enquiry date" above to count the period the way the team sheet does.
+        Avg score = total points ÷ count of customer, in minus scoring: the gap from 100, so 0 is full marks and 85 shows as -15 (above 100 shows with a +).
+        Choose "Enquiry date" above to count the period the way the team sheet does.
       </p>
     </GlassCard>
   )

@@ -4,6 +4,8 @@
  * a coordinator edits the ones they logged. The team leader and the
  * administrator also get Scores: each coordinator's issues as Responsible
  * Person 1 in the period, on the sheet's stepped scale (src/lib/billing-issues.ts).
+ * Since 7 Nov 2026 the scores are written in minus scoring, as the gap from 100
+ * (100 reads 0, -25 reads -125; src/lib/minus-score.ts); the scale is unchanged.
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
@@ -20,10 +22,15 @@ import { getAssignableOwners, useAuth } from '@/features/auth/AuthContext'
 import { DATE_PRESETS, presetRange, type DatePreset } from '@/features/quotations/QuotationFilters'
 import { BILLING_SCORE_TIERS, billingScores, inBillingPeriod } from '@/lib/billing-issues'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
+import { minusScore, minusText } from '@/lib/minus-score'
 import type { BillingIssue } from '@/lib/types'
 import { cn, formatDate, todayISO } from '@/lib/utils'
 import { BillingIssueDialog, responsibleName } from './BillingIssueDialog'
 
+/** A billing score (kept from 100 down to -100) as its gap from 100: 100 → "0", 50 → "-50", -25 → "-125". */
+const minusBilling = (score: number) => minusText(minusScore(score))
+
+/** The colour of a score, judged on the score as kept (the same colours as before minus scoring). */
 const scoreClass = (score: number) =>
   score >= 100 ? 'text-emerald-600 dark:text-emerald-400' : score > 0 ? 'text-amber-600 dark:text-amber-400' : score === 0 ? 'text-muted-foreground' : 'text-rose-600 dark:text-rose-400'
 
@@ -79,7 +86,7 @@ export function BillingIssuesPage() {
         ],
       },
       ...(canManageTeam
-        ? [{ name: 'Scores', rows: [['Coordinator', 'Total issues', 'Score'], ...scores.map((s) => [responsibleName(s.coordinatorId), s.issues, s.score])] }]
+        ? [{ name: 'Scores', rows: [['Coordinator', 'Total issues', 'Score'], ...scores.map((s) => [responsibleName(s.coordinatorId), s.issues, minusScore(s.score)])] }]
         : []),
     ])
   }
@@ -152,7 +159,7 @@ export function BillingIssuesPage() {
         {canManageTeam && (
           <>
             <KpiCard title="Counted on coordinators" value={counted} icon={Users} color="blue" hint="As Responsible Person 1" />
-            <KpiCard title="Coordinators with issues" value={`${withIssues} of ${scores.length}`} icon={Gauge} color="violet" hint="The rest score 100" />
+            <KpiCard title="Coordinators with issues" value={`${withIssues} of ${scores.length}`} icon={Gauge} color="violet" hint="The rest score 0 (full marks)" />
           </>
         )}
       </div>
@@ -186,7 +193,7 @@ export function BillingIssuesPage() {
           <GlassCard className="space-y-3 p-4 sm:p-6">
             <div>
               <h3 className="text-base font-medium">Coordinator scores</h3>
-              <p className="text-xs text-muted-foreground">{periodLabel} · issues where the coordinator is Responsible Person 1</p>
+              <p className="text-xs text-muted-foreground">{periodLabel} · issues where the coordinator is Responsible Person 1 · minus scoring, 0 is full marks</p>
             </div>
             <div className="overflow-x-auto rounded-md border border-border/50">
               <table className="w-full text-sm" data-testid="billing-scores">
@@ -210,7 +217,7 @@ export function BillingIssuesPage() {
                     >
                       <td className="whitespace-nowrap px-4 py-2.5 font-medium">{responsibleName(s.coordinatorId)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{s.issues}</td>
-                      <td className={cn('px-3 py-2.5 text-right font-semibold tabular-nums', scoreClass(s.score))}>{s.score}</td>
+                      <td className={cn('px-3 py-2.5 text-right font-semibold tabular-nums', scoreClass(s.score))}>{minusBilling(s.score)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -221,7 +228,9 @@ export function BillingIssuesPage() {
           <GlassCard className="space-y-3 p-4 sm:p-6">
             <div>
               <h3 className="text-base font-medium">How the score works</h3>
-              <p className="text-xs text-muted-foreground">Issues in the period where the coordinator is Responsible Person 1.</p>
+              <p className="text-xs text-muted-foreground">
+                Issues in the period where the coordinator is Responsible Person 1. Minus scoring: each score is the gap from 100, so no issues is 0 (full marks).
+              </p>
             </div>
             <table className="w-full text-sm">
               <thead className="text-xs uppercase text-muted-foreground">
@@ -234,7 +243,7 @@ export function BillingIssuesPage() {
                 {BILLING_SCORE_TIERS.map((t) => (
                   <tr key={t.label}>
                     <td className="py-1.5">{t.label}</td>
-                    <td className={cn('py-1.5 text-right font-semibold tabular-nums', scoreClass(t.score))}>{t.score}</td>
+                    <td className={cn('py-1.5 text-right font-semibold tabular-nums', scoreClass(t.score))}>{minusBilling(t.score)}</td>
                   </tr>
                 ))}
               </tbody>

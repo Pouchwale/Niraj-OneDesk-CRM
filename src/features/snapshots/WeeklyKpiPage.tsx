@@ -130,7 +130,7 @@ function ResultTable({ result }: { result: ScoreResult }) {
               <td className="px-3 py-2 text-right tabular-nums">{rupees(r.achieve30to120)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{rupees(r.target120Plus)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{rupees(r.achieve120Plus)}</td>
-              <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', scoreTone(kpiGap(r.kpiScore)))} title={`${r.kpiScore.toFixed(2)} of 100`}>
+              <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', scoreTone(kpiGap(r.kpiScore)))} title="Minus scoring: the gap from 100%, so 0% is full marks">
                 {kpiGapLabel(r.kpiScore)}
               </td>
             </tr>

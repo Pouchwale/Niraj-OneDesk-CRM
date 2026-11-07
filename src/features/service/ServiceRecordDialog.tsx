@@ -139,7 +139,7 @@ export function ServiceRecordDialog({
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
             {record ? `Service record · ${record.customer_name}` : 'New service record'}
-            <Badge variant="outline">Score {score}</Badge>
+            <Badge variant="outline">{score} points</Badge>
           </DialogTitle>
         </DialogHeader>
 

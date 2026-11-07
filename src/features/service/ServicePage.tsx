@@ -2,8 +2,11 @@
  * Service: the dispatch mails coordinators send customers (it was the SERVICE
  * sheet), kept in the CRM since 5 Nov 2026. A coordinator adds and sees their
  * own; the team leader and the administrator see everyone's and the Scores:
- * mails, mail ratio, sum of score and final score per coordinator for the
+ * mails, mail ratio, sum of points and final score per coordinator for the
  * period, against a Total Customers they type in (src/lib/service-records.ts).
+ * Since 7 Nov 2026 the final score is written in minus scoring, as its gap
+ * from 100 (src/lib/minus-score.ts); each record's 10 or 0 is named points,
+ * as the formula adds them up.
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
@@ -21,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { DATE_PRESETS, presetRange, type DatePreset } from '@/features/quotations/QuotationFilters'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
+import { minusFixed, minusScore } from '@/lib/minus-score'
 import {
   customersFor,
   DISPATCH_STATUSES,
@@ -46,6 +50,7 @@ const STATUS_STYLE: Record<DispatchStatus, string> = {
 }
 
 const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(2)}%`)
+/** The colour of a final score, judged on the score as kept out of 100 (the same colours as before minus scoring). */
 const finalClass = (v: number | null) =>
   v === null ? 'text-muted-foreground' : v >= 90 ? 'text-emerald-600 dark:text-emerald-400' : v >= 70 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'
 
@@ -155,7 +160,7 @@ export function ServicePage() {
       {
         name: 'Service',
         rows: [
-          ['Date', 'Coordinator Name', 'PO No.', 'FG Code', 'Sales Order No', 'Customer Name', 'Dispatch Status', 'Information Date', 'Original SO Dispatch Date', 'Date Diff', 'Final Dispatch Date', 'Remark', 'Score'],
+          ['Date', 'Coordinator Name', 'PO No.', 'FG Code', 'Sales Order No', 'Customer Name', 'Dispatch Status', 'Information Date', 'Original SO Dispatch Date', 'Date Diff', 'Final Dispatch Date', 'Remark', 'Points'],
           ...[...rows].reverse().map((r) => [
             r.date, nameOf(r), r.po_no ?? '', r.fg_code ?? '', r.sales_order_no ?? '', r.customer_name, r.dispatch_status ?? '',
             r.information_date ?? '', r.original_dispatch_date ?? '', serviceDateDiff(r) ?? '', r.final_dispatch_date ?? '', r.remark ?? '', serviceRowScore(r),
@@ -166,11 +171,12 @@ export function ServicePage() {
         ? [{
             name: 'Scores',
             rows: [
-              ['Coordinator Name', 'Total Customers', 'No. of Mails', 'Customer Mail Ratio', 'Sum of Score', 'Final Score'],
+              ['Coordinator Name', 'Total Customers', 'No. of Mails', 'Customer Mail Ratio', 'Sum of Points', 'Final Score'],
               ...scores.map((s) => [
                 getCoordinatorDisplayName(s.coordinatorId), s.totalCustomers ?? '', s.mails,
                 s.mailRatio === null ? '' : Math.round(s.mailRatio * 10000) / 100, s.sumOfScore,
-                s.finalScore === null ? '' : Math.round(s.finalScore * 100) / 100,
+                // Minus scoring: the gap from 100, rounded to two decimals as before (85 → -15).
+                s.finalScore === null ? '' : minusScore(Math.round(s.finalScore * 100) / 100, 2),
               ]),
             ],
           }]
@@ -247,7 +253,7 @@ export function ServicePage() {
         <KpiCard title="Early" value={count('Early')} icon={Truck} color="emerald" />
         <KpiCard title="On time" value={count('On Time')} icon={Clock} color="indigo" />
         <KpiCard title="Delay" value={count('Delay')} icon={Clock} color="rose" />
-        <KpiCard title="No information date" value={noInfo} icon={Gauge} color="amber" hint="These score 0" />
+        <KpiCard title="No information date" value={noInfo} icon={Gauge} color="amber" hint="These get 0 points" />
       </div>
 
       {canManageTeam && (
@@ -293,8 +299,10 @@ export function ServicePage() {
                   <th className="px-3 py-2.5 text-right font-medium">Total customers</th>
                   <th className="px-3 py-2.5 text-right font-medium">No. of mails</th>
                   <th className="px-3 py-2.5 text-right font-medium">Customer mail ratio</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Sum of score</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Final score</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Sum of points</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Minus scoring: the gap from 100, so 0 is full marks">
+                    Final score
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
@@ -334,7 +342,7 @@ export function ServicePage() {
                     <td className="px-3 py-2 text-right tabular-nums">{pct(s.mailRatio)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{s.sumOfScore.toLocaleString('en-IN')}</td>
                     <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', finalClass(s.finalScore))}>
-                      {s.finalScore === null ? '—' : s.finalScore.toFixed(2)}
+                      {minusFixed(s.finalScore, 2)}
                     </td>
                   </tr>
                 ))}
@@ -342,9 +350,9 @@ export function ServicePage() {
             </table>
           </div>
           <p className="text-xs text-muted-foreground">
-            Each record scores 10 when it has an Information Date, otherwise 0. Customer mail ratio = mails ÷ total customers. Final score =
-            (sum of score ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}. Total customers is typed per month; a coordinator with no
-            number for the period shows —.
+            Each record earns 10 points when it has an Information Date, otherwise 0. Customer mail ratio = mails ÷ total customers. Final score =
+            (sum of points ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}, in minus scoring: the gap from 100, so 0 is full marks and 85 shows
+            as -15. Total customers is typed per month; a coordinator with no number for the period shows —.
           </p>
         </GlassCard>
       ) : (
@@ -381,7 +389,9 @@ export function ServicePage() {
                     <th className="px-3 py-3 font-medium">Original SO dispatch</th>
                     <th className="px-3 py-3 text-right font-medium">Date diff</th>
                     <th className="px-3 py-3 font-medium">Final dispatch</th>
-                    <th className="px-3 py-3 text-right font-medium">Score</th>
+                    <th className="px-3 py-3 text-right font-medium" title="10 points with an Information Date, else 0; they add up to the final score (Scores)">
+                      Points
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">

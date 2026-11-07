@@ -1,11 +1,15 @@
 /**
  * Final score (6 Nov 2026; first called Score history, renamed by the user the same
  * day; the address stays /score-history): every module's scores by week, month and year,
- * for review, with each coordinator's final score out of 100. The team leader
- * and the administrator see everyone, a coordinator their own. Periods that
- * have ended are locked (two days after they end); the current one is live.
- * The administrator can work a locked period out again if old records were
+ * for review, with each coordinator's final score. The team leader and the
+ * administrator see everyone, a coordinator their own. Periods that have ended
+ * are locked (two days after they end); the current one is live. The
+ * administrator can work a locked period out again if old records were
  * corrected.
+ *
+ * Minus scoring (7 Nov 2026): every score is written as its gap from 100, so
+ * full marks reads 0 (./format.ts). Scores are still kept and worked out of
+ * 100, so the colours, the averages and the locked history are unchanged.
  *
  * Every table is fixed to the page width, so no desktop screen needs a
  * sideways scroll; the final score sits next to the name, where Robi's
@@ -22,7 +26,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getAllCoordinators, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
-import { scoreLabel, scoreTone } from '@/features/assistant/scores'
+import { scoreTone } from '@/features/assistant/scores'
 import { kpiGap } from '@/features/snapshots/transform'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import {
@@ -40,6 +44,7 @@ import {
 } from '@/lib/score-history'
 import { getScoreHistory, recalculatePeriod } from '@/lib/score-history-api'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { formatFinal, formatPart, formatScore } from './format'
 
 type View = ScoreModule | 'all'
 
@@ -60,17 +65,7 @@ const NAME_TD = 'truncate px-3 py-2 text-left text-[13px] font-medium xl:text-sm
 /** The final score column, last in every table: tinted, bold, a divider before it. */
 const FINAL_COL = 'border-l border-border/60 bg-primary/5 font-semibold'
 
-/** A score written the way its own module writes it. */
-function formatScore(module: ScoreModule, score: number | null): string {
-  if (score === null || score === undefined) return '—'
-  // Halves away from zero, as Robi's weekly average rounds.
-  if (module === 'robi') return scoreLabel(Math.sign(score) * Math.round(Math.abs(score)) || 0)
-  if (module === 'kpi' || module === 'kpi_dispute') return `${kpiGap(score)}%`
-  if (module === 'quotations') return score.toFixed(1)
-  if (module === 'self_leads') return `${score}%`
-  return String(Math.round(score * 10) / 10)
-}
-
+/** The colour of a score, judged on the score kept out of 100 (the same colours as before minus scoring). */
 function toneOf(module: ScoreModule, score: number | null): string {
   if (score === null || score === undefined) return 'text-muted-foreground'
   if (module === 'robi') return scoreTone(score)
@@ -81,12 +76,11 @@ function toneOf(module: ScoreModule, score: number | null): string {
   return 'text-foreground'
 }
 
-/** A final score from one module only is marked: a 100 from billing alone is not an all-round 100. */
+/** A final score from one module only is marked: a 0 from billing alone is not an all-round 0. */
 const OneModule = ({ final }: { final: ReturnType<typeof finalScoreOf> }) =>
   final.parts.length === 1 ? <span className="ml-0.5 text-muted-foreground" title="Only one module had a score this period">*</span> : null
 
 const round1 = (v: number) => Math.round(v * 10) / 10
-const formatFinal = (score: number | null) => (score === null || score === undefined ? '—' : score.toFixed(1))
 const finalTone = (score: number | null) => (score === null || score === undefined ? 'text-muted-foreground' : score >= 80 ? GOOD : score >= 50 ? WARN : BAD)
 
 const plural = (n: number | null | undefined, word: string) => `${n ?? 0} ${word}${n === 1 ? '' : 's'}`
@@ -100,9 +94,9 @@ function detailText(e: ScoreEntry, kind: PeriodKind): string {
       return `${d.done} of ${d.given} tasks done over ${plural(d.days, 'day')}${d.extra ? `, ${d.extra} extra customers` : ''}`
     case 'kpi':
     case 'kpi_dispute':
-      return `${e.score?.toFixed(2)} of 100, ${plural(d.weeks, 'week')}`
+      return d.weeks === 1 ? 'The score of 1 week' : `The average of ${plural(d.weeks, 'week')}’ scores`
     case 'quotations':
-      return `${plural(d.quotations, 'quotation')}, ${d.conversions} converted (${d.newConversions} new, ${d.existingConversions} existing); score ${d.totalScore} ÷ ${plural(d.customers, 'customer')}${d.amount ? `; ${formatCurrency(d.amount)}` : ''}`
+      return `${plural(d.quotations, 'quotation')}, ${d.conversions} converted (${d.newConversions} new, ${d.existingConversions} existing); ${plural(d.totalScore, 'point')} ÷ ${plural(d.customers, 'customer')}${d.amount ? `; ${formatCurrency(d.amount)}` : ''}`
     case 'billing':
       return kind === 'year' ? `${plural(d.issues, 'issue')}; average of ${plural(d.months, 'month')}` : plural(d.issues, 'issue')
     case 'service':
@@ -126,10 +120,10 @@ const averageOf = (scores: (number | null | undefined)[]) => {
   return list.length ? Math.round((list.reduce((a, s) => a + s, 0) / list.length) * 100) / 100 : null
 }
 
-/** "Average of 4 modules: Robi tasks 75, Weekly KPI 60, …" */
+/** "Average of 4 modules: Robi tasks -25, Weekly KPI -40, …" */
 function finalDetail(final: ReturnType<typeof finalScoreOf>): string {
   if (final.score === null) return 'No module has a score in this period'
-  return `Average of ${plural(final.parts.length, 'module')} out of 100: ${final.parts.map((p) => `${moduleLabel(p.module)} ${Math.round(p.value * 10) / 10}`).join(', ')}`
+  return `Average of ${plural(final.parts.length, 'module')}: ${final.parts.map((p) => `${moduleLabel(p.module)} ${formatPart(p.value)}`).join(', ')}`
 }
 
 function PeriodStatus({ period }: { period: PeriodScores }) {
@@ -237,9 +231,9 @@ export function ScoreHistoryPage() {
     if (!canManageTeam) {
       rows.push(['', ...periods.map((p) => periodLabel(p.kind, p.key))])
       for (const m of SCORE_MODULES) rows.push([m.label, ...periods.map((p) => cellText(entryOf(p, me, m.id), kind))])
-      rows.push(['Final score (out of 100)', ...periods.map((p) => formatFinal(finalOf(p, me).score))])
+      rows.push(['Final score', ...periods.map((p) => formatFinal(finalOf(p, me).score))])
     } else if (view === 'all' && selected) {
-      rows.push(['Coordinator', ...SCORE_MODULES.map((m) => m.label), 'Final score (out of 100)'])
+      rows.push(['Coordinator', ...SCORE_MODULES.map((m) => m.label), 'Final score'])
       for (const person of people) {
         rows.push([person.name, ...SCORE_MODULES.map((m) => cellText(entryOf(selected, person.id, m.id), kind)), formatFinal(finalOf(selected, person.id).score)])
       }

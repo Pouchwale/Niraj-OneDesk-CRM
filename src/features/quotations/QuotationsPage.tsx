@@ -98,7 +98,7 @@ export function QuotationsPage() {
       {
         name: 'Quotations',
         rows: [
-          ['Enquiry date', 'Coordinator', 'Customer', 'Concern person', 'Contact', 'Source', 'Quotation date', 'Sales employee', 'Quotation no', 'Follow-ups', 'Closing date', 'Status', 'Customer type', 'Performance', 'Score', 'Amount', 'Lost remark'],
+          ['Enquiry date', 'Coordinator', 'Customer', 'Concern person', 'Contact', 'Source', 'Quotation date', 'Sales employee', 'Quotation no', 'Follow-ups', 'Closing date', 'Status', 'Customer type', 'Performance', 'Points', 'Amount', 'Lost remark'],
           ...rows.map((q) => [
             q.inquiry_date ?? '', nameOf(q), q.customer_name, q.concern_person ?? '', q.contact_number ?? '', q.source ?? '',
             q.quotation_date ?? '', q.sales_employee ?? '', q.quotation_no ?? '', followupCount(q), q.closing_date ?? '',
@@ -220,7 +220,12 @@ export function QuotationsPage() {
                   <th className="px-3 py-3 text-right font-medium">Amount</th>
                   <th className="px-3 py-3 font-medium">Status</th>
                   <th className="px-3 py-3 font-medium">Customer type</th>
-                  <th className="px-3 py-3 text-right font-medium" title="Closed + New = 100 · Closed + Existing = 50 · Open or Lost = 0">Score</th>
+                  <th
+                    className="px-3 py-3 text-right font-medium"
+                    title="Closed + New = 100 · Closed + Existing = 50 · Open or Lost = 0. Points add up to the average score (Performance), which is shown in minus scoring."
+                  >
+                    Points
+                  </th>
                   <th className="px-3 py-3 font-medium">Closing</th>
                 </tr>
               </thead>
