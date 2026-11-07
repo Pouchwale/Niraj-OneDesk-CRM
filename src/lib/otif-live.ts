@@ -400,23 +400,3 @@ export function summariseRead(read: { rows: readonly unknown[]; change: OtifRead
   return parts.length ? parts.join(', ') : 'Nothing changed'
 }
 
-/** The week's orders as sheet rows for Excel: the team's fields, in their order. */
-export function otifSheetRows(rows: readonly OtifLiveRow[]): (string | number | null)[][] {
-  return [
-    OTIF_LIVE_COLUMNS.map((c) => c.label),
-    ...rows.map((r) => [
-      r.poNo,
-      r.soNo,
-      r.soDate,
-      r.poDueDate,
-      r.poClosedDate,
-      r.delayDays,
-      r.dayCommitted,
-      r.customerName,
-      r.openOrderQty,
-      r.otifScore,
-      r.relationManager,
-      r.department,
-    ]),
-  ]
-}

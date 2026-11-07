@@ -19,7 +19,6 @@ import {
   numberCell,
   OTIF_LIVE_COLUMNS,
   otifCell,
-  otifSheetRows,
   readOtifSheets,
   rowsInWeek,
   serialToIso,
@@ -297,10 +296,7 @@ describe('weeks and analysis', () => {
     expect(compareReads(twice, [rows[0], { ...rows[0], openOrderQty: 5 }])).toEqual({ added: 0, changed: 1, removed: 0 })
   })
 
-  it('downloads the team’s fields in their order', () => {
-    const sheet = otifSheetRows(rows.slice(0, 1))
-    expect(sheet[0]).toEqual(['PO No.', 'SO No', 'SO Date', 'PO Due Date', 'PO Closed Date', 'Delay Day', 'Day Commited', 'Customer Name', 'Open Order Qty', 'OTIF Score', 'Relation Manager', 'Department'])
-    expect(sheet[0]).toEqual(OTIF_LIVE_COLUMNS.map((c) => c.label))
-    expect(sheet[1]).toEqual(['a', null, '2026-10-28', '2026-11-10', '2026-11-02', -8, null, null, null, 'YES', 'Krina Shah', 'FG - Label'])
+  it('keeps the team’s fields in their order (the PDF report’s order table follows it)', () => {
+    expect(OTIF_LIVE_COLUMNS.map((c) => c.label)).toEqual(['PO No.', 'SO No', 'SO Date', 'PO Due Date', 'PO Closed Date', 'Delay Day', 'Day Commited', 'Customer Name', 'Open Order Qty', 'OTIF Score', 'Relation Manager', 'Department'])
   })
 })

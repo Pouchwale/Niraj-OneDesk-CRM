@@ -9,7 +9,8 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { AlertTriangle, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Loader2, Search } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, FileDown, FileSpreadsheet, Loader2, Search } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useAuth } from '@/features/auth/AuthContext'
 import {
   basisDate,
   byRelationManager,
@@ -27,7 +29,6 @@ import {
   NO_LIVE_FILTERS,
   NOT_CLOSED,
   NOT_SET,
-  otifSheetRows,
   otifWeekLabel,
   rowsInWeek,
   WEEK_BASES,
@@ -188,6 +189,7 @@ function FilterSelect({ label, value, options, onChange, allLabel }: { label: st
 
 export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
   const live = useOtifLive()
+  const { user } = useAuth()
   const { status, data: ready, reading, error } = live
   const today = todayISO()
   const [basis, setBasis] = useState<WeekBasis>(readBasis)
@@ -249,9 +251,31 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
 
   const filtersOn = Boolean(filters.department || filters.relationManager || filters.bucket)
 
-  const download = async () => {
-    const { downloadWorkbook } = await import('@/features/snapshots/download')
-    downloadWorkbook(`OTIF week of ${week} by ${basisLabel}.xlsx`, [{ name: 'OTIF', rows: otifSheetRows(tableRows) }])
+  // The week as a PDF report, with the filters on screen (the user's choice, 7 Nov 2026: a clear PDF, no Excel).
+  const [makingPdf, setMakingPdf] = useState(false)
+  const downloadPdf = async () => {
+    if (!ready) return
+    setMakingPdf(true)
+    try {
+      const { downloadOtifPdf } = await import('./otif-report-pdf')
+      await downloadOtifPdf({
+        weekStart: week,
+        weekEnd: addDays(week, 6),
+        basisLabel,
+        filters,
+        file: { name: ready.fileName, sheet: ready.sheetName, savedAt: ready.modifiedAt, orders: ready.rows.length },
+        rows: shown,
+        summary,
+        buckets: bucketData,
+        managers,
+        trend,
+        generatedBy: user?.full_name ?? 'OneDesk CRM',
+      })
+    } catch (err) {
+      toast.error('Could not make the PDF report.', { description: err instanceof Error ? err.message : 'Try again.' })
+    } finally {
+      setMakingPdf(false)
+    }
   }
 
   const header = (
@@ -264,8 +288,9 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
       }
     >
       {ready && (
-        <Button variant="outline" size="sm" onClick={() => void download()} disabled={tableRows.length === 0}>
-          <Download className="mr-2 h-4 w-4 text-emerald-500" /> Excel
+        <Button variant="outline" size="sm" onClick={() => void downloadPdf()} disabled={shown.length === 0 || makingPdf} data-testid="otif-pdf">
+          {makingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4 text-violet-500" />}
+          {makingPdf ? 'Preparing…' : 'PDF report'}
         </Button>
       )}
     </PageHeader>
