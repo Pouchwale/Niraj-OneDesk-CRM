@@ -18,7 +18,10 @@ export interface OtifSummary {
   byBucket: Record<string, number>
 }
 
-export function computeOtifSummary(deliveries: PoDelivery[]): OtifSummary {
+/** What the summary reads of an order: an uploaded report's row, or a live OTIF-SCORE row (otif-live.ts). */
+export type OtifSummaryRow = Pick<PoDelivery, 'otif_score' | 'delay_bucket'> & { category: string }
+
+export function computeOtifSummary(deliveries: readonly OtifSummaryRow[]): OtifSummary {
   const totalPOs = deliveries.length
   const onTimeCount = deliveries.filter((d) => d.otif_score === 'YES').length
   const lateCount = totalPOs - onTimeCount

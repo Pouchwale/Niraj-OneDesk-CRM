@@ -266,6 +266,52 @@ describe('the Excel routes', () => {
     expect(res.status).toBe(503)
     expect(await res.json()).toMatchObject({ error: { code: 'not_configured' } })
   })
+
+  it('hands the OTIF file to the team leader and the administrator only (OTIF Analytics is theirs)', async () => {
+    const otif = join(dir, 'OTIF-SCORE.xlsm')
+    writeFileSync(otif, 'otif bytes')
+    const fresh = await start({ EXCEL_ACTIVE_PAYMENTS_PATH: workbook, EXCEL_OTIF_PATH: otif })
+    await fresh.signIn()
+
+    const status = (await (await fresh.call(ROUTES.excelStatus)).json()) as { books: Record<string, { configured: boolean; name: string | null }> }
+    expect(status.books.otif).toMatchObject({ configured: true, exists: true, name: 'OTIF-SCORE.xlsm' })
+    const ready = (await (await fresh.call(ROUTES.ready)).json()) as { checks: { name: string; ok: boolean }[] }
+    expect(ready.checks.find((c) => c.name === 'excel:otif')?.ok).toBe(true)
+    // The setting is known, so it is not reported as a misspelling.
+    expect(ready.checks.find((c) => c.name === 'config')).toBeUndefined()
+
+    const asAdmin = await fresh.call(`${ROUTES.excelFile}?book=otif`)
+    expect(asAdmin.status).toBe(200)
+    expect(await asAdmin.text()).toBe('otif bytes')
+
+    for (const role of ['team_leader', 'coordinator'] as const) {
+      const created = await fresh.call(AUTH_ROUTES.users, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: `otif.${role}`,
+          email: `otif.${role}@test.local`,
+          full_name: `Otif ${role}`,
+          role,
+          // A coordinator belongs to a team.
+          module: role === 'coordinator' ? 'Pouchwale' : null,
+          password: 'Test@12345',
+        }),
+      })
+      expect(created.status).toBe(201)
+    }
+    await fresh.signIn('otif.team_leader', 'Test@12345')
+    expect((await fresh.call(`${ROUTES.excelFile}?book=otif`)).status).toBe(200)
+
+    await fresh.signIn('otif.coordinator', 'Test@12345')
+    const asCoordinator = await fresh.call(`${ROUTES.excelFile}?book=otif`)
+    expect(asCoordinator.status).toBe(403)
+    expect(await asCoordinator.json()).toMatchObject({ error: { code: 'forbidden' } })
+    // The other books are exactly as open as before.
+    expect((await fresh.call(`${ROUTES.excelFile}?book=companies`)).status).toBe(200)
+
+    await fresh.stop()
+  })
 })
 
 describe('the assistant routes', () => {

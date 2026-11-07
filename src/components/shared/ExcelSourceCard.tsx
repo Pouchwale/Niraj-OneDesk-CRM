@@ -27,7 +27,7 @@ import {
   type ExcelBook,
   type ExcelBookStatus,
 } from '@/lib/excel-source'
-import { EXCEL_BOOKS } from '@shared/api'
+import { SYNCED_BOOKS, type SyncedBook } from '@shared/api'
 import {
   readSyncEntry,
   readSyncLog,
@@ -38,7 +38,8 @@ import {
 } from '@/lib/sync-log'
 
 interface ExcelSourceCardProps {
-  book: ExcelBook
+  /** A book imported into the records (OTIF is read by OTIF Analytics itself, never synced). */
+  book: SyncedBook
   /** Recorded against the upload, and used for the audit entry. */
   adminId?: string
   /** Called after rows change, so the page reloads its data. */
@@ -290,7 +291,7 @@ export function ExcelSourceCard({ book, adminId, onImported, className }: ExcelS
                 What each book picked up, and when.
               </p>
               <div className="mt-3 space-y-3">
-                {EXCEL_BOOKS.map((each) => {
+                {SYNCED_BOOKS.map((each) => {
                   const entry = log[each] ?? null
                   return (
                     <div key={each} data-testid={`sync-summary-${each}`}>

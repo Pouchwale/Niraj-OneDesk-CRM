@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { SYNCED_BOOKS } from '@shared/api'
 import { BOOK_LABEL, columnMessage, describeSync, explainSkips, type ExcelSyncResult } from './excel-source'
 
 /** A delta shaped the way an import produces one. */
@@ -133,7 +134,9 @@ describe('explainSkips', () => {
   })
 
   it('labels the books the way the screens do', () => {
-    expect(BOOK_LABEL).toEqual({ companies: 'Active Payments', overdue: 'Overdue Payments', rfd: 'Ready for Dispatch' })
+    expect(BOOK_LABEL).toEqual({ companies: 'Active Payments', overdue: 'Overdue Payments', rfd: 'Ready for Dispatch', otif: 'OTIF Analytics' })
+    // OTIF is read by OTIF Analytics only, never synced into the records.
+    expect(SYNCED_BOOKS).toEqual(['companies', 'overdue', 'rfd'])
   })
 })
 

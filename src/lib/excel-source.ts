@@ -11,7 +11,7 @@
  * implements, so this file cannot drift away from what it is calling.
  */
 
-import { EXCEL_HEADERS, ROUTES, type ExcelBook, type ExcelBookStatus, type ExcelStatusResponse } from '@shared/api'
+import { EXCEL_HEADERS, ROUTES, type ExcelBook, type ExcelBookStatus, type ExcelStatusResponse, type SyncedBook } from '@shared/api'
 import { BOOK_LABEL, BOOK_PATH_ENV, EXCEL_BOOKS } from '@shared/api'
 import type { SyncDelta } from './companies-upload'
 import { formatCurrency } from './utils'
@@ -58,10 +58,11 @@ export async function getExcelStatus(): Promise<Record<ExcelBook, ExcelBookStatu
       companies: data.books?.companies ?? UNCONFIGURED('companies'),
       overdue: data.books?.overdue ?? UNCONFIGURED('overdue'),
       rfd: data.books?.rfd ?? UNCONFIGURED('rfd'),
+      otif: data.books?.otif ?? UNCONFIGURED('otif'),
     }
   } catch {
     // No server behind the page (a static preview, say): nothing is connected.
-    return { companies: UNCONFIGURED('companies'), overdue: UNCONFIGURED('overdue'), rfd: UNCONFIGURED('rfd') }
+    return { companies: UNCONFIGURED('companies'), overdue: UNCONFIGURED('overdue'), rfd: UNCONFIGURED('rfd'), otif: UNCONFIGURED('otif') }
   }
 }
 
@@ -91,8 +92,8 @@ async function fetchWorkbook(book: ExcelBook): Promise<FetchedWorkbook> {
   }
 }
 
-/** The columns a book cannot be imported without. */
-const REQUIRED: Record<ExcelBook, readonly string[]> = {
+/** The columns a book cannot be imported without (only the synced books are ever imported; OTIF is read by its own screen). */
+const REQUIRED: Record<SyncedBook, readonly string[]> = {
   companies: ['company_name', 'coordinator_name', 'total_amount'],
   overdue: ['bp_code', 'customer_name', 'coordinator_name', 'balance_due'],
   rfd: RFD_REQUIRED,
@@ -114,7 +115,7 @@ const BUCKETS = ['due_0_30', 'due_31_60', 'due_61_90', 'due_91_120', 'due_121_pl
  * buckets on one side, an invoice or due date on the other — so those decide
  * it, and count against the book they do not belong to.
  */
-export function scoreSheetFor(book: ExcelBook, headers: string[]): number {
+export function scoreSheetFor(book: SyncedBook, headers: string[]): number {
   if (book === 'rfd') return scoreRfdSheet(headers)
   const asCompany = autoMapCompanyColumns(headers) as Record<string, string | undefined>
   const asOverdue = autoMapOverdueColumns(headers) as Record<string, string | undefined>
@@ -224,7 +225,8 @@ const FAILED = (error: string, modifiedAt: string | null = null): ExcelSyncResul
  * partial import of a mis-mapped sheet is worse than none.
  */
 export async function syncBookFromExcel(
-  book: ExcelBook,
+  // Only the synced books: any other book would fall through to the Active Payments import below.
+  book: SyncedBook,
   options: { adminId?: string; filter?: ImportFilter } = {}
 ): Promise<ExcelSyncResult> {
   const filter = options.filter ?? loadImportFilter(book)
@@ -461,7 +463,7 @@ export function describeChanges(changes?: SyncDelta): string | null {
  * something a person can fix are worth their attention, so those are named and
  * the rest is described as what it is.
  */
-export function describeSync(result: ExcelSyncResult, book: ExcelBook): string {
+export function describeSync(result: ExcelSyncResult, book: SyncedBook): string {
   if (!result.success) return result.error ?? 'The sync failed.'
 
   if (book === 'rfd') {

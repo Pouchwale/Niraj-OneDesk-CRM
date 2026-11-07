@@ -28,12 +28,14 @@ export const PATH_ENV: Record<ExcelBook, readonly string[]> = {
   companies: [BOOK_PATH_ENV.companies, 'EXCEL_ACTIVE_PAYMENT_PATH', 'EXCEL_COMPANIES_PATH'],
   overdue: [BOOK_PATH_ENV.overdue, 'EXCEL_OVERDUE_PAYMENT_PATH', 'EXCEL_OVERDUE_PATH'],
   rfd: [BOOK_PATH_ENV.rfd, 'EXCEL_READY_FOR_DISPATCH_PATH'],
+  otif: [BOOK_PATH_ENV.otif, 'EXCEL_OTIF_SCORE_PATH'],
 }
 
 export const SHEET_ENV: Record<ExcelBook, readonly string[]> = {
   companies: ['EXCEL_ACTIVE_PAYMENTS_SHEET', 'EXCEL_ACTIVE_PAYMENT_SHEET', 'EXCEL_COMPANIES_SHEET'],
   overdue: ['EXCEL_OVERDUE_PAYMENTS_SHEET', 'EXCEL_OVERDUE_PAYMENT_SHEET', 'EXCEL_OVERDUE_SHEET'],
   rfd: ['EXCEL_RFD_SHEET'],
+  otif: ['EXCEL_OTIF_SHEET', 'EXCEL_OTIF_SCORE_SHEET'],
 }
 
 export function preferredPathEnv(book: ExcelBook): string {

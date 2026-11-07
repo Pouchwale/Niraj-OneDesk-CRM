@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { motion, type Variants } from 'motion/react';
-import { FileDown, Upload, Download, Trash2, FileCheck, FileSpreadsheet, Archive } from 'lucide-react';
+import { FileDown, Upload, Download, Trash2, FileCheck, FileSpreadsheet, Archive, Radio } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { OtifLiveView } from './live/OtifLiveView';
 import { useOtifData } from './hooks/useOtifData';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { GlassCard } from '@/components/shared/GlassCard';
@@ -17,8 +19,9 @@ import { OtifPdfReportModal } from './components/OtifPdfReportModal';
 import { OtifSaveReportModal } from './components/OtifSaveReportModal';
 import { OtifArchiveDrawer } from './components/OtifArchiveDrawer';
 
-export function OtifDashboardPage() {
-  const { 
+/** An uploaded weekly report (the page as it was before the live file): upload, saved reports, PDF. */
+function UploadedOtifView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
+  const {
     deliveries, 
     summary, 
     filters, 
@@ -125,6 +128,8 @@ export function OtifDashboardPage() {
           </Button>
         </div>
       </PageHeader>
+
+      {sourceSwitch}
 
       {/* Active File Banner Notice */}
       {activeFileName && (
@@ -235,10 +240,78 @@ export function OtifDashboardPage() {
         activeFileName={activeFileName}
         onSaveSuccess={() => setIsArchiveOpen(true)}
       />
-      <OtifArchiveDrawer 
-        open={isArchiveOpen} 
-        onOpenChange={setIsArchiveOpen} 
+      <OtifArchiveDrawer
+        open={isArchiveOpen}
+        onOpenChange={setIsArchiveOpen}
       />
     </div>
   );
+}
+
+/* ===================== Live file or uploaded report (7 Nov 2026) ===================== */
+
+type OtifSource = 'live' | 'uploaded';
+const SOURCE_KEY = 'crm.otif.source';
+
+function readSource(): OtifSource {
+  try {
+    return localStorage.getItem(SOURCE_KEY) === 'uploaded' ? 'uploaded' : 'live';
+  } catch {
+    return 'live';
+  }
+}
+
+function saveSource(source: OtifSource): void {
+  try {
+    localStorage.setItem(SOURCE_KEY, source);
+  } catch {
+    /* a private window: the choice just is not remembered */
+  }
+}
+
+const SOURCES: { id: OtifSource; label: string; icon: typeof Radio }[] = [
+  { id: 'live', label: 'Live file (OTIF-SCORE)', icon: Radio },
+  { id: 'uploaded', label: 'Uploaded file', icon: Upload },
+];
+
+function OtifSourceSwitch({ value, onChange }: { value: OtifSource; onChange: (source: OtifSource) => void }) {
+  return (
+    <div role="tablist" aria-label="OTIF data" className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5" data-testid="otif-source">
+      {SOURCES.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          role="tab"
+          aria-selected={value === s.id}
+          onClick={() => onChange(s.id)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            value === s.id ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <s.icon className="h-4 w-4" />
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * OTIF Analytics: the live OTIF-SCORE file analysed by week (the default since
+ * 7 Nov 2026), or an uploaded weekly report exactly as before. Each viewer's
+ * choice is remembered on their computer.
+ */
+export function OtifDashboardPage() {
+  const [source, setSource] = useState<OtifSource>(readSource);
+  const sourceSwitch = (
+    <OtifSourceSwitch
+      value={source}
+      onChange={(next) => {
+        setSource(next);
+        saveSource(next);
+      }}
+    />
+  );
+  return source === 'live' ? <OtifLiveView sourceSwitch={sourceSwitch} /> : <UploadedOtifView sourceSwitch={sourceSwitch} />;
 }
