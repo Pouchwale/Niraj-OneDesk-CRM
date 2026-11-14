@@ -6,9 +6,9 @@
  * amount of the closed quotations (src/lib/quotation-stats.ts).
  */
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight } from 'lucide-react'
 
 import { GlassCard } from '@/components/shared/GlassCard'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
@@ -20,7 +20,7 @@ import {
   type QuotationPerformance as Perf,
 } from '@/lib/quotation-stats'
 import type { Quotation } from '@/lib/types'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
 
 /**
  * Status colours, validated for colour-blind separation with Open between Won
@@ -157,6 +157,12 @@ export function QuotationPerformance({ list, basis, showPeople, onPickPerson }: 
   const months = useMemo(() => monthlyPerformance(list, basis).map((m) => ({ ...m, name: monthName(m.month) })), [list, basis])
   const [sort, setSort] = useState<{ key: SortKey; dir: 'desc' | 'asc' }>({ key: 'valueWon', dir: 'desc' })
   const [valueBy, setValueBy] = useState<'month' | 'person'>(showPeople ? 'person' : 'month')
+  // The coordinator whose won deals are open under their row ('' is "not assigned"); null: none open.
+  const [openPerson, setOpenPerson] = useState<string | null>(null)
+  const wonBy = (personId: string) =>
+    list
+      .filter((q) => q.status === 'closed' && (q.coordinator_id ?? '') === personId)
+      .sort((a, b) => (b.closing_date ?? '').localeCompare(a.closing_date ?? '') || (b.amount ?? 0) - (a.amount ?? 0))
 
   const sortedPeople = useMemo(() => {
     const sign = sort.dir === 'desc' ? -1 : 1
@@ -211,21 +217,76 @@ export function QuotationPerformance({ list, basis, showPeople, onPickPerson }: 
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
-                {sortedPeople.map(({ personId, performance }) => (
-                  <tr
-                    key={personId || 'none'}
-                    className={cn('hover:bg-muted/30', onPickPerson && 'cursor-pointer')}
-                    onClick={() => onPickPerson?.(personId || 'none')}
-                    title={onPickPerson ? 'Show only this person' : undefined}
-                  >
-                    <td className={cn('whitespace-nowrap px-4 py-2.5 font-medium', !personId && 'text-amber-600')}>{personName(personId)}</td>
-                    {COLUMNS.map((c) => (
-                      <td key={c.key} className={cn('whitespace-nowrap px-3 py-2.5 text-right tabular-nums', c.key === 'valueWon' && 'font-semibold')}>
-                        {cell(performance, c.key)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {sortedPeople.map(({ personId, performance }) => {
+                  const open = openPerson === personId
+                  const won = open ? wonBy(personId) : []
+                  return (
+                    <Fragment key={personId || 'none'}>
+                      <tr
+                        className={cn('cursor-pointer hover:bg-muted/30', open && 'bg-muted/30')}
+                        onClick={() => setOpenPerson(open ? null : personId)}
+                        title={open ? 'Hide the deals won' : 'Show the deals won, customer by customer'}
+                        aria-expanded={open}
+                        data-testid="quotation-person-row"
+                      >
+                        <td className={cn('whitespace-nowrap px-4 py-2.5 font-medium', !personId && 'text-amber-600')}>
+                          <span className="inline-flex items-center gap-1.5">
+                            {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                            {personName(personId)}
+                          </span>
+                        </td>
+                        {COLUMNS.map((c) => (
+                          <td key={c.key} className={cn('whitespace-nowrap px-3 py-2.5 text-right tabular-nums', c.key === 'valueWon' && 'font-semibold')}>
+                            {cell(performance, c.key)}
+                          </td>
+                        ))}
+                      </tr>
+                      {open && (
+                        <tr className="bg-muted/20" data-testid="quotation-won-list">
+                          <td colSpan={COLUMNS.length + 1} className="px-4 pb-3 pt-1">
+                            <div className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Won by {personName(personId)}: {won.length} {won.length === 1 ? 'deal' : 'deals'}
+                                {won.length ? ` · ${formatCurrency(won.reduce((sum, q) => sum + (q.amount ?? 0), 0))}` : ''}
+                              </p>
+                              {onPickPerson && (
+                                <button type="button" className="text-xs font-medium text-primary hover:underline" onClick={() => onPickPerson(personId || 'none')}>
+                                  Show only this person
+                                </button>
+                              )}
+                            </div>
+                            {won.length === 0 ? (
+                              <p className="py-2 text-sm text-muted-foreground">No deals won with these filters.</p>
+                            ) : (
+                              <table className="w-full text-sm">
+                                <thead className="text-xs text-muted-foreground">
+                                  <tr>
+                                    <th className="py-1.5 pr-3 text-left font-medium">Customer</th>
+                                    <th className="px-3 py-1.5 text-left font-medium">Quotation</th>
+                                    <th className="px-3 py-1.5 text-left font-medium">Customer type</th>
+                                    <th className="px-3 py-1.5 text-left font-medium">Closed on</th>
+                                    <th className="py-1.5 pl-3 text-right font-medium">Order value</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/40">
+                                  {won.map((q) => (
+                                    <tr key={q.id}>
+                                      <td className="py-1.5 pr-3 font-medium">{q.customer_name}</td>
+                                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-xs">{q.quotation_no ?? '—'}</td>
+                                      <td className="whitespace-nowrap px-3 py-1.5">{q.customer_type === 'new' ? 'New' : q.customer_type === 'existing' ? 'Existing' : '—'}</td>
+                                      <td className="whitespace-nowrap px-3 py-1.5">{q.closing_date ? formatDate(q.closing_date) : '—'}</td>
+                                      <td className="whitespace-nowrap py-1.5 pl-3 text-right tabular-nums">{q.amount ? formatCurrency(q.amount) : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
               </tbody>
               <tfoot className="border-t-2 border-border bg-muted/50 font-semibold">
                 <tr>
