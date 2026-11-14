@@ -61,6 +61,19 @@ describe('matchesQuotationFilter', () => {
     expect(matchesQuotationFilter(quote(), f)).toBe(false)
   })
 
+  it('on All time with dates, takes a quotation whose enquiry, quotation or closing date falls in them', () => {
+    const f = { ...NO_QUOTATION_FILTER, anyDate: true, from: '2026-11-01', to: '2026-11-14' }
+    // Enquired 1 Oct, quoted 2 Oct, still open: nothing in November.
+    expect(matchesQuotationFilter(quote(), f)).toBe(false)
+    expect(matchesQuotationFilter(quote({ inquiry_date: '2026-11-03', quotation_date: '2026-11-05' }), f)).toBe(true)
+    expect(matchesQuotationFilter(quote({ quotation_date: '2026-11-14' }), f)).toBe(true)
+    // Enquired and quoted in October, closed in November.
+    expect(matchesQuotationFilter(quote({ status: 'closed', closing_date: '2026-11-02' }), f)).toBe(true)
+    expect(matchesQuotationFilter(quote({ status: 'lost', closing_date: '2026-11-15' }), f)).toBe(false)
+    // Empty boxes: every quotation.
+    expect(matchesQuotationFilter(quote(), { ...NO_QUOTATION_FILTER, anyDate: true })).toBe(true)
+  })
+
   it('keeps only quotations with an amount inside the value range', () => {
     const f = { ...NO_QUOTATION_FILTER, minValue: 10000, maxValue: 50000 }
     expect(matchesQuotationFilter(quote({ amount: 10000 }), f)).toBe(true)

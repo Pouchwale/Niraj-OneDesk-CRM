@@ -62,7 +62,7 @@ export function QuotationsPage() {
   const filter = useMemo(() => toQuotationFilter(filters, today), [filters, today])
   const period =
     filter.from || filter.to
-      ? `${filter.from ? formatDate(filter.from) : 'Start'} – ${filter.to ? formatDate(filter.to) : 'today'} · by ${filter.basis} date`
+      ? `${filter.from ? formatDate(filter.from) : 'Start'} – ${filter.to ? formatDate(filter.to) : 'today'} · by ${filter.anyDate ? 'enquiry, quotation or closing' : filter.basis} date`
       : 'All dates'
   const inScope = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -130,7 +130,7 @@ export function QuotationsPage() {
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiCard title="Quotations" value={inScope.length} icon={FileText} color="blue" hint={filters.datePreset === 'all' ? 'All time' : period} />
+        <KpiCard title="Quotations" value={inScope.length} icon={FileText} color="blue" hint={filter.from || filter.to ? period : 'All time'} />
         <KpiCard title="Open" value={count('open')} icon={Clock} color="amber" hint="Waiting on the customer" />
         <KpiCard title="Closed (won)" value={count('closed')} icon={Trophy} color="emerald" hint={winRate === null ? 'None decided yet' : `${winRate}% of decided quotations`} />
         <KpiCard title="Lost" value={count('lost')} icon={XCircle} color="rose" hint={decided ? `${100 - (winRate ?? 0)}% of decided quotations` : undefined} />

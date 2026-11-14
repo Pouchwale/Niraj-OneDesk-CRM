@@ -4,7 +4,7 @@
  * Performance view alike.
  */
 
-import { CalendarRange, IndianRupee, Users, X } from 'lucide-react'
+import { CalendarDays, CalendarRange, IndianRupee, Users, X } from 'lucide-react'
 
 import { GlassCard } from '@/components/shared/GlassCard'
 import { Button } from '@/components/ui/button'
@@ -95,7 +95,11 @@ export const DEFAULT_FILTERS: FilterState = {
 
 /** The filter the lists apply. */
 export function toQuotationFilter(state: FilterState, today: string): QuotationFilter {
-  const range = state.datePreset === 'custom' ? { from: state.customFrom || null, to: state.customTo || null } : presetRange(state.datePreset, today)
+  // All time keeps its own From–To boxes too (any of the three dates); empty boxes are the whole data.
+  const range =
+    state.datePreset === 'custom' || state.datePreset === 'all'
+      ? { from: state.customFrom || null, to: state.customTo || null }
+      : presetRange(state.datePreset, today)
   const value =
     state.valuePreset === 'custom'
       ? {
@@ -105,6 +109,7 @@ export function toQuotationFilter(state: FilterState, today: string): QuotationF
       : VALUE_PRESETS.find((p) => p.id === state.valuePreset)!
   return {
     basis: state.basis,
+    ...(state.datePreset === 'all' ? { anyDate: true } : {}),
     from: range.from,
     to: range.to,
     minValue: value.min !== null && Number.isFinite(value.min) ? value.min : null,
@@ -116,7 +121,7 @@ export function toQuotationFilter(state: FilterState, today: string): QuotationF
 export function describeFilter(f: QuotationFilter, ownerName: string | null): string[] {
   const out: string[] = []
   if (f.from || f.to) {
-    const by = f.basis === 'closing' ? 'Closed' : f.basis === 'enquiry' ? 'Enquired' : 'Sent'
+    const by = f.anyDate ? 'Enquired, quoted or closed' : f.basis === 'closing' ? 'Closed' : f.basis === 'enquiry' ? 'Enquired' : 'Sent'
     out.push(
       f.from && f.to
         ? `${by} ${formatDate(f.from)} – ${formatDate(f.to)}`
@@ -166,18 +171,19 @@ export function QuotationFilters({ state, onChange, today, owners, ownerName }: 
 
   return (
     <GlassCard className="space-y-3 p-4" data-testid="quotation-filters">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
+        <div className="flex min-w-0 flex-wrap items-start gap-4">
         <Field icon={CalendarRange} label="Date">
-          {/* All time is the whole data; a date type opens From–To boxes (this month so far to start with; an empty box has no limit). */}
+          {/* All time: any of the three dates (empty boxes = the whole data). A date type: that date only (this month so far to start with). An empty box has no limit. */}
           <Select
             value={state.datePreset === 'all' ? 'all' : state.basis}
             onValueChange={(v) =>
               v === 'all'
-                ? set({ datePreset: 'all' })
+                ? set({ datePreset: 'all', customFrom: '', customTo: '' })
                 : set({
                     basis: v as DateBasis,
                     datePreset: 'custom',
-                    ...(state.datePreset === 'all' ? { customFrom: `${today.slice(0, 8)}01`, customTo: today } : {}),
+                    ...(state.datePreset === 'all' && !state.customFrom && !state.customTo ? { customFrom: `${today.slice(0, 8)}01`, customTo: today } : {}),
                   })
             }
           >
@@ -185,7 +191,7 @@ export function QuotationFilters({ state, onChange, today, owners, ownerName }: 
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" title="Every quotation, whatever its dates">
+              <SelectItem value="all" title="Every quotation; with dates, those enquired, quoted or closed in them">
                 All time
               </SelectItem>
               {DATE_BASES.map((b) => (
@@ -195,12 +201,18 @@ export function QuotationFilters({ state, onChange, today, owners, ownerName }: 
               ))}
             </SelectContent>
           </Select>
-          {state.datePreset !== 'all' && (
-            <div className="flex items-center gap-1.5">
+        </Field>
+          {(
+            <div className="flex min-w-0 flex-col gap-1.5" data-testid="quotation-dates">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <CalendarDays className="h-3.5 w-3.5" />
+                Dates
+              </span>
+              <div className="flex items-center gap-1.5">
               <Input
                 type="date"
                 aria-label="From"
-                className="h-9 w-[150px]"
+                className="h-9 w-[140px]"
                 value={state.customFrom}
                 max={state.customTo || undefined}
                 onChange={(e) => set({ customFrom: e.target.value })}
@@ -209,14 +221,26 @@ export function QuotationFilters({ state, onChange, today, owners, ownerName }: 
               <Input
                 type="date"
                 aria-label="To"
-                className="h-9 w-[150px]"
+                className="h-9 w-[140px]"
                 value={state.customTo}
                 min={state.customFrom || undefined}
                 onChange={(e) => set({ customTo: e.target.value })}
               />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground" data-testid="quotation-dates-label">
+                {state.customFrom && state.customTo && state.customFrom > state.customTo
+                  ? 'The From date is after the To date'
+                  : !state.customFrom && !state.customTo
+                    ? state.datePreset === 'all'
+                      ? 'Any dates: every quotation'
+                      : 'Any dates'
+                    : state.datePreset === 'all'
+                      ? `Enquiry, quotation or closing date ${state.customFrom ? formatDate(state.customFrom) : 'any date'} – ${state.customTo ? formatDate(state.customTo) : 'any date'}`
+                    : `${state.customFrom ? formatDate(state.customFrom) : 'Any date'} – ${state.customTo ? formatDate(state.customTo) : 'any date'}`}
+              </p>
             </div>
           )}
-        </Field>
+        </div>
 
         <Field icon={IndianRupee} label="Order value">
           <Select value={state.valuePreset} onValueChange={(v) => set({ valuePreset: v as ValuePreset })}>

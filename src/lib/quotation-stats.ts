@@ -26,6 +26,11 @@ export function dayFor(q: Pick<Quotation, 'quotation_date' | 'inquiry_date' | 'c
 
 export interface QuotationFilter {
   basis: DateBasis
+  /**
+   * All time with dates (14 Nov 2026): a quotation is in when its enquiry,
+   * quotation or closing date falls in from–to, whichever it is.
+   */
+  anyDate?: boolean
   /** yyyy-mm-dd, inclusive; null = open-ended. */
   from: string | null
   to: string | null
@@ -39,11 +44,13 @@ export const NO_QUOTATION_FILTER: QuotationFilter = { basis: 'quotation', from: 
 /** Whether a quotation passes the date and value filter. */
 export function matchesQuotationFilter(q: Quotation, f: QuotationFilter): boolean {
   if (f.from || f.to) {
-    const day = dayFor(q, f.basis)
-    // Read by closing date, an undecided quotation has no day and drops out.
-    if (!day) return false
-    if (f.from && day < f.from) return false
-    if (f.to && day > f.to) return false
+    const inRange = (day: string | null) => Boolean(day) && (!f.from || day! >= f.from) && (!f.to || day! <= f.to)
+    if (f.anyDate) {
+      if (![q.inquiry_date ?? null, quotationDay(q), q.closing_date ?? null].some(inRange)) return false
+    } else {
+      // Read by closing date, an undecided quotation has no day and drops out.
+      if (!inRange(dayFor(q, f.basis))) return false
+    }
   }
   if (f.minValue !== null || f.maxValue !== null) {
     const amount = q.amount ?? null
