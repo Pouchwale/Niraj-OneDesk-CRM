@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  cardScope,
   conversionsByPerson,
   conversionsOf,
   matchesQuotationFilter,
@@ -72,6 +73,31 @@ describe('matchesQuotationFilter', () => {
     expect(matchesQuotationFilter(quote({ status: 'lost', closing_date: '2026-11-15' }), f)).toBe(false)
     // Empty boxes: every quotation.
     expect(matchesQuotationFilter(quote(), { ...NO_QUOTATION_FILTER, anyDate: true })).toBe(true)
+  })
+
+  it('cards on All time with dates: total = quoted in the dates; Closed and Lost by closing date', () => {
+    const f = { ...NO_QUOTATION_FILTER, anyDate: true, from: '2026-11-01', to: '2026-11-07' }
+    const list = [
+      quote({ id: 'made-open', quotation_date: '2026-11-03', inquiry_date: '2026-11-03' }),
+      quote({ id: 'made-closed', quotation_date: '2026-11-02', inquiry_date: '2026-11-02', status: 'closed', closing_date: '2026-11-05', amount: 5000 }),
+      // Quoted in October, closed or lost this week: a closing this week, not a quotation made this week.
+      quote({ id: 'oct-closed', quotation_date: '2026-10-30', status: 'closed', closing_date: '2026-11-02', amount: 7000 }),
+      quote({ id: 'oct-lost', quotation_date: '2026-10-28', status: 'lost', closing_date: '2026-11-02' }),
+      // Quoted this week, closed after the dates: counted as made, not as a closing in the dates.
+      quote({ id: 'made-closed-later', quotation_date: '2026-11-06', status: 'closed', closing_date: '2026-11-10', amount: 1000 }),
+    ]
+    const cards = cardScope(list, f)
+    expect(cards.made.map((q) => q.id)).toEqual(['made-open', 'made-closed', 'made-closed-later'])
+    const counted = cards.counted.map((q) => q.id)
+    expect(counted).toEqual(['made-open', 'made-closed', 'oct-closed', 'oct-lost'])
+    expect(performanceOf(cards.counted)).toMatchObject({ open: 1, closed: 2, lost: 1, valueWon: 12000 })
+    expect(cards.quotedOutside(list[2])).toBe('earlier')
+    expect(cards.quotedOutside(list[0])).toBeNull()
+    // Any other filter: the cards count the list as it is.
+    const plain = cardScope(list, { ...NO_QUOTATION_FILTER, from: '2026-11-01', to: '2026-11-07' })
+    expect(plain.made).toHaveLength(5)
+    expect(plain.counted).toHaveLength(5)
+    expect(plain.quotedOutside(list[2])).toBeNull()
   })
 
   it('keeps only quotations with an amount inside the value range', () => {

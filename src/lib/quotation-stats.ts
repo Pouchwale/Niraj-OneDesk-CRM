@@ -41,6 +41,35 @@ export interface QuotationFilter {
 
 export const NO_QUOTATION_FILTER: QuotationFilter = { basis: 'quotation', from: null, to: null, minValue: null, maxValue: null }
 
+/**
+ * The cards above the list, on All time with dates (14 Nov 2026, the user's
+ * rule): the total is only the quotations quoted in the dates; Closed and Lost
+ * are the ones closed in the dates, whenever they were quoted; Open stays as
+ * listed. Every other filter counts the list as it is.
+ *
+ * `quotedOutside` tells which listed quotations were quoted before (or after)
+ * the dates, so the list can mark them.
+ */
+export function cardScope(list: readonly Quotation[], f: QuotationFilter): {
+  /** The quotations the Quotations card counts. */
+  made: Quotation[]
+  /** The quotations the Open, Closed, Lost and Value won cards count. */
+  counted: Quotation[]
+  quotedOutside: (q: Quotation) => 'earlier' | 'later' | null
+} {
+  if (!f.anyDate || (!f.from && !f.to)) return { made: [...list], counted: [...list], quotedOutside: () => null }
+  const inRange = (day: string | null | undefined) => Boolean(day) && (!f.from || day! >= f.from) && (!f.to || day! <= f.to)
+  return {
+    made: list.filter((q) => inRange(quotationDay(q))),
+    counted: list.filter((q) => (q.status === 'open' ? true : inRange(q.closing_date))),
+    quotedOutside: (q) => {
+      const day = quotationDay(q)
+      if (inRange(day)) return null
+      return f.from && day < f.from ? 'earlier' : 'later'
+    },
+  }
+}
+
 /** Whether a quotation passes the date and value filter. */
 export function matchesQuotationFilter(q: Quotation, f: QuotationFilter): boolean {
   if (f.from || f.to) {

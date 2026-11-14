@@ -22,7 +22,7 @@ import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/featu
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { PERFORMANCE, QUOTATION_STATUS_LABEL, followupCount } from '@/lib/quotations'
 import type { Quotation, QuotationStatus } from '@/lib/types'
-import { matchesQuotationFilter, performanceOf, quotationDay, quotationScore } from '@/lib/quotation-stats'
+import { cardScope, matchesQuotationFilter, performanceOf, quotationDay, quotationScore } from '@/lib/quotation-stats'
 import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { QuotationDialog } from './QuotationDialog'
 import { DEFAULT_FILTERS, QuotationFilters, toQuotationFilter, type FilterState } from './QuotationFilters'
@@ -85,10 +85,12 @@ export function QuotationsPage() {
     [inScope, status]
   )
 
-  const count = (s: QuotationStatus) => inScope.filter((q) => q.status === s).length
+  // All time with dates: the total is the quotations made in the dates; Closed and Lost go by closing date (cardScope).
+  const cards = useMemo(() => cardScope(inScope, filter), [inScope, filter])
+  const count = (s: QuotationStatus) => cards.counted.filter((q) => q.status === s).length
   const decided = count('closed') + count('lost')
   const winRate = decided ? Math.round((count('closed') / decided) * 100) : null
-  const performance = useMemo(() => performanceOf(inScope), [inScope])
+  const performance = useMemo(() => performanceOf(cards.counted), [cards])
   const ownerName =
     owner === 'all' ? null : owner === 'none' ? 'Unassigned' : owners.find((o) => o.id === owner)?.full_name ?? getCoordinatorDisplayName(owner)
 
@@ -130,9 +132,33 @@ export function QuotationsPage() {
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiCard title="Quotations" value={inScope.length} icon={FileText} color="blue" hint={filter.from || filter.to ? period : 'All time'} />
+        <KpiCard
+          title="Quotations"
+          value={cards.made.length}
+          icon={FileText}
+          color="blue"
+          hint={
+            filter.anyDate && (filter.from || filter.to)
+              ? `Quoted ${filter.from ? formatDate(filter.from) : 'Start'} – ${filter.to ? formatDate(filter.to) : 'today'}${inScope.length > cards.made.length ? ` · ${inScope.length - cards.made.length} more listed, quoted outside these dates` : ''}`
+              : filter.from || filter.to
+                ? period
+                : 'All time'
+          }
+        />
         <KpiCard title="Open" value={count('open')} icon={Clock} color="amber" hint="Waiting on the customer" />
-        <KpiCard title="Closed (won)" value={count('closed')} icon={Trophy} color="emerald" hint={winRate === null ? 'None decided yet' : `${winRate}% of decided quotations`} />
+        <KpiCard
+          title="Closed (won)"
+          value={count('closed')}
+          icon={Trophy}
+          color="emerald"
+          hint={
+            filter.anyDate && (filter.from || filter.to)
+              ? `Closed in these dates${winRate === null ? '' : ` · ${winRate}% of decided`}`
+              : winRate === null
+                ? 'None decided yet'
+                : `${winRate}% of decided quotations`
+          }
+        />
         <KpiCard title="Lost" value={count('lost')} icon={XCircle} color="rose" hint={decided ? `${100 - (winRate ?? 0)}% of decided quotations` : undefined} />
         <KpiCard
           title="Value won"
@@ -235,6 +261,11 @@ export function QuotationsPage() {
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="font-mono text-xs font-medium">{q.quotation_no ?? '—'}</div>
                       <div className="text-xs text-muted-foreground">{q.quotation_date ? formatDate(q.quotation_date) : '—'}</div>
+                      {cards.quotedOutside(q) && (
+                        <div className="mt-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400" data-testid="quoted-outside">
+                          Quoted {cards.quotedOutside(q)}, not counted in the total
+                        </div>
+                      )}
                     </td>
                     <td className="min-w-[200px] px-3 py-3">
                       <div className="font-medium">{q.customer_name}</div>
