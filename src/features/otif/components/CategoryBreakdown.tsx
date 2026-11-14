@@ -1,6 +1,6 @@
 import { GlassCard } from '@/components/shared/GlassCard';
 import { CircularProgress } from '@/components/shared/CircularProgress';
-import { formatPercentage } from '@/lib/utils';
+import { truncatePercent } from '@/lib/utils';
 import { type OtifSummary } from '@/lib/demo-data';
 
 interface CategoryBreakdownProps {
@@ -40,12 +40,12 @@ export function CategoryBreakdown({ data }: CategoryBreakdownProps) {
             <div key={cat.category} className="bg-muted/30 rounded-xl p-5 border border-border/50 flex flex-col justify-between">
               <div className="flex justify-between items-start mb-4">
                 <h4 className="font-medium text-foreground">{cat.category}</h4>
-                <CircularProgress value={cat.pct} size={42} strokeWidth={4} className={colorClass} color={colorClass} />
+                <CircularProgress value={cat.pct} size={52} strokeWidth={4} className={colorClass} color={colorClass} label={truncatePercent(cat.pct)} />
               </div>
               
               <div className="mb-4">
                 <div className={`text-2xl font-bold ${colorClass}`}>
-                  {formatPercentage(cat.pct)}
+                  {truncatePercent(cat.pct)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">OTIF Score</p>
               </div>

@@ -36,7 +36,7 @@ export function SaveTodayButton({
       )
       toast.success("Today's Overdue data is saved", {
         description: `${day.rowCount} rows · ${day.coordinatorCount} coordinators · ${formatCurrency(day.totalBalance)} · targets at ${day.percentage}%`,
-        action: { label: 'Open Weekly KPI', onClick: () => navigate('/weekly-kpi') },
+        action: { label: 'Open Overdue Scoring', onClick: () => navigate('/weekly-kpi') },
       })
       onSaved?.()
     } catch (err) {

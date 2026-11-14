@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { truncatePercent } from '@/lib/utils';
 import { FileDown, CheckCircle2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -101,7 +102,7 @@ export function OtifPdfReportModal({ open, onOpenChange, summary, deliveries }: 
         startY: currentY,
         head: [['OVERALL OTIF RATE', 'TOTAL ORDERS', 'ON-TIME (0 DAYS)', 'DELAYED (AVG DAYS)']],
         body: [[
-          `${overallOtif.toFixed(1)}%`,
+          `${truncatePercent(overallOtif)}`,
           `${totalOrders} POs`,
           `${onTime} POs`,
           `${delayedCount} (${avgDelay}d)`
@@ -124,11 +125,11 @@ export function OtifPdfReportModal({ open, onOpenChange, summary, deliveries }: 
         startY: currentY,
         head: [['ON-TIME / EARLY (0d)', '1-3 DAYS LATE', '4-7 DAYS LATE', '8-10 DAYS LATE', '10+ DAYS LATE']],
         body: [[
-          `${buckets['0d']} POs (${((buckets['0d']/totalOrders)*100 || 0).toFixed(1)}%)`,
-          `${buckets['1-3d']} POs (${((buckets['1-3d']/totalOrders)*100 || 0).toFixed(1)}%)`,
-          `${buckets['4-7d']} POs (${((buckets['4-7d']/totalOrders)*100 || 0).toFixed(1)}%)`,
-          `${buckets['8-10d']} POs (${((buckets['8-10d']/totalOrders)*100 || 0).toFixed(1)}%)`,
-          `${buckets['10+d']} POs (${((buckets['10+d']/totalOrders)*100 || 0).toFixed(1)}%)`
+          `${buckets['0d']} POs (${truncatePercent((buckets['0d']/totalOrders)*100 || 0)})`,
+          `${buckets['1-3d']} POs (${truncatePercent((buckets['1-3d']/totalOrders)*100 || 0)})`,
+          `${buckets['4-7d']} POs (${truncatePercent((buckets['4-7d']/totalOrders)*100 || 0)})`,
+          `${buckets['8-10d']} POs (${truncatePercent((buckets['8-10d']/totalOrders)*100 || 0)})`,
+          `${buckets['10+d']} POs (${truncatePercent((buckets['10+d']/totalOrders)*100 || 0)})`
         ]],
         theme: 'grid',
         headStyles: { fillColor: [248, 250, 252], textColor: [100, 116, 139], fontSize: 9, fontStyle: 'bold', halign: 'center' },
@@ -147,13 +148,13 @@ export function OtifPdfReportModal({ open, onOpenChange, summary, deliveries }: 
       // Table 1: Product Category
       const catBody = Object.entries(byCategory).map(([cat, stats]) => [
         cat,
-        `${stats.onTime} (${((stats.onTime/stats.total)*100 || 0).toFixed(0)}%)`,
+        `${stats.onTime} (${truncatePercent((stats.onTime/stats.total)*100 || 0)})`,
         stats.b1_3,
         stats.b4_7,
         stats.b8_10,
         stats.b10plus,
         stats.total,
-        `${((stats.onTime/stats.total)*100 || 0).toFixed(1)}%`
+        `${truncatePercent((stats.onTime/stats.total)*100 || 0)}`
       ]);
 
       autoTable(doc, {
@@ -177,11 +178,11 @@ export function OtifPdfReportModal({ open, onOpenChange, summary, deliveries }: 
 
       // Table 2: Delay Duration Interval
       const impactData = [
-        ['0 Days (On-Time / Early)', `${buckets['0d']} POs`, `${((buckets['0d']/totalOrders)*100 || 0).toFixed(1)}%`, 'Optimal / On Schedule fulfillment'],
-        ['1-3 Days Late', `${buckets['1-3d']} POs`, `${((buckets['1-3d']/totalOrders)*100 || 0).toFixed(1)}%`, 'Minor delay (Minor production buffer)'],
-        ['4-7 Days Late', `${buckets['4-7d']} POs`, `${((buckets['4-7d']/totalOrders)*100 || 0).toFixed(1)}%`, 'Moderate delay (Attention & follow-up needed)'],
-        ['8-10 Days Late', `${buckets['8-10d']} POs`, `${((buckets['8-10d']/totalOrders)*100 || 0).toFixed(1)}%`, 'Significant delay (Cylinder/raw material bottleneck)'],
-        ['10+ Days Late', `${buckets['10+d']} POs`, `${((buckets['10+d']/totalOrders)*100 || 0).toFixed(1)}%`, 'Critical delay risk (Executive escalation required)']
+        ['0 Days (On-Time / Early)', `${buckets['0d']} POs`, `${truncatePercent((buckets['0d']/totalOrders)*100 || 0)}`, 'Optimal / On Schedule fulfillment'],
+        ['1-3 Days Late', `${buckets['1-3d']} POs`, `${truncatePercent((buckets['1-3d']/totalOrders)*100 || 0)}`, 'Minor delay (Minor production buffer)'],
+        ['4-7 Days Late', `${buckets['4-7d']} POs`, `${truncatePercent((buckets['4-7d']/totalOrders)*100 || 0)}`, 'Moderate delay (Attention & follow-up needed)'],
+        ['8-10 Days Late', `${buckets['8-10d']} POs`, `${truncatePercent((buckets['8-10d']/totalOrders)*100 || 0)}`, 'Significant delay (Cylinder/raw material bottleneck)'],
+        ['10+ Days Late', `${buckets['10+d']} POs`, `${truncatePercent((buckets['10+d']/totalOrders)*100 || 0)}`, 'Critical delay risk (Executive escalation required)']
       ];
 
       autoTable(doc, {
@@ -204,13 +205,13 @@ export function OtifPdfReportModal({ open, onOpenChange, summary, deliveries }: 
       const rmBody = Object.entries(byManager).map(([rm, stats]) => [
         rm,
         stats.total,
-        `${stats.onTime} (${((stats.onTime/stats.total)*100 || 0).toFixed(0)}%)`,
+        `${stats.onTime} (${truncatePercent((stats.onTime/stats.total)*100 || 0)})`,
         stats.b1_3,
         stats.b4_7,
         stats.b8_10,
         stats.b10plus,
         `+${(stats.delayDays/stats.total).toFixed(1)}d`,
-        `${((stats.onTime/stats.total)*100 || 0).toFixed(1)}%`
+        `${truncatePercent((stats.onTime/stats.total)*100 || 0)}`
       ]);
 
       autoTable(doc, {

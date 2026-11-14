@@ -10,6 +10,8 @@ export interface CircularProgressProps {
   strokeWidth?: number
   color?: string
   className?: string
+  /** The text in the middle; a whole percentage when not given. */
+  label?: string
 }
 
 export function CircularProgress({
@@ -18,6 +20,7 @@ export function CircularProgress({
   strokeWidth = 6,
   color = "text-primary",
   className,
+  label,
 }: CircularProgressProps) {
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
@@ -53,9 +56,9 @@ export function CircularProgress({
       </svg>
       <div className={cn(
         "absolute inset-0 flex items-center justify-center font-bold tracking-tighter", 
-        size <= 48 ? (value === 100 ? "text-[10px]" : "text-xs") : "text-sm"
+        label ? (size <= 56 ? "text-[9px] tracking-tight" : "text-[11px]") : size <= 48 ? (value === 100 ? "text-[10px]" : "text-xs") : "text-sm"
       )}>
-        {Math.round(value)}%
+        {label ?? `${Math.round(value)}%`}
       </div>
     </div>
   )

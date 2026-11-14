@@ -3,7 +3,7 @@ import { KpiCard } from '@/components/shared/KpiCard';
 import { CircularProgress } from '@/components/shared/CircularProgress';
 import { GlassCard } from '@/components/shared/GlassCard';
 import { Package, CheckCircle, XCircle } from 'lucide-react';
-import { formatPercentage } from '@/lib/utils';
+import { truncatePercent } from '@/lib/utils';
 
 interface OtifKpiCardsProps {
   summary: OtifSummary;
@@ -19,10 +19,10 @@ export function OtifKpiCards({ summary }: OtifKpiCardsProps) {
         <div>
           <p className="text-sm font-medium text-muted-foreground">OTIF Score</p>
           <div className={`text-3xl font-bold mt-2 ${color}`}>
-            {formatPercentage(score)}
+            {truncatePercent(score)}
           </div>
         </div>
-        <CircularProgress value={score} size={64} strokeWidth={6} className={color} />
+        <CircularProgress value={score} size={64} strokeWidth={6} className={color} label={truncatePercent(score)} />
       </GlassCard>
 
       <KpiCard

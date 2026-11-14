@@ -1,9 +1,9 @@
 /**
- * The OTIF week as a PDF report (7 Nov 2026: the user asked for a clear PDF
- * report in place of the Excel download). A4 landscape in the house
+ * The OTIF dates as a PDF report (7 Nov 2026: the user asked for a clear PDF
+ * report in place of the Excel download; since 14 Nov 2026 any From–To dates
+ * in place of one Saturday-to-Friday week). A4 landscape in the house
  * letterhead style of the Overview report (companies/overview-report-pdf.ts):
- * logo and title, the week (Saturday to Friday) and what places an order in
- * it, the filters and the source file, the four figures, then delay buckets,
+ * logo and title, the dates and what places an order in them, the filters and the source file, the four figures, then delay buckets,
  * departments, Relation Managers and the last 8 weeks, and finally every
  * order with the team's fields. Tables repeat their header across pages;
  * every page carries a footer with its number.
@@ -17,22 +17,25 @@ import type { RowInput } from 'jspdf-autotable'
 import { loadLogo } from '@/features/companies/overview-report-pdf'
 import type { OtifSummary } from '@/lib/demo-data'
 import { OTIF_LIVE_COLUMNS, type ManagerLine, type OtifLiveRow } from '@/lib/otif-live'
+import { truncatePercent } from '@/lib/utils'
 
 export interface OtifReportInput {
-  /** The Saturday that starts the week, and the Friday that ends it (yyyy-mm-dd). */
-  weekStart: string
-  weekEnd: string
-  /** Which date places an order in the week: "PO Closed Date", "PO Due Date" or "SO Date". */
+  /** The first and last day of the dates chosen (yyyy-mm-dd), both included. */
+  from: string
+  to: string
+  /** Which date places an order in the dates: "PO Closed Date", "PO Due Date" or "SO Date". */
   basisLabel: string
   filters: { department: string | null; relationManager: string | null; bucket: string | null }
   file: { name: string; sheet: string; savedAt: string | null; orders: number }
-  /** The week's orders with the filters applied, in the screen's order. */
+  /** The orders of the dates with the filters applied, in the screen's order. */
   rows: readonly OtifLiveRow[]
   summary: OtifSummary
   buckets: readonly { bucket: string; count: number; percentage: number }[]
   managers: readonly ManagerLine[]
   trend: readonly { start: string; total: number; yes: number; pct: number | null }[]
   generatedBy: string
+  /** When a saved report is open: its name, who saved it and when. */
+  savedReport?: { name: string; savedByName: string; savedAt: string } | null
 }
 
 type RGB = [number, number, number]
@@ -63,7 +66,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export const pdfDate = (day: string | null) => (day ? `${day.slice(8, 10)} ${MONTHS[Number(day.slice(5, 7)) - 1]} ${day.slice(0, 4)}` : '-')
 
 /** "74.2%" */
-export const pdfPct = (v: number | null) => (v === null ? '-' : `${v.toFixed(1)}%`)
+/** Two decimals, cut not rounded (14 Nov 2026): 74.1758% is 74.17%. */
+export const pdfPct = (v: number | null) => (v === null ? '-' : truncatePercent(v))
 
 /** The OTIF score's colour, as on screen: above 85% green, above 70% amber, else red. */
 export const pctColour = (v: number | null): RGB => (v === null ? MUTED : v > 85 ? GOOD : v > 70 ? WARN : BAD)
@@ -87,15 +91,19 @@ export function orderCells(r: OtifLiveRow): string[] {
 }
 
 /** "OTIF report 2026-10-31 to 2026-11-06.pdf" */
-export const otifReportFileName = (weekStart: string, weekEnd: string) => `OTIF report ${weekStart} to ${weekEnd}.pdf`
+export const otifReportFileName = (from: string, to: string) => `OTIF report ${from} to ${to}.pdf`
 
 /** The report details, as label / value pairs. */
-export function reportDetails(input: Pick<OtifReportInput, 'weekStart' | 'weekEnd' | 'basisLabel' | 'filters' | 'file'>): [string, string][] {
+export function reportDetails(input: Pick<OtifReportInput, 'from' | 'to' | 'basisLabel' | 'filters' | 'file' | 'savedReport'>): [string, string][] {
   const saved = input.file.savedAt
     ? new Date(input.file.savedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : 'unknown'
+  const report = input.savedReport
   return [
-    ['Week (Saturday to Friday)', `${pdfDate(input.weekStart)} to ${pdfDate(input.weekEnd)}`],
+    ['Dates', `${pdfDate(input.from)} to ${pdfDate(input.to)}`],
+    ...(report
+      ? ([['Saved report', `${report.name}, saved by ${report.savedByName} on ${new Date(report.savedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`]] as [string, string][])
+      : []),
     ['Orders counted by', input.basisLabel],
     ['Department', input.filters.department ?? 'All departments'],
     ['Relation Manager', input.filters.relationManager ?? 'Everyone'],
@@ -106,7 +114,7 @@ export function reportDetails(input: Pick<OtifReportInput, 'weekStart' | 'weekEn
 
 export async function downloadOtifPdf(input: OtifReportInput): Promise<void> {
   const doc = await renderOtifPdf(input, await loadLogo())
-  doc.save(otifReportFileName(input.weekStart, input.weekEnd))
+  doc.save(otifReportFileName(input.from, input.to))
 }
 
 /** The report as a jsPDF document, not yet saved. */
@@ -119,7 +127,7 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
   const M = 14
   const GAP = 9
   const COL = (W - 2 * M - GAP) / 2
-  const week = `${pdfDate(input.weekStart)} to ${pdfDate(input.weekEnd)}`
+  const week = `${pdfDate(input.from)} to ${pdfDate(input.to)}`
   const generatedAt = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   const lastY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
   const s = input.summary
@@ -174,12 +182,12 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(...MUTED)
-  doc.text('On-time in-full delivery for one week, Saturday to Friday, from the OTIF-SCORE file', tx, top + 16.5)
+  doc.text(input.savedReport ? 'On-time in-full delivery for the chosen dates, from a saved OTIF report' : 'On-time in-full delivery for the chosen dates, from the OTIF-SCORE file', tx, top + 16.5)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7.5)
   doc.setTextColor(...BRAND)
-  doc.text('REPORT WEEK', W - M, top + 3.5, { align: 'right', charSpace: 0.4 })
+  doc.text('REPORT DATES', W - M, top + 3.5, { align: 'right', charSpace: 0.4 })
   doc.setFontSize(12)
   doc.setTextColor(...INK)
   doc.text(week, W - M, top + 10, { align: 'right' })
@@ -243,7 +251,7 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.8)
   doc.setTextColor(...MUTED)
-  doc.text('OTIF % = orders the sheet marks OTIF Score YES / all orders in the week. Late = the orders marked NO.', M, y)
+  doc.text('OTIF % = orders the sheet marks OTIF Score YES / all orders in these dates. Late = the orders marked NO.', M, y)
   y += 8
 
   /** Two tables side by side under their labels; returns the y below the taller one. */
@@ -273,7 +281,7 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
         ...tableStyle,
         startY: y0 + 4,
         head: [t.head],
-        body: t.body.length ? t.body : [[{ content: 'Nothing in this week.', colSpan: t.head.length, styles: { textColor: MUTED, fontStyle: 'italic', halign: 'left' } }]],
+        body: t.body.length ? t.body : [[{ content: 'Nothing in these dates.', colSpan: t.head.length, styles: { textColor: MUTED, fontStyle: 'italic', halign: 'left' } }]],
         margin: { left: x, right: i === 0 ? W - M - COL : M, top: 22, bottom: 16 },
         tableWidth: COL,
         columnStyles,
@@ -344,11 +352,11 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
     doc.addPage()
     y = 22
   }
-  sectionLabel(`Orders in the week (${input.rows.length.toLocaleString('en-IN')})`, M, y)
+  sectionLabel(`Orders in these dates (${input.rows.length.toLocaleString('en-IN')})`, M, y)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.8)
   doc.setTextColor(...MUTED)
-  doc.text(`Placed in the week by ${input.basisLabel}. Delay Day: negative is early. PO Closed Date "Open": the order is not closed yet.`, M, y + 5.5)
+  doc.text(`Placed in these dates by ${input.basisLabel}. Delay Day: negative is early. PO Closed Date "Open": the order is not closed yet.`, M, y + 5.5)
   const widths = [16, 15, 21, 21, 23, 14, 16, 0, 19, 15, 27, 25]
   const orderStyles: Record<number, { cellWidth?: number; halign?: 'right' | 'center' }> = {}
   widths.forEach((w, i) => {
@@ -362,7 +370,7 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
     headStyles: { ...tableStyle.headStyles, fontSize: 7.2 },
     startY: y + 9,
     head: [OTIF_LIVE_COLUMNS.map((c) => c.label)],
-    body: input.rows.length ? input.rows.map(orderCells) : [[{ content: 'No orders in this week.', colSpan: 12, styles: { textColor: MUTED, fontStyle: 'italic' } }]],
+    body: input.rows.length ? input.rows.map(orderCells) : [[{ content: 'No orders in these dates.', colSpan: 12, styles: { textColor: MUTED, fontStyle: 'italic' } }]],
     margin: { left: M, right: M, top: 22, bottom: 16 },
     columnStyles: orderStyles,
     showHead: 'everyPage',
@@ -399,7 +407,7 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
       doc.text('OTIF Delivery Report', logo ? M + 8 : M, 10.3)
       doc.setFont('helvetica', 'normal')
       doc.setTextColor(...MUTED)
-      doc.text(`Week ${week}  ·  by ${input.basisLabel}`, W - M, 10.3, { align: 'right' })
+      doc.text(`${week}  ·  by ${input.basisLabel}`, W - M, 10.3, { align: 'right' })
       doc.setDrawColor(...BRAND)
       doc.setLineWidth(0.3)
       doc.line(M, 13.5, W - M, 13.5)
@@ -410,7 +418,7 @@ export async function renderOtifPdf(input: OtifReportInput, logo?: string | null
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7.5)
     doc.setTextColor(...MUTED)
-    doc.text(`OneDesk CRM  ·  OTIF report  ·  Week ${week}  ·  Generated ${generatedAt}  ·  Internal, for management use`, M, H - 6)
+    doc.text(`OneDesk CRM  ·  OTIF report  ·  ${week}  ·  Generated ${generatedAt}  ·  Internal, for management use`, M, H - 6)
     doc.text(`Page ${p} of ${pages}`, W - M, H - 6, { align: 'right' })
   }
 

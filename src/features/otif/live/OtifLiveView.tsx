@@ -1,20 +1,25 @@
 /**
  * OTIF Analytics → Live file (7 Nov 2026): the OTIF-SCORE workbook, read as
- * last saved, analysed one week (Saturday to Friday, the company week) at a time. Pick the week
- * and the date that places an order in it (PO Closed Date by default, or PO
+ * last saved. Since 14 Nov 2026 it is analysed for any From–To dates (the
+ * user asked for them in place of the Saturday-to-Friday week picker; each
+ * person's last dates are remembered, this month so far on a first visit),
+ * and "Save report" keeps the orders of those dates on the server to reopen
+ * later (Saved reports; only the administrator deletes one). Pick the dates
+ * and the date that places an order in them (PO Closed Date by default, or PO
  * Due Date or SO Date); the page shows the OTIF score, the delay buckets, the
  * departments, each Relation Manager, the last 8 weeks and the orders with the
  * team's fields. OTIF % is the same sum as for an uploaded report: orders the
- * sheet marks OTIF Score YES ÷ all orders. Nothing is saved or imported.
+ * sheet marks OTIF Score YES ÷ all orders. Nothing is imported into the records.
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { AlertTriangle, ChevronLeft, ChevronRight, FileDown, FileSpreadsheet, Loader2, Search } from 'lucide-react'
+import { AlertTriangle, FileDown, FileSpreadsheet, FolderOpen, Loader2, Save, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -29,22 +34,27 @@ import {
   NO_LIVE_FILTERS,
   NOT_CLOSED,
   NOT_SET,
+  otifRangeLabel,
   otifWeekLabel,
-  rowsInWeek,
+  rowsInRange,
   WEEK_BASES,
   weeklyTrend,
   weekStartOf,
   type OtifLiveFilters,
   type OtifLiveRow,
+  type OtifSavedReport,
+  type OtifSavedReportSummary,
   type WeekBasis,
 } from '@/lib/otif-live'
+import { isIsoDay } from '../../../../shared/otif-reports'
 import { DELAY_BUCKETS } from '@/lib/otif-schema'
 import { addDays } from '@/lib/score-history'
-import { cn, formatDate, todayISO } from '@/lib/utils'
+import { cn, formatDate, todayISO, truncatePercent } from '@/lib/utils'
 import { CategoryBreakdown } from '../components/CategoryBreakdown'
 import { DelayBucketChart } from '../components/DelayBucketChart'
 import { OtifKpiCards } from '../components/OtifKpiCards'
 import { OtifSourceCard } from './OtifSourceCard'
+import { deleteOtifReport, getOtifReport, listOtifReports, saveOtifReport } from './otif-reports-api'
 import { useOtifLive } from './useOtifLive'
 
 const ALL = '__all'
@@ -69,7 +79,8 @@ function saveBasis(basis: WeekBasis): void {
 }
 
 const day = (iso: string | null) => (iso ? formatDate(iso) : '—')
-const pct = (v: number | null) => (v === null ? '—' : `${v.toFixed(1)}%`)
+// Two decimals, cut not rounded (14 Nov 2026).
+const pct = (v: number | null) => (v === null ? '—' : truncatePercent(v))
 /** The OTIF score card's colours: above 85% green, above 70% amber, else red. */
 const pctTone = (v: number | null) =>
   v === null ? 'text-muted-foreground' : v > 85 ? 'text-emerald-600 dark:text-emerald-400' : v > 70 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'
@@ -187,45 +198,78 @@ function FilterSelect({ label, value, options, onChange, allLabel }: { label: st
   )
 }
 
+const RANGE_KEY = 'crm.otif.range'
+
+/** The From–To dates this person used last; on a first visit, this month so far (the user's choice, 14 Nov 2026). */
+function readRange(today: string): { from: string; to: string } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RANGE_KEY) ?? 'null') as { from?: unknown; to?: unknown } | null
+    if (saved && isIsoDay(saved.from) && isIsoDay(saved.to) && saved.from <= saved.to) return { from: saved.from, to: saved.to }
+  } catch {
+    /* nothing remembered, or a private window */
+  }
+  return { from: `${today.slice(0, 8)}01`, to: today }
+}
+
+function saveRange(range: { from: string; to: string }): void {
+  try {
+    localStorage.setItem(RANGE_KEY, JSON.stringify(range))
+  } catch {
+    /* a private window: the dates just are not remembered */
+  }
+}
+
+/** How many Saturday-to-Friday weeks the dates touch (for a saved report's trend), at most 8. */
+const weeksTouched = (from: string, to: string) =>
+  Math.min(8, Math.round((Date.parse(`${weekStartOf(to)}T00:00:00Z`) - Date.parse(`${weekStartOf(from)}T00:00:00Z`)) / (7 * 86_400_000)) + 1)
+
+const savedWhen = (iso: string) =>
+  new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
 export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
   const live = useOtifLive()
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const { status, data: ready, reading, error } = live
   const today = todayISO()
   const [basis, setBasis] = useState<WeekBasis>(readBasis)
-  const [week, setWeek] = useState(() => weekStartOf(today))
+  // Any From–To dates (14 Nov 2026: in place of the Saturday-to-Friday week picker), remembered per person.
+  const [range, setRangeState] = useState(() => readRange(today))
+  const setRange = (next: { from: string; to: string }) => {
+    setRangeState(next)
+    saveRange(next)
+  }
   const [filters, setFilters] = useState<OtifLiveFilters>(NO_LIVE_FILTERS)
   const [search, setSearch] = useState('')
+  // A saved report, when one is open: its orders, dates and basis stand in for the live file's.
+  const [opened, setOpened] = useState<OtifSavedReport | null>(null)
+  const [listOpen, setListOpen] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
 
-  const rows = ready?.rows ?? EMPTY
-  const basisLabel = WEEK_BASES.find((b) => b.id === basis)!.label
+  const rows = opened ? opened.rows : ready?.rows ?? EMPTY
+  const from = opened ? opened.from : range.from
+  const to = opened ? opened.to : range.to
+  const useBasis = opened ? opened.basis : basis
+  const basisLabel = WEEK_BASES.find((b) => b.id === useBasis)!.label
+  const datesLabel = otifRangeLabel(from, to)
+  const validRange = isIsoDay(from) && isIsoDay(to) && from <= to
 
-  const weekAll = useMemo(
+  const rangeAll = useMemo(
     () =>
-      rowsInWeek(rows, basis, week).sort(
-        (a, b) => (basisDate(b, basis) ?? '').localeCompare(basisDate(a, basis) ?? '') || a.poNo.localeCompare(b.poNo, undefined, { numeric: true })
+      (validRange ? rowsInRange(rows, useBasis, from, to) : []).sort(
+        (a, b) => (basisDate(b, useBasis) ?? '').localeCompare(basisDate(a, useBasis) ?? '') || a.poNo.localeCompare(b.poNo, undefined, { numeric: true })
       ),
-    [rows, basis, week]
+    [rows, useBasis, from, to, validRange]
   )
-  const shown = useMemo(() => filterRows(weekAll, filters), [weekAll, filters])
+  const shown = useMemo(() => filterRows(rangeAll, filters), [rangeAll, filters])
   const summary = useMemo(() => liveSummary(shown), [shown])
   const managers = useMemo(() => byRelationManager(shown), [shown])
-  // The trend follows the department and person chosen (not the delay filter, which would make every week 100% or 0%).
-  const trend = useMemo(() => weeklyTrend(filterRows(rows, { ...filters, bucket: null }), basis, week, 8), [rows, filters, basis, week])
-  const latest = useMemo(() => latestWeekWithRows(rows, basis, today), [rows, basis, today])
-
-  // The week opens on this week; when it has no orders yet (on a Saturday, the first day of the company week,
-  // it usually has none), on the latest week that has, until the viewer picks a week themselves.
-  const [weekPicked, setWeekPicked] = useState(false)
-  const pickWeek = (start: string) => {
-    setWeekPicked(true)
-    setWeek(start)
-  }
-  useEffect(() => {
-    if (weekPicked || !ready || !latest) return
-    const current = weekStartOf(today)
-    setWeek(rowsInWeek(rows, basis, current).length > 0 ? current : latest)
-  }, [weekPicked, ready, latest, rows, basis, today])
+  // The weeks up to the To date. The trend follows the department and person chosen (not the delay filter, which
+  // would make every week 100% or 0%). A saved report only holds its own dates, so it shows only the weeks they touch.
+  const trend = useMemo(
+    () => (validRange ? weeklyTrend(filterRows(rows, { ...filters, bucket: null }), useBasis, weekStartOf(to), opened ? weeksTouched(from, to) : 8) : []),
+    [rows, filters, useBasis, from, to, validRange, opened]
+  )
+  const latest = useMemo(() => (opened ? null : latestWeekWithRows(rows, useBasis, today)), [rows, useBasis, today, opened])
 
   const departments = useMemo(() => [...new Set(rows.map((r) => r.department ?? NO_DEPARTMENT))].sort(), [rows])
   const people = useMemo(() => {
@@ -250,26 +294,32 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
   )
 
   const filtersOn = Boolean(filters.department || filters.relationManager || filters.bucket)
+  const fileInfo = opened
+    ? { name: opened.file.name, sheet: opened.file.sheet, savedAt: opened.file.savedAt, orders: opened.rows.length }
+    : ready
+      ? { name: ready.fileName, sheet: ready.sheetName, savedAt: ready.modifiedAt, orders: ready.rows.length }
+      : null
 
-  // The week as a PDF report, with the filters on screen (the user's choice, 7 Nov 2026: a clear PDF, no Excel).
+  // The dates as a PDF report, with the filters on screen (the user's choice, 7 Nov 2026: a clear PDF, no Excel).
   const [makingPdf, setMakingPdf] = useState(false)
   const downloadPdf = async () => {
-    if (!ready) return
+    if (!fileInfo) return
     setMakingPdf(true)
     try {
       const { downloadOtifPdf } = await import('./otif-report-pdf')
       await downloadOtifPdf({
-        weekStart: week,
-        weekEnd: addDays(week, 6),
+        from,
+        to,
         basisLabel,
         filters,
-        file: { name: ready.fileName, sheet: ready.sheetName, savedAt: ready.modifiedAt, orders: ready.rows.length },
+        file: fileInfo,
         rows: shown,
         summary,
         buckets: bucketData,
         managers,
         trend,
         generatedBy: user?.full_name ?? 'OneDesk CRM',
+        savedReport: opened ? { name: opened.name, savedByName: opened.savedByName, savedAt: opened.savedAt } : null,
       })
     } catch (err) {
       toast.error('Could not make the PDF report.', { description: err instanceof Error ? err.message : 'Try again.' })
@@ -278,16 +328,45 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
     }
   }
 
+  const openReport = async (id: string) => {
+    try {
+      const report = await getOtifReport(id)
+      setOpened(report)
+      setFilters(report.filters ?? NO_LIVE_FILTERS)
+      setSearch('')
+      setListOpen(false)
+    } catch (err) {
+      toast.error('Could not open that report.', { description: err instanceof Error ? err.message : 'Try again.' })
+    }
+  }
+  const backToLive = () => {
+    setOpened(null)
+    setFilters(NO_LIVE_FILTERS)
+    setSearch('')
+  }
+
   const header = (
     <PageHeader
       title="OTIF Delivery Analytics"
       subtitle={
-        ready
-          ? `Live from the OTIF-SCORE file · ${ready.rows.length.toLocaleString('en-IN')} orders · one week at a time`
-          : 'Live from the OTIF-SCORE file, one week at a time'
+        opened
+          ? `Saved report · ${opened.name}`
+          : ready
+            ? `Live from the OTIF-SCORE file · ${ready.rows.length.toLocaleString('en-IN')} orders · any dates you choose`
+            : 'Live from the OTIF-SCORE file, for any dates you choose'
       }
     >
-      {ready && (
+      <Button variant="outline" size="sm" onClick={() => setListOpen(true)} data-testid="otif-saved-list">
+        <FolderOpen className="mr-2 h-4 w-4 text-sky-600" />
+        Saved reports
+      </Button>
+      {ready && !opened && (
+        <Button variant="outline" size="sm" onClick={() => setSaveOpen(true)} disabled={rangeAll.length === 0} data-testid="otif-save" title="Keep these dates' orders as a report that reopens the same later">
+          <Save className="mr-2 h-4 w-4 text-emerald-600" />
+          Save report
+        </Button>
+      )}
+      {fileInfo && (
         <Button variant="outline" size="sm" onClick={() => void downloadPdf()} disabled={shown.length === 0 || makingPdf} data-testid="otif-pdf">
           {makingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4 text-violet-500" />}
           {makingPdf ? 'Preparing…' : 'PDF report'}
@@ -298,7 +377,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
 
   // The file, as Active and Overdue Payments show theirs: its state, Last sync, Auto-sync on save, Sync now.
   const sourceCard =
-    status && status.configured ? (
+    !opened && status && status.configured ? (
       <OtifSourceCard
         status={status}
         data={ready}
@@ -310,8 +389,24 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
       />
     ) : null
 
+  const openedBanner = opened ? (
+    <GlassCard className="flex flex-wrap items-center gap-3 border-sky-500/40 bg-sky-500/5 p-4 text-sm" data-testid="otif-opened">
+      <FolderOpen className="h-4 w-4 text-sky-600" />
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">Saved report: {opened.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {otifRangeLabel(opened.from, opened.to)} by {basisLabel} · {opened.rows.length.toLocaleString('en-IN')} orders · saved by {opened.savedByName} on {savedWhen(opened.savedAt)} ·
+          from {opened.file.name}. The orders are as they were when it was saved.
+        </p>
+      </div>
+      <Button size="sm" variant="outline" onClick={backToLive}>
+        Back to the live file
+      </Button>
+    </GlassCard>
+  ) : null
+
   let body: ReactNode
-  if (status && !status.configured) {
+  if (!opened && status && !status.configured) {
     body = (
       <GlassCard className="space-y-2 p-6 text-sm" data-testid="otif-live-not-connected">
         <p className="flex items-center gap-2 font-medium">
@@ -322,7 +417,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
         </p>
       </GlassCard>
     )
-  } else if (!ready && (error || (status && !status.exists))) {
+  } else if (!opened && !ready && (error || (status && !status.exists))) {
     body = (
       <GlassCard className="space-y-3 p-6 text-sm" data-testid="otif-live-error">
         <p className="flex items-center gap-2 font-medium text-rose-600">
@@ -334,7 +429,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
         </Button>
       </GlassCard>
     )
-  } else if (!ready) {
+  } else if (!opened && !ready) {
     body = (
       <GlassCard className="flex flex-col items-center justify-center gap-3 p-12 text-center" data-testid="otif-live-loading">
         <Loader2 className="h-7 w-7 animate-spin text-primary" />
@@ -345,40 +440,49 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
   } else {
     body = (
       <div className="space-y-6">
+        {openedBanner}
 
         <GlassCard className="flex flex-wrap items-end gap-4 p-4" data-testid="otif-live-controls">
           <div className="space-y-1.5">
-            <Label htmlFor="otif-week">Week (Saturday to Friday)</Label>
+            <Label htmlFor="otif-from">Dates</Label>
             <div className="flex items-center gap-2">
-              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => pickWeek(addDays(week, -7))} aria-label="Previous week">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
               <Input
-                id="otif-week"
+                id="otif-from"
                 type="date"
+                aria-label="From"
                 className="h-9 w-[150px]"
-                value={week}
-                onChange={(e) => e.target.value && pickWeek(weekStartOf(e.target.value))}
-                title="Pick any day: its Saturday-to-Friday week is shown"
+                value={from}
+                max={to || undefined}
+                disabled={Boolean(opened)}
+                onChange={(e) => e.target.value && setRange({ from: e.target.value, to: range.to })}
               />
-              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => pickWeek(addDays(week, 7))} aria-label="Next week">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input
+                id="otif-to"
+                type="date"
+                aria-label="To"
+                className="h-9 w-[150px]"
+                value={to}
+                min={from || undefined}
+                disabled={Boolean(opened)}
+                onChange={(e) => e.target.value && setRange({ from: range.from, to: e.target.value })}
+              />
             </div>
             <p className="text-xs font-medium text-muted-foreground" data-testid="otif-week-label">
-              {otifWeekLabel(week)}
+              {validRange ? datesLabel : 'The From date is after the To date'}
             </p>
           </div>
           <div className="min-w-[170px] space-y-1.5">
-            <Label>Week by</Label>
+            <Label>Orders by</Label>
             <Select
-              value={basis}
+              value={useBasis}
+              disabled={Boolean(opened)}
               onValueChange={(v) => {
                 setBasis(v as WeekBasis)
                 saveBasis(v as WeekBasis)
               }}
             >
-              <SelectTrigger aria-label="Week by">
+              <SelectTrigger aria-label="Orders by">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -389,7 +493,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">the date that puts an order in the week</p>
+            <p className="text-xs text-muted-foreground">the date that places an order in the dates</p>
           </div>
           <FilterSelect label="Department" value={filters.department} options={departments} allLabel="All departments" onChange={(v) => setFilters((f) => ({ ...f, department: v }))} />
           <FilterSelect label="Relation Manager" value={filters.relationManager} options={people} allLabel="Everyone" onChange={(v) => setFilters((f) => ({ ...f, relationManager: v }))} />
@@ -401,19 +505,21 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
           )}
         </GlassCard>
 
-        {weekAll.length === 0 || shown.length === 0 ? (
+        {rangeAll.length === 0 || shown.length === 0 ? (
           <GlassCard className="space-y-3 p-8 text-center text-sm" data-testid="otif-live-empty">
             <p className="font-medium">
-              {weekAll.length === 0
-                ? `No orders with a ${basisLabel} in ${otifWeekLabel(week)}.`
-                : 'No orders this week match these filters.'}
+              {!validRange
+                ? 'Choose a From date on or before the To date.'
+                : rangeAll.length === 0
+                  ? `No orders with a ${basisLabel} in ${datesLabel}.`
+                  : 'No orders in these dates match these filters.'}
             </p>
-            {weekAll.length === 0 && latest && latest !== week && (
-              <Button size="sm" variant="outline" onClick={() => pickWeek(latest)}>
+            {validRange && rangeAll.length === 0 && latest && (
+              <Button size="sm" variant="outline" onClick={() => setRange({ from: latest, to: addDays(latest, 6) })}>
                 Go to the latest week with orders ({otifWeekLabel(latest)})
               </Button>
             )}
-            {weekAll.length > 0 && (
+            {rangeAll.length > 0 && (
               <Button size="sm" variant="outline" onClick={() => setFilters(NO_LIVE_FILTERS)}>
                 Clear filters
               </Button>
@@ -439,7 +545,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
             <GlassCard className="space-y-3 p-5" data-testid="otif-live-managers">
               <div>
                 <h3 className="text-lg font-medium">By Relation Manager</h3>
-                <p className="text-xs text-muted-foreground">{otifWeekLabel(week)} · click a name to see only their orders</p>
+                <p className="text-xs text-muted-foreground">{datesLabel} · click a name to see only their orders</p>
               </div>
               <div className="overflow-x-auto rounded-md border border-border/50">
                 <table className="w-full text-sm">
@@ -468,31 +574,41 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
             </GlassCard>
           )}
 
-          <GlassCard className={cn('space-y-3 p-5', shown.length === 0 && 'xl:col-span-2')} data-testid="otif-live-trend">
-            <div>
-              <h3 className="text-lg font-medium">Last 8 weeks</h3>
-              <p className="text-xs text-muted-foreground">By {basisLabel}{filters.department || filters.relationManager ? ', for the department and person chosen' : ''} · click a week to open it</p>
-            </div>
-            <div className="space-y-1">
-              {trend.map((t) => (
-                <button
-                  key={t.start}
-                  type="button"
-                  onClick={() => pickWeek(t.start)}
-                  className={cn('w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/40', t.start === week && 'bg-primary/10')}
-                >
-                  <span className="grid grid-cols-[minmax(0,1fr)_auto_4.5rem] items-center gap-3">
-                    <span className="truncate">{otifWeekLabel(t.start)}</span>
-                    <span className="text-xs text-muted-foreground tabular-nums">{t.total} orders</span>
-                    <span className={cn('text-right font-semibold tabular-nums', pctTone(t.pct))}>{pct(t.pct)}</span>
-                  </span>
-                  <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-muted">
-                    <span className={cn('block h-full rounded-full', t.pct === null ? '' : t.pct > 85 ? 'bg-emerald-500' : t.pct > 70 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${t.pct ?? 0}%` }} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          </GlassCard>
+          {trend.length > 0 && (
+            <GlassCard className={cn('space-y-3 p-5', shown.length === 0 && 'xl:col-span-2')} data-testid="otif-live-trend">
+              <div>
+                <h3 className="text-lg font-medium">{opened ? 'Week by week' : `Last ${trend.length} weeks`}</h3>
+                <p className="text-xs text-muted-foreground">
+                  Saturday to Friday, by {basisLabel}
+                  {filters.department || filters.relationManager ? ', for the department and person chosen' : ''}
+                  {opened ? ' · the saved dates only' : ' · click a week to choose its dates'}
+                </p>
+              </div>
+              <div className="space-y-1">
+                {trend.map((t) => (
+                  <button
+                    key={t.start}
+                    type="button"
+                    disabled={Boolean(opened)}
+                    onClick={() => setRange({ from: t.start, to: addDays(t.start, 6) })}
+                    className={cn(
+                      'w-full rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-muted/40 disabled:cursor-default',
+                      t.start === from && addDays(t.start, 6) === to && 'bg-primary/10'
+                    )}
+                  >
+                    <span className="grid grid-cols-[minmax(0,1fr)_auto_4.5rem] items-center gap-3">
+                      <span className="truncate">{otifWeekLabel(t.start)}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{t.total} orders</span>
+                      <span className={cn('text-right font-semibold tabular-nums', pctTone(t.pct))}>{pct(t.pct)}</span>
+                    </span>
+                    <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-muted">
+                      <span className={cn('block h-full rounded-full', t.pct === null ? '' : t.pct > 85 ? 'bg-emerald-500' : t.pct > 70 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${t.pct ?? 0}%` }} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </GlassCard>
+          )}
         </div>
 
         {shown.length > 0 && (
@@ -501,7 +617,7 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
               <div>
                 <h3 className="text-lg font-medium">Orders</h3>
                 <p className="text-xs text-muted-foreground">
-                  {otifWeekLabel(week)} by {basisLabel} · {tableRows.length.toLocaleString('en-IN')} of {weekAll.length.toLocaleString('en-IN')} orders
+                  {datesLabel} by {basisLabel} · {tableRows.length.toLocaleString('en-IN')} of {rangeAll.length.toLocaleString('en-IN')} orders
                 </p>
               </div>
               <div className="relative w-full sm:w-72">
@@ -522,6 +638,164 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
       {sourceSwitch}
       {sourceCard}
       {body}
+      <SavedReportsDialog open={listOpen} onOpenChange={setListOpen} isAdmin={isAdmin} openedId={opened?.id ?? null} onOpenReport={(id) => void openReport(id)} onDeleted={(id) => opened?.id === id && backToLive()} />
+      {ready && (
+        <SaveReportDialog
+          open={saveOpen}
+          onOpenChange={setSaveOpen}
+          defaultName={`OTIF ${datesLabel} by ${basisLabel}`}
+          summary={`${datesLabel} by ${basisLabel} · ${rangeAll.length.toLocaleString('en-IN')} orders${filtersOn ? ' · the filters on screen are kept with it' : ''}`}
+          onSave={async (name) => {
+            await saveOtifReport({
+              name,
+              from,
+              to,
+              basis: useBasis,
+              filters,
+              file: { name: ready.fileName, sheet: ready.sheetName, savedAt: ready.modifiedAt },
+              rows: rangeAll,
+            })
+            toast.success('OTIF report saved.', { description: `${name}. Open it any time from Saved reports.` })
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+/** Names the report and keeps it. */
+function SaveReportDialog({
+  open,
+  onOpenChange,
+  defaultName,
+  summary,
+  onSave,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  defaultName: string
+  summary: string
+  onSave: (name: string) => Promise<void>
+}) {
+  const [name, setName] = useState(defaultName)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (open) setName(defaultName)
+  }, [open, defaultName])
+  const save = async () => {
+    setSaving(true)
+    try {
+      await onSave(name.trim() || defaultName)
+      onOpenChange(false)
+    } catch (err) {
+      toast.error('Not saved.', { description: err instanceof Error ? err.message : 'Try again.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Save OTIF report</DialogTitle>
+          <DialogDescription>{summary}. It reopens with these orders as they are now, even after the file changes.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="otif-report-name">Name</Label>
+          <Input id="otif-report-name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !saving && void save()} />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={() => void save()} disabled={saving} data-testid="otif-save-confirm">
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save report
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Every saved report: open one; the administrator can delete one. */
+function SavedReportsDialog({
+  open,
+  onOpenChange,
+  isAdmin,
+  openedId,
+  onOpenReport,
+  onDeleted,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  isAdmin: boolean
+  openedId: string | null
+  onOpenReport: (id: string) => void
+  onDeleted: (id: string) => void
+}) {
+  const [reports, setReports] = useState<OtifSavedReportSummary[] | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const load = async () => {
+    setProblem(null)
+    try {
+      setReports(await listOtifReports())
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : 'Could not load the saved reports.')
+    }
+  }
+  useEffect(() => {
+    if (open) void load()
+  }, [open])
+  const remove = async (r: OtifSavedReportSummary) => {
+    if (!window.confirm(`Delete the saved report "${r.name}"? This cannot be undone.`)) return
+    try {
+      await deleteOtifReport(r.id)
+      toast.success('Saved report deleted.', { description: r.name })
+      onDeleted(r.id)
+      await load()
+    } catch (err) {
+      toast.error('Not deleted.', { description: err instanceof Error ? err.message : 'Try again.' })
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Saved OTIF reports</DialogTitle>
+          <DialogDescription>Each one holds the orders of its dates as they were when it was saved.</DialogDescription>
+        </DialogHeader>
+        {problem ? (
+          <p className="text-sm text-rose-600">{problem}</p>
+        ) : !reports ? (
+          <div className="flex justify-center py-6 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        ) : reports.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">No saved reports yet. Choose the dates and press Save report.</p>
+        ) : (
+          <div className="max-h-[60vh] divide-y divide-border/50 overflow-y-auto rounded-md border border-border/50" data-testid="otif-saved-rows">
+            {reports.map((r) => (
+              <div key={r.id} className={cn('flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm', r.id === openedId && 'bg-primary/5')}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{r.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {otifRangeLabel(r.from, r.to)} by {WEEK_BASES.find((b) => b.id === r.basis)?.label ?? r.basis} · {r.orders.toLocaleString('en-IN')} orders · saved by {r.savedByName} on {savedWhen(r.savedAt)}
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => onOpenReport(r.id)}>
+                  Open
+                </Button>
+                {isAdmin && (
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600" onClick={() => void remove(r)} aria-label={`Delete ${r.name}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }

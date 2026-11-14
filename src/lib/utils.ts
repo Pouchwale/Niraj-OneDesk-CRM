@@ -179,6 +179,19 @@ export function formatPercentage(value: number, decimals = 1): string {
 }
 
 /**
+ * A percentage to 2 decimals with the rest cut off, never rounded up: 78.409%
+ * shows 78.40%, 76.479% shows 76.47% (OTIF, the user's choice on 14 Nov 2026:
+ * "the number should be exact as per the data no round up"). The tiny nudge
+ * keeps a whole share such as 29% (28.999999… in floating point) at 29.00%.
+ */
+export function truncatePercent(value: number, decimals = 2): string {
+  if (!Number.isFinite(value)) return '—'
+  const f = 10 ** decimals
+  const cut = Math.trunc(value * f + (value >= 0 ? 1e-6 : -1e-6)) / f
+  return `${(Object.is(cut, -0) ? 0 : cut).toFixed(decimals)}%`
+}
+
+/**
  * Delay utility for animations.
  */
 export function delay(ms: number): Promise<void> {

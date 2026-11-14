@@ -225,11 +225,11 @@ export function WeeklyKpiPage() {
     const p = disputePercentOf(day)
     return transformOverdueDay(day.rows as unknown as OverduePayment[], p ?? 0, getCoordinatorDisplayName, 'dispute')
   }
-  const bookName = book === 'dispute' ? 'Dispute accounts' : 'Regular accounts'
+  const bookName = book === 'dispute' ? 'Dispute Overdue' : 'Regular Overdue'
   /** A day's rows of the selected book only: each tab downloads its own customers. */
   const bookRows = (day: OverdueSnapshot): Record<string, unknown>[] =>
     day.rows.filter((r) => countsTowardsScore(r as unknown as OverduePayment, book))
-  const dataSheetName = book === 'dispute' ? 'Dispute accounts data' : 'Regular accounts data'
+  const dataSheetName = book === 'dispute' ? 'Dispute Overdue data' : 'Regular Overdue data'
   const shownResults = useMemo(() => results.filter((r) => (r.book ?? 'regular') === book), [results, book])
 
   const byId = useMemo(() => new Map(days.map((d) => [d.id, d])), [days])
@@ -344,8 +344,8 @@ export function WeeklyKpiPage() {
   }
 
   const downloadResult = (result: ScoreResult) => {
-    downloadWorkbook(`KPI score${(result.book ?? 'regular') === 'dispute' ? ' dispute' : ''} ${fileStamp(result.oldSavedAt)} to ${fileStamp(result.newSavedAt)}.xlsx`, [
-      { name: 'KPI score', rows: resultSheet(result.rows) },
+    downloadWorkbook(`${(result.book ?? 'regular') === 'dispute' ? 'Dispute' : 'Regular'} Overdue score ${fileStamp(result.oldSavedAt)} to ${fileStamp(result.newSavedAt)}.xlsx`, [
+      { name: 'Score', rows: resultSheet(result.rows) },
       { name: 'Old day', rows: daySheet(result.oldTable) },
       { name: 'New day', rows: daySheet(result.newTable, false) },
     ])
@@ -362,7 +362,7 @@ export function WeeklyKpiPage() {
   return (
     <div className="space-y-6 pb-12">
       <PageHeader
-        title="Weekly KPI"
+        title="Overdue Scoring"
         subtitle="Save the Overdue data on a day, then compare two saved days to score each coordinator. Every Saturday (the first day of the company week, Saturday to Friday) and every Monday are saved automatically from 10:00, once that morning's Overdue sync is in (by 13:00 at the latest)."
         icon={<CalendarRange className="h-6 w-6" />}
       >
@@ -372,8 +372,8 @@ export function WeeklyKpiPage() {
       {/* Which accounts are scored: everything below follows this. */}
       <div role="tablist" aria-label="Accounts scored" className="inline-flex rounded-xl border border-border bg-muted/40 p-1" data-testid="kpi-book">
         {([
-          { id: 'regular', label: 'Regular accounts', Icon: Users },
-          { id: 'dispute', label: 'Dispute accounts', Icon: Scale },
+          { id: 'regular', label: 'Regular Overdue', Icon: Users },
+          { id: 'dispute', label: 'Dispute Overdue', Icon: Scale },
         ] as const).map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -413,7 +413,7 @@ export function WeeklyKpiPage() {
           this % of 121+. It applies to days saved from now on; days already saved keep the percentage
           they were saved with.
           {book === 'dispute' &&
-            ' Dispute accounts are the customers in dispute, scored exactly like regular accounts with this percentage. Days saved before dispute scores existed use the percentage set now (marked "now").'}
+            ' Dispute Overdue is the customers in dispute, scored exactly like Regular Overdue with this percentage. Days saved before dispute scores existed use the percentage set now (marked "now").'}
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
@@ -570,7 +570,7 @@ export function WeeklyKpiPage() {
             )}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-semibold">
-                {(score.book ?? 'regular') === 'dispute' ? 'Dispute KPI score' : 'KPI score'} · {when(score.oldSavedAt)} → {when(score.newSavedAt)}
+                {(score.book ?? 'regular') === 'dispute' ? 'Dispute Overdue score' : 'Regular Overdue score'} · {when(score.oldSavedAt)} → {when(score.newSavedAt)}
               </h4>
               <Button size="sm" variant="outline" onClick={() => downloadResult(score)}>
                 <Download className="mr-1.5 h-3.5 w-3.5" /> Download

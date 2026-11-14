@@ -30,7 +30,7 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
     { to: '/festivals', icon: PartyPopper, label: 'Festivals', show: isAdmin },
     { to: '/admin/overview', icon: Users, label: 'Overview', show: canManageTeam },
     { to: '/otif', icon: BarChart3, label: 'OTIF Analytics', show: canManageTeam },
-    { to: '/weekly-kpi', icon: CalendarRange, label: 'Weekly KPI', show: canManageTeam },
+    { to: '/weekly-kpi', icon: CalendarRange, label: 'Overdue Scoring', show: canManageTeam },
     { to: '/score-history', icon: History, label: 'Final score', show: !rfdOnly },
     { to: '/settings', icon: Settings, label: 'Settings', show: canManageTeam },
     { to: '/admin/users', icon: ShieldCheck, label: 'Admin Panel', show: isAdmin },

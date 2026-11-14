@@ -28,6 +28,8 @@ import { ageingTrendRoutes } from './modules/ageing-trend/routes'
 import { createScoreHistoryStore, startScoreLocks } from './modules/score-history/store'
 import { scoreInputs } from './modules/score-history/inputs'
 import { scoreHistoryRoutes } from './modules/score-history/routes'
+import { createOtifReportsStore } from './modules/otif-reports/store'
+import { otifReportRoutes } from './modules/otif-reports/routes'
 import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
@@ -165,6 +167,9 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
 
   // Proof screenshots read their own image bodies, so they sit before the JSON limit.
   router.use('/proofs', requireSession(accounts, sessions), proofRoutes(join(config.dataDir, 'proofs')))
+
+  // Saved OTIF reports (14 Nov 2026): every order of their dates, so their own body limit, before the 1mb one.
+  router.use('/otif-reports', requireSession(accounts, sessions), otifReportRoutes(createOtifReportsStore(config.snapshotDir), logger))
 
   router.use(express.json({ limit: '1mb' }))
 

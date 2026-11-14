@@ -1,4 +1,5 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { truncatePercent } from '@/lib/utils';
 import { GlassCard } from '@/components/shared/GlassCard';
 
 interface DelayBucketChartProps {
@@ -44,7 +45,7 @@ export function DelayBucketChart({ data }: DelayBucketChartProps) {
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BUCKET_COLORS[data.bucket] }} />
                         <span>{data.count} POs</span>
-                        <span className="font-medium text-foreground">({Math.round(data.percentage)}%)</span>
+                        <span className="font-medium text-foreground">({truncatePercent(data.percentage)})</span>
                       </div>
                     </div>
                   );

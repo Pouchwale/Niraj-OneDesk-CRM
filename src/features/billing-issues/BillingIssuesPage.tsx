@@ -9,7 +9,7 @@
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, CalendarRange, Download, Gauge, List, Plus, Search, Users } from 'lucide-react'
+import { AlertTriangle, CalendarRange, ChevronLeft, ChevronRight, Download, Gauge, List, Plus, Search, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
@@ -23,9 +23,18 @@ import { DATE_PRESETS, presetRange, type DatePreset } from '@/features/quotation
 import { BILLING_SCORE_TIERS, billingScores, inBillingPeriod } from '@/lib/billing-issues'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { minusScore, minusText } from '@/lib/minus-score'
+import { addDays, periodLabel as weekLabel, weekOf } from '@/lib/score-history'
 import type { BillingIssue } from '@/lib/types'
 import { cn, formatDate, todayISO } from '@/lib/utils'
 import { BillingIssueDialog, responsibleName } from './BillingIssueDialog'
+
+/** The period choices: the shared ones, with a Saturday-to-Friday week (the company week) after All time. */
+type BillingPreset = DatePreset | 'week'
+const BILLING_PRESETS: { id: BillingPreset; label: string }[] = [
+  DATE_PRESETS[0],
+  { id: 'week', label: 'Week (Sat–Fri)' },
+  ...DATE_PRESETS.slice(1),
+]
 
 /** A billing score (kept from 100 down to -100) as its gap from 100: 100 → "0", 50 → "-50", -25 → "-125". */
 const minusBilling = (score: number) => minusText(minusScore(score))
@@ -38,7 +47,8 @@ export function BillingIssuesPage() {
   const { user, canManageTeam } = useAuth()
   const all = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.billingIssues)
   const today = todayISO()
-  const [preset, setPreset] = useState<DatePreset>('this_month')
+  const [preset, setPreset] = useState<BillingPreset>('this_month')
+  const [week, setWeek] = useState(() => weekOf(today))
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [search, setSearch] = useState('')
@@ -47,7 +57,13 @@ export function BillingIssuesPage() {
   const [editing, setEditing] = useState<BillingIssue | 'new' | null>(null)
 
   const coordinators = useMemo(() => getAssignableOwners().filter((p) => p.role === 'coordinator'), [])
-  const range = preset === 'custom' ? { from: customFrom || null, to: customTo || null } : presetRange(preset, today)
+  const thisWeek = weekOf(today)
+  const range =
+    preset === 'custom'
+      ? { from: customFrom || null, to: customTo || null }
+      : preset === 'week'
+        ? { from: week, to: addDays(week, 6) }
+        : presetRange(preset, today)
   const periodLabel =
     range.from || range.to ? `${range.from ? formatDate(range.from) : 'Start'} – ${range.to ? formatDate(range.to) : 'today'}` : 'All dates'
 
@@ -107,12 +123,12 @@ export function BillingIssuesPage() {
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <CalendarRange className="h-3.5 w-3.5" /> Period (by issue log date)
           </p>
-          <Select value={preset} onValueChange={(v) => setPreset(v as DatePreset)}>
+          <Select value={preset} onValueChange={(v) => setPreset(v as BillingPreset)}>
             <SelectTrigger className="h-9 w-[170px]" aria-label="Period">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {DATE_PRESETS.map((p) => (
+              {BILLING_PRESETS.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.label}
                 </SelectItem>
@@ -120,6 +136,27 @@ export function BillingIssuesPage() {
             </SelectContent>
           </Select>
         </div>
+        {preset === 'week' && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Week (Saturday to Friday)</p>
+            <div className="flex items-center gap-1">
+              <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => setWeek(addDays(week, -7))} aria-label="Earlier week">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="min-w-[150px] text-center text-sm font-medium" data-testid="billing-week">
+                {weekLabel('week', week)}
+              </span>
+              <Button size="icon" variant="outline" className="h-9 w-9" disabled={week >= thisWeek} onClick={() => setWeek(addDays(week, 7))} aria-label="Later week">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              {week !== thisWeek && (
+                <Button size="sm" variant="ghost" className="h-9" onClick={() => setWeek(thisWeek)}>
+                  This week
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
         {preset === 'custom' && (
           <>
             <div className="space-y-1">

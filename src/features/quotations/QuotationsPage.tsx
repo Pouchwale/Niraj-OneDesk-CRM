@@ -25,7 +25,7 @@ import type { Quotation, QuotationStatus } from '@/lib/types'
 import { matchesQuotationFilter, performanceOf, quotationDay, quotationScore } from '@/lib/quotation-stats'
 import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { QuotationDialog } from './QuotationDialog'
-import { DATE_PRESETS, DEFAULT_FILTERS, QuotationFilters, toQuotationFilter, type FilterState } from './QuotationFilters'
+import { DEFAULT_FILTERS, QuotationFilters, toQuotationFilter, type FilterState } from './QuotationFilters'
 import { QuotationPerformance } from './QuotationPerformance'
 import { QuotationConversions } from './QuotationConversions'
 
@@ -130,7 +130,7 @@ export function QuotationsPage() {
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiCard title="Quotations" value={inScope.length} icon={FileText} color="blue" hint={DATE_PRESETS.find((p) => p.id === filters.datePreset)!.label} />
+        <KpiCard title="Quotations" value={inScope.length} icon={FileText} color="blue" hint={filters.datePreset === 'all' ? 'All time' : period} />
         <KpiCard title="Open" value={count('open')} icon={Clock} color="amber" hint="Waiting on the customer" />
         <KpiCard title="Closed (won)" value={count('closed')} icon={Trophy} color="emerald" hint={winRate === null ? 'None decided yet' : `${winRate}% of decided quotations`} />
         <KpiCard title="Lost" value={count('lost')} icon={XCircle} color="rose" hint={decided ? `${100 - (winRate ?? 0)}% of decided quotations` : undefined} />

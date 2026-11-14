@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   attendanceLookup,
+  checkFinalWeights,
   computePeriod,
   earliestDay,
   finalScoreOf,
@@ -192,6 +193,36 @@ describe('the final score', () => {
   it('has no final score when no module has one', () => {
     expect(finalScoreOf([{ module: 'service', score: null }]).score).toBeNull()
     expect(finalScoreOf([]).score).toBeNull()
+  })
+
+  it('uses the administrator’s ratio, a module with no score counting as -100 for its share', () => {
+    const entries = [
+      { module: 'robi' as const, score: -25 }, // 75
+      { module: 'kpi' as const, score: 60 },
+      { module: 'billing' as const, score: -25 },
+      { module: 'service' as const, score: null },
+    ]
+    // Robi 40% x 75 + KPI 30% x 60 + Quotations 20% x 0 (no score) + Billing 10% x -25 = 30 + 18 + 0 - 2.5 = 45.5.
+    const final = finalScoreOf(entries, { robi: 40, kpi: 30, quotations: 20, billing: 10 })
+    expect(final.score).toBe(45.5)
+    expect(final.weights).toEqual({ robi: 40, kpi: 30, quotations: 20, billing: 10 })
+    // A module at 0% does not count, whatever it scored; the plain average is unchanged without a ratio.
+    expect(finalScoreOf(entries, { robi: 50, kpi: 50 }).score).toBe(67.5)
+    expect(finalScoreOf(entries).score).toBe(36.7)
+    expect(finalScoreOf(entries, null).weights).toBeUndefined()
+    // Nobody with no score at all has a final score, ratio or not.
+    expect(finalScoreOf([{ module: 'service', score: null }], { robi: 100 }).score).toBeNull()
+  })
+
+  it('checks a ratio: known modules, 0-100 each, adding up to 100', () => {
+    expect(checkFinalWeights({ robi: 50, kpi: '30', quotations: 20, billing: 0 })).toEqual({ robi: 50, kpi: 30, quotations: 20 })
+    expect(checkFinalWeights({ robi: 33.33, kpi: 33.33, quotations: 33.34 })).toEqual({ robi: 33.33, kpi: 33.33, quotations: 33.34 })
+    expect(() => checkFinalWeights({ robi: 50, kpi: 40 })).toThrow(/add up to 90%/)
+    expect(() => checkFinalWeights({ robi: 150 })).toThrow(/0 to 100/)
+    expect(() => checkFinalWeights({ robi: -10, kpi: 110 })).toThrow(/0 to 100/)
+    expect(() => checkFinalWeights({ otif: 100 })).toThrow(/no module/)
+    expect(() => checkFinalWeights(null)).toThrow()
+    expect(() => checkFinalWeights([100])).toThrow()
   })
 
   it('works on a whole period for one coordinator', () => {

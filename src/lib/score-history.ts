@@ -37,8 +37,8 @@ export type ScoreModule = 'robi' | 'kpi' | 'kpi_dispute' | 'quotations' | 'billi
 
 export const SCORE_MODULES: { id: ScoreModule; label: string; short: string; hint: string }[] = [
   { id: 'robi', label: 'Robi tasks', short: 'Robi tasks', hint: 'Average of the daily scores: Robi’s tasks done, as the gap from 100% (0% is everything done).' },
-  { id: 'kpi', label: 'Weekly KPI (Regular)', short: 'Weekly KPI', hint: 'The saved weekly KPI score as the gap from 100%; a month or year is the average of its weeks.' },
-  { id: 'kpi_dispute', label: 'Weekly KPI (Dispute)', short: 'Dispute KPI', hint: 'The dispute accounts’ weekly KPI score as the gap from 100%; a month or year is the average of its weeks.' },
+  { id: 'kpi', label: 'Regular Overdue', short: 'Regular Overdue', hint: 'The saved weekly Regular Overdue score (Overdue Scoring) as the gap from 100%; a month or year is the average of its weeks.' },
+  { id: 'kpi_dispute', label: 'Dispute Overdue', short: 'Dispute Overdue', hint: 'The weekly Dispute Overdue score (Overdue Scoring, customers in dispute) as the gap from 100%; a month or year is the average of its weeks.' },
   { id: 'quotations', label: 'Quotations', short: 'Quotations', hint: 'Average points per customer (Closed + New 100, Closed + Existing 50) as the gap from 100, counted by enquiry date: 85 points shows as -15.' },
   { id: 'billing', label: 'Billing Issues', short: 'Billing', hint: 'From the number of issues as Responsible Person 1, as the gap from 100: 0 issues → 0, 1 → -50, 2 → -100, 3-5 → -125, 6-10 → -150, more → -200. A year is the average of its months.' },
   { id: 'service', label: 'Service', short: 'Service', hint: 'The monthly Final score as the gap from 100 (0 at best). A week shows the mails only; a year is the average of its months.' },
@@ -57,18 +57,72 @@ export const SCORE_HISTORY_ROUTE = '/api/score-history'
 export const FINAL_HINT =
   'Minus scoring: every score is its gap from 100, so 0 is full marks and a score of 70 shows as -30. The final score is the average of the module scores that period (Robi’s -25% counts as -25, Billing’s -125 as -125). A module with no score is left out, not counted as -100.'
 
+/** The final score once the administrator has set a ratio (14 Nov 2026). */
+export const FINAL_WEIGHTED_HINT =
+  'Minus scoring: every score is its gap from 100, so 0 is full marks and a score of 70 shows as -30. The final score adds up each module’s score times its share in the ratio the administrator set. A module with no score that period counts as -100 for its share; a module at 0% does not count.'
+
+/**
+ * The administrator's ratio: each module's share of the final score, in
+ * percent, adding up to 100. A module left out has no share.
+ */
+export type FinalWeights = Partial<Record<ScoreModule, number>>
+
+export interface FinalWeightsSetting {
+  weights: FinalWeights
+  updatedAt: string
+  updatedBy: string
+}
+
+/** The ratio as given, checked: known modules, 0-100 each, adding up to 100. Throws a message for the screen. */
+export function checkFinalWeights(value: unknown): FinalWeights {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Give a percentage for each module.')
+  const out: FinalWeights = {}
+  let total = 0
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const module = SCORE_MODULES.find((m) => m.id === key)
+    if (!module) throw new Error(`There is no module called "${key}".`)
+    const n = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(n) || n < 0 || n > 100) throw new Error(`${module.label}: give a percentage from 0 to 100.`)
+    const rounded = Math.round(n * 100) / 100
+    if (rounded > 0) out[module.id] = rounded
+    total += rounded
+  }
+  if (Math.abs(total - 100) > 0.001) throw new Error(`The percentages add up to ${Math.round(total * 100) / 100}%; they must add up to 100%.`)
+  return out
+}
+
 /** A module's score on the final score's 0-100 scale; null when it has none. */
 export function finalPart(e: Pick<ScoreEntry, 'module' | 'score'>): number | null {
   if (e.score === null || e.score === undefined) return null
   return e.module === 'robi' ? 100 + e.score : e.score
 }
 
-/** One coordinator's final score for a period, from their module entries. */
-export function finalScoreOf(entries: readonly Pick<ScoreEntry, 'module' | 'score'>[]): { score: number | null; parts: { module: ScoreModule; value: number }[] } {
+/**
+ * One coordinator's final score for a period, from their module entries.
+ *
+ * Without a ratio it is the plain average of the modules that have a score.
+ * With the administrator's ratio it is each module's score times its share,
+ * a module with no score counting as 0 out of 100 (-100) for its share; a
+ * module with no share does not count. Nobody with no score at all has a
+ * final score.
+ */
+export function finalScoreOf(
+  entries: readonly Pick<ScoreEntry, 'module' | 'score'>[],
+  weights?: FinalWeights | null
+): { score: number | null; parts: { module: ScoreModule; value: number }[]; weights?: FinalWeights } {
   const parts = entries
     .map((e) => ({ module: e.module, value: finalPart(e) }))
     .filter((p): p is { module: ScoreModule; value: number } => p.value !== null)
   if (!parts.length) return { score: null, parts }
+  if (weights) {
+    let sum = 0
+    for (const m of SCORE_MODULES) {
+      const share = weights[m.id] ?? 0
+      if (share <= 0) continue
+      sum += (share * (parts.find((p) => p.module === m.id)?.value ?? 0)) / 100
+    }
+    return { score: Math.round(sum * 10) / 10, parts, weights }
+  }
   return { score: Math.round((parts.reduce((a, p) => a + p.value, 0) / parts.length) * 10) / 10, parts }
 }
 
@@ -107,6 +161,12 @@ export interface PeriodScores {
   lockedAt: string | null
   /** 'auto', or the administrator who worked it out again. */
   lockedBy: string | null
+  /**
+   * The ratio its final score uses: the one set when it was locked, the
+   * current one while it is open. Absent or null: the plain average (every
+   * period locked before a ratio was set).
+   */
+  finalWeights?: FinalWeights | null
   entries: ScoreEntry[]
 }
 
@@ -115,6 +175,8 @@ export interface ScoreHistoryResponse {
   today: string
   graceDays: number
   periods: PeriodScores[]
+  /** The administrator's ratio now; null while none is set. */
+  finalWeights: FinalWeightsSetting | null
 }
 
 /* ===================== Periods ===================== */

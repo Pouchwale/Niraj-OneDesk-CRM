@@ -773,7 +773,7 @@ export function TrendsView({ payments, canManageTeam }: TrendsViewProps) {
           </div>
         )}
         {!loading && weeks.length === 0 && chartMode !== 'person' && (
-          <p className="text-xs text-muted-foreground">No saved weeks yet: Weekly KPI saves the book every Saturday morning.</p>
+          <p className="text-xs text-muted-foreground">No saved weeks yet: Overdue Scoring saves the book every Saturday morning.</p>
         )}
       </GlassCard>
 

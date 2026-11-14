@@ -2,7 +2,7 @@
  * The score history over the wire (6 Nov 2026). Everyone signed in reads it:
  * the team leader and the administrator get the whole team, a coordinator
  * only their own lines. Only the administrator can work a locked period out
- * again.
+ * again, or set the final score ratio (14 Nov 2026).
  */
 
 import { Router } from 'express'
@@ -30,6 +30,7 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
         today: toLocalISODate(new Date()),
         graceDays: lockGraceDays(kind),
         periods: store.periods(kind, count).map((p) => ({ ...p, entries: seesTeam ? p.entries : p.entries.filter((e) => e.coordinatorId === user.id) })),
+        finalWeights: store.finalWeights(),
       }
       res.json(body)
     } catch (err) {
@@ -47,6 +48,23 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
       }
       logger.info('score history: period worked out again', { id, by: req.user!.id })
       res.json(period)
+    } catch (err) {
+      next(err)
+    }
+  })
+
+  router.put('/weights', requireRole(), (req, res, next) => {
+    try {
+      const weights = (req.body as { weights?: unknown } | undefined)?.weights
+      let setting
+      try {
+        setting = store.setFinalWeights(weights, req.user!.id)
+      } catch (err) {
+        next(ApiError.badRequest(err instanceof Error ? err.message : 'That ratio cannot be used.'))
+        return
+      }
+      logger.info('score history: final score ratio set', { weights: setting?.weights ?? null, by: req.user!.id })
+      res.json({ finalWeights: setting })
     } catch (err) {
       next(err)
     }

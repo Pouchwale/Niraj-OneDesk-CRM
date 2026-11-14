@@ -18,6 +18,9 @@
 
 import { computeOtifSummary, type OtifSummary } from './demo-data'
 import { addDays, periodLabel, weekOf } from './score-history'
+import type { OtifLiveFilters, OtifLiveRow, WeekBasis } from '../../shared/otif-reports'
+
+export type { OtifLiveFilters, OtifLiveRow, OtifSavedReport, OtifSavedReportSummary, WeekBasis } from '../../shared/otif-reports'
 
 export type OtifLiveField =
   | 'poNo'
@@ -48,25 +51,6 @@ export const OTIF_LIVE_COLUMNS: { field: OtifLiveField; label: string; headers: 
   { field: 'relationManager', label: 'Relation Manager', headers: ['Relation Manager'], required: true },
   { field: 'department', label: 'Department', headers: ['Department'], required: false },
 ]
-
-export interface OtifLiveRow {
-  poNo: string
-  soNo: string | null
-  /** yyyy-mm-dd */
-  soDate: string | null
-  poDueDate: string | null
-  /** Empty while the production order is still open. */
-  poClosedDate: string | null
-  /** As the sheet works it out: negative is early; empty while the order is open. */
-  delayDays: number | null
-  dayCommitted: number | null
-  customerName: string | null
-  openOrderQty: number | null
-  /** The sheet's own verdict, on time and in full. */
-  otifScore: 'YES' | 'NO' | null
-  relationManager: string | null
-  department: string | null
-}
 
 export type OtifReadResult =
   | { ok: true; sheetName: string; rows: OtifLiveRow[]; total: number; skipped: number }
@@ -231,8 +215,6 @@ export function readOtifSheets(sheets: { name: string; rows: unknown[][] }[], op
 
 /* ===================== Weeks ===================== */
 
-export type WeekBasis = 'closed' | 'due' | 'so'
-
 /** Which date puts an order in a week. */
 export const WEEK_BASES: { id: WeekBasis; label: string; field: 'poClosedDate' | 'poDueDate' | 'soDate' }[] = [
   { id: 'closed', label: 'PO Closed Date', field: 'poClosedDate' },
@@ -283,12 +265,6 @@ export function delayBucketOf(row: Pick<OtifLiveRow, 'delayDays' | 'poClosedDate
   if (d <= 7) return '4-7 Days Late'
   if (d <= 10) return '8-10 Days Late'
   return '10+ Days Late'
-}
-
-export interface OtifLiveFilters {
-  department: string | null
-  relationManager: string | null
-  bucket: string | null
 }
 
 export const NO_LIVE_FILTERS: OtifLiveFilters = { department: null, relationManager: null, bucket: null }
@@ -400,3 +376,25 @@ export function summariseRead(read: { rows: readonly unknown[]; change: OtifRead
   return parts.length ? parts.join(', ') : 'Nothing changed'
 }
 
+/* ===================== Any From–To dates (14 Nov 2026) ===================== */
+
+/**
+ * The orders whose basis date falls between `from` and `to`, both included.
+ * The user asked for From–To dates in place of the Saturday-to-Friday week
+ * picker (14 Nov 2026).
+ */
+export function rowsInRange(rows: readonly OtifLiveRow[], basis: WeekBasis, from: string, to: string): OtifLiveRow[] {
+  return rows.filter((r) => {
+    const day = basisDate(r, basis)
+    return day !== null && day >= from && day <= to
+  })
+}
+
+/** "1 Nov 2026 – 14 Nov 2026" */
+export function otifRangeLabel(from: string, to: string): string {
+  const fmt = (d: string) => {
+    const [y, m, day] = d.split('-').map(Number)
+    return `${day} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]} ${y}`
+  }
+  return from === to ? fmt(from) : `${fmt(from)} – ${fmt(to)}`
+}

@@ -1,5 +1,5 @@
 /**
- * The filters above Quotations: when (by quotation date or closing date), how
+ * The filters above Quotations: when (by enquiry, quotation or closing date, picked from a dropdown), how
  * big (order value), and whose. They narrow the cards, the list and the
  * Performance view alike.
  */
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DateBasis, QuotationFilter } from '@/lib/quotation-stats'
-import { addDaysISO, cn, formatCurrency, formatDate } from '@/lib/utils'
+import { addDaysISO, formatCurrency, formatDate } from '@/lib/utils'
 
 export type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'this_quarter' | 'this_year' | 'custom'
 export type ValuePreset = 'any' | 'under_25k' | '25k_1l' | '1l_5l' | 'over_5l' | 'custom'
@@ -24,6 +24,13 @@ export const DATE_PRESETS: { id: DatePreset; label: string }[] = [
   { id: 'this_quarter', label: 'This quarter' },
   { id: 'this_year', label: 'This year' },
   { id: 'custom', label: 'Custom dates…' },
+]
+
+/** Which date a quotation is counted by. */
+export const DATE_BASES: { id: DateBasis; label: string; hint: string }[] = [
+  { id: 'enquiry', label: 'Enquiry date', hint: 'The date the enquiry came in (as the team sheet counts)' },
+  { id: 'quotation', label: 'Quotation date', hint: 'The date the quotation was sent' },
+  { id: 'closing', label: 'Closing date', hint: 'The date it was won or lost (open ones have none)' },
 ]
 
 export const VALUE_PRESETS: { id: ValuePreset; label: string; min: number | null; max: number | null }[] = [
@@ -161,43 +168,34 @@ export function QuotationFilters({ state, onChange, today, owners, ownerName }: 
     <GlassCard className="space-y-3 p-4" data-testid="quotation-filters">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
         <Field icon={CalendarRange} label="Date">
-          <Select value={state.datePreset} onValueChange={(v) => set({ datePreset: v as DatePreset })}>
-            <SelectTrigger className="h-9 w-[160px]" aria-label="Date range">
+          {/* All time is the whole data; a date type opens From–To boxes (this month so far to start with; an empty box has no limit). */}
+          <Select
+            value={state.datePreset === 'all' ? 'all' : state.basis}
+            onValueChange={(v) =>
+              v === 'all'
+                ? set({ datePreset: 'all' })
+                : set({
+                    basis: v as DateBasis,
+                    datePreset: 'custom',
+                    ...(state.datePreset === 'all' ? { customFrom: `${today.slice(0, 8)}01`, customTo: today } : {}),
+                  })
+            }
+          >
+            <SelectTrigger className="h-9 w-[160px]" aria-label="Date of" data-testid="quotation-date-of">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {DATE_PRESETS.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.label}
+              <SelectItem value="all" title="Every quotation, whatever its dates">
+                All time
+              </SelectItem>
+              {DATE_BASES.map((b) => (
+                <SelectItem key={b.id} value={b.id} title={b.hint}>
+                  {b.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <div role="radiogroup" aria-label="Date of" className="inline-flex rounded-md border border-border/60 bg-muted/40 p-0.5">
-            {(['enquiry', 'quotation', 'closing'] as const).map((b) => (
-              <button
-                key={b}
-                type="button"
-                role="radio"
-                aria-checked={state.basis === b}
-                onClick={() => set({ basis: b })}
-                title={
-                  b === 'enquiry'
-                    ? 'The date the enquiry came in (as the team sheet counts)'
-                    : b === 'quotation'
-                      ? 'The date the quotation was sent'
-                      : 'The date it was won or lost (open ones have none)'
-                }
-                className={cn(
-                  'rounded px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  state.basis === b ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {b === 'enquiry' ? 'Enquiry date' : b === 'quotation' ? 'Quotation date' : 'Closing date'}
-              </button>
-            ))}
-          </div>
-          {state.datePreset === 'custom' && (
+          {state.datePreset !== 'all' && (
             <div className="flex items-center gap-1.5">
               <Input
                 type="date"

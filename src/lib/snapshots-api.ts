@@ -79,7 +79,7 @@ export async function saveTodaysOverdue(
 ): Promise<OverdueSnapshotMeta> {
   const settings = await getTargetSettings()
   if (settings.percentage === null) {
-    throw new Error('Set the target percentage in Weekly KPI before saving a day.')
+    throw new Error('Set the target percentage in Overdue Scoring before saving a day.')
   }
   const rows = await getOverduePayments()
   const input: NewOverdueSnapshot = {

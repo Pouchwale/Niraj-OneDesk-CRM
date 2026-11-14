@@ -1,4 +1,5 @@
 import React from 'react';
+import { truncatePercent } from '@/lib/utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { useOtif } from '@/features/otif/OtifContext';
 import { Button } from '@/components/ui/button';
@@ -63,7 +64,7 @@ export function OtifArchiveDrawer({ open, onOpenChange }: OtifArchiveDrawerProps
                       {archive.totalPOs} POs
                     </span>
                     <span className="font-medium text-foreground bg-background rounded-md px-2 py-1 border border-border">
-                      Score: <span className={archive.otifScore >= 80 ? 'text-emerald-500' : 'text-amber-500'}>{Math.round(archive.otifScore)}%</span>
+                      Score: <span className={archive.otifScore >= 80 ? 'text-emerald-500' : 'text-amber-500'}>{truncatePercent(archive.otifScore)}</span>
                     </span>
                   </div>
 

@@ -21,8 +21,8 @@ const row = (o: Partial<OtifLiveRow> & { poNo: string }): OtifLiveRow => ({
 const input = (rows: OtifLiveRow[]): OtifReportInput => {
   const summary = liveSummary(rows)
   return {
-    weekStart: '2026-10-31',
-    weekEnd: '2026-11-06',
+    from: '2026-10-31',
+    to: '2026-11-06',
     basisLabel: 'PO Closed Date',
     filters: { department: null, relationManager: null, bucket: null },
     file: { name: 'OTIF-SCORE.xlsm', sheet: 'Claude OTIF Score', savedAt: '2026-11-07T05:07:00.000Z', orders: 66740 },
@@ -59,14 +59,20 @@ describe('OTIF PDF report', () => {
     expect(orderCells(row({ poNo: '1', delayDays: 12, openOrderQty: 125000 }))).toEqual(['1', '-', '-', '-', 'Open', '+12', '-', '-', '1,25,000', '-', '-', '-'])
   })
 
-  it('names the week, the filters and the source file', () => {
+  it('names the dates, the filters and the source file', () => {
     expect(pdfDate('2026-11-06')).toBe('06 Nov 2026')
     expect(pdfDate(null)).toBe('-')
-    expect(pdfPct(74.1758)).toBe('74.2%')
+    expect(pdfPct(74.1758)).toBe('74.17%')
+    expect(pdfPct(78.40909)).toBe('78.40%')
+    expect(pdfPct(29)).toBe('29.00%')
+    expect(pdfPct(100)).toBe('100.00%')
     expect(pdfPct(null)).toBe('-')
     expect(otifReportFileName('2026-10-31', '2026-11-06')).toBe('OTIF report 2026-10-31 to 2026-11-06.pdf')
     const details = Object.fromEntries(reportDetails(input([])))
-    expect(details['Week (Saturday to Friday)']).toBe('31 Oct 2026 to 06 Nov 2026')
+    expect(details.Dates).toBe('31 Oct 2026 to 06 Nov 2026')
+    expect(details['Saved report']).toBeUndefined()
+    const saved = Object.fromEntries(reportDetails({ ...input([]), savedReport: { name: 'October review', savedByName: 'Niki Patel', savedAt: '2026-11-14T05:00:00.000Z' } }))
+    expect(saved['Saved report']).toMatch(/^October review, saved by Niki Patel on 14 Nov 2026/)
     expect(details['Orders counted by']).toBe('PO Closed Date')
     expect(details.Department).toBe('All departments')
     expect(details['Relation Manager']).toBe('Everyone')

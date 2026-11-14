@@ -6,11 +6,16 @@
  * period ended, and never again unless the administrator asks for it. The
  * first run fills in every past period the records reach back to. The
  * periods still open are worked out live on each request.
+ *
+ * Since 14 Nov 2026 the file also keeps the administrator's final score ratio.
+ * A period takes the ratio of the day it locks and keeps it; the open ones use
+ * the ratio as it is now.
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  checkFinalWeights,
   computePeriod,
   earliestDay,
   keysBetween,
@@ -18,6 +23,7 @@ import {
   periodId,
   periodRange,
   recentKeys,
+  type FinalWeightsSetting,
   type PeriodKind,
   type PeriodScores,
   type ScoreInputs,
@@ -34,6 +40,8 @@ interface HistoryFile {
   /** The first day any module had data when the history was first filled in. */
   firstDay: string | null
   periods: Record<string, PeriodScores>
+  /** The administrator's final score ratio; absent while none is set. */
+  finalWeights?: FinalWeightsSetting | null
 }
 
 export interface ScoreHistoryStore {
@@ -43,6 +51,10 @@ export interface ScoreHistoryStore {
   periods(kind: PeriodKind, count: number): PeriodScores[]
   /** Works a locked period out again from today's records; null when it is not locked. */
   relock(id: string, by: string): PeriodScores | null
+  /** The final score ratio now; null while none is set. */
+  finalWeights(): FinalWeightsSetting | null
+  /** Sets the ratio (checked: adds up to 100), or clears it with null. Throws a message for the screen. */
+  setFinalWeights(weights: unknown, by: string): FinalWeightsSetting | null
 }
 
 /**
@@ -111,7 +123,8 @@ export function createScoreHistoryStore(
     }
     data ??= freshInputs()
     const at = now().toISOString()
-    for (const [kind, key] of due) file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto' }
+    const weights = file.finalWeights?.weights ?? null
+    for (const [kind, key] of due) file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', finalWeights: weights }
     write(file)
     return due.map(([kind, key]) => periodId(kind, key))
   }
@@ -127,7 +140,7 @@ export function createScoreHistoryStore(
       const locked = file.periods[periodId(kind, key)]
       if (locked) return locked
       // Still open, or ended within the grace days: worked out live.
-      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null }
+      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, finalWeights: file.finalWeights?.weights ?? null }
     })
   }
 
@@ -138,13 +151,24 @@ export function createScoreHistoryStore(
     const today = toLocalISODate(now())
     const { start } = periodRange(held.kind, held.key)
     if (start > today) return null
-    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by }
+    // Worked out again from today's records, with the ratio it was locked with.
+    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by, finalWeights: held.finalWeights ?? null }
     file.periods[id] = again
     write(file)
     return again
   }
 
-  return { lockDue, periods, relock }
+  const finalWeights = (): FinalWeightsSetting | null => read().finalWeights ?? null
+
+  const setFinalWeights = (weights: unknown, by: string): FinalWeightsSetting | null => {
+    const setting = weights === null ? null : { weights: checkFinalWeights(weights), updatedAt: now().toISOString(), updatedBy: by }
+    const file = read()
+    file.finalWeights = setting
+    write(file)
+    return setting
+  }
+
+  return { lockDue, periods, relock, finalWeights, setFinalWeights }
 }
 
 /** A minute and a half after start (the data is loaded by then), and every half hour after, lock what has ended. */

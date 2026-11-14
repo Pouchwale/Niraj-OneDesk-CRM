@@ -11,19 +11,24 @@
  * full marks reads 0 (./format.ts). Scores are still kept and worked out of
  * 100, so the colours, the averages and the locked history are unchanged.
  *
+ * The final score ratio (14 Nov 2026): the administrator gives each module a
+ * share of the final score (FinalRatioCard). A period uses the ratio it was
+ * locked with, an open one the ratio as it is now.
+ *
  * Every table is fixed to the page width, so no desktop screen needs a
  * sideways scroll; the final score sits next to the name, where Robi's
  * button can never cover it.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Download, History, Loader2, Lock, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, History, Loader2, Lock, RefreshCw, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getAllCoordinators, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { scoreTone } from '@/features/assistant/scores'
@@ -32,18 +37,21 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import {
   addDays,
   FINAL_HINT,
+  FINAL_WEIGHTED_HINT,
   finalScoreOf,
   LOCK_GRACE_DAYS,
   lockGraceDays,
   periodLabel,
   SCORE_MODULES,
+  type FinalWeights,
+  type FinalWeightsSetting,
   type PeriodKind,
   type PeriodScores,
   type ScoreEntry,
   type ScoreHistoryResponse,
   type ScoreModule,
 } from '@/lib/score-history'
-import { getScoreHistory, recalculatePeriod } from '@/lib/score-history-api'
+import { getScoreHistory, recalculatePeriod, saveFinalWeights } from '@/lib/score-history-api'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { formatFinal, formatPart, formatScore } from './format'
 
@@ -79,7 +87,7 @@ function toneOf(module: ScoreModule, score: number | null): string {
 
 /** A final score from one module only is marked: a 0 from billing alone is not an all-round 0. */
 const OneModule = ({ final }: { final: ReturnType<typeof finalScoreOf> }) =>
-  final.parts.length === 1 ? <span className="ml-0.5 text-muted-foreground" title="Only one module had a score this period">*</span> : null
+  !final.weights && final.parts.length === 1 ? <span className="ml-0.5 text-muted-foreground" title="Only one module had a score this period">*</span> : null
 
 const round1 = (v: number) => Math.round(v * 10) / 10
 const finalTone = (score: number | null) => (score === null || score === undefined ? 'text-muted-foreground' : score >= 80 ? GOOD : score >= 50 ? WARN : BAD)
@@ -121,9 +129,16 @@ const averageOf = (scores: (number | null | undefined)[]) => {
   return list.length ? Math.round((list.reduce((a, s) => a + s, 0) / list.length) * 100) / 100 : null
 }
 
-/** "Average of 4 modules: Robi tasks -25, Weekly KPI -40, …" */
+/** "Average of 4 modules: Robi tasks -25, Regular Overdue -40, …", or with the ratio "Robi tasks -25 × 30%, …" */
 function finalDetail(final: ReturnType<typeof finalScoreOf>): string {
   if (final.score === null) return 'No module has a score in this period'
+  if (final.weights) {
+    const shares = SCORE_MODULES.filter((m) => (final.weights![m.id] ?? 0) > 0).map((m) => {
+      const part = final.parts.find((p) => p.module === m.id)
+      return `${m.label} ${part ? formatPart(part.value) : 'no score (-100)'} × ${final.weights![m.id]}%`
+    })
+    return `By the ratio: ${shares.join(', ')}`
+  }
   return `Average of ${plural(final.parts.length, 'module')}: ${final.parts.map((p) => `${moduleLabel(p.module)} ${formatPart(p.value)}`).join(', ')}`
 }
 
@@ -206,7 +221,11 @@ export function ScoreHistoryPage() {
 
   const entryOf = (period: PeriodScores | null, personId: string, m: ScoreModule) =>
     period?.entries.find((e) => e.coordinatorId === personId && e.module === m)
-  const finalOf = (period: PeriodScores | null, personId: string) => finalScoreOf(period?.entries.filter((e) => e.coordinatorId === personId) ?? [])
+  const finalOf = (period: PeriodScores | null, personId: string) =>
+    finalScoreOf(period?.entries.filter((e) => e.coordinatorId === personId) ?? [], period?.finalWeights ?? null)
+  // The ratio as set now; the hint follows it.
+  const ratio = data?.finalWeights ?? null
+  const finalHint = ratio ? FINAL_WEIGHTED_HINT : FINAL_HINT
 
   const workOutAgain = async () => {
     if (!selected?.lockedAt) return
@@ -313,7 +332,13 @@ export function ScoreHistoryPage() {
 
   const finalNote = (
     <p className="text-xs text-muted-foreground">
-      <span className="font-semibold text-foreground">Final score:</span> {FINAL_HINT} <span className="text-foreground">*</span> only one module had a score that period. Point at a score to see the figures behind it.
+      <span className="font-semibold text-foreground">Final score:</span> {finalHint}{' '}
+      {!ratio && (
+        <>
+          <span className="text-foreground">*</span> only one module had a score that period.{' '}
+        </>
+      )}
+      A locked period keeps the way its final score was worked out when it locked. Point at a score to see the figures behind it.
     </p>
   )
 
@@ -363,7 +388,7 @@ export function ScoreHistoryPage() {
                 </tr>
               ))}
               <tr className="border-t-2 border-border bg-primary/5">
-                <td className={cn(NAME_TD, 'font-semibold')} title={FINAL_HINT}>
+                <td className={cn(NAME_TD, 'font-semibold')} title={finalHint}>
                   Final score
                 </td>
                 {visible.map((p) => {
@@ -437,7 +462,7 @@ export function ScoreHistoryPage() {
                     {m.short}
                   </th>
                 ))}
-                <th className={cn(TH, FINAL_COL, 'text-foreground')} title={FINAL_HINT}>
+                <th className={cn(TH, FINAL_COL, 'text-foreground')} title={finalHint}>
                   Final score
                 </th>
               </tr>
@@ -562,7 +587,122 @@ export function ScoreHistoryPage() {
     <div className="space-y-6 pb-24">
       {header}
       {controls}
+      <FinalRatioCard setting={ratio} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
       {body}
     </div>
+  )
+}
+
+/**
+ * The final score ratio: everyone sees it; the administrator sets it. Each
+ * module gets a share in percent and the shares add up to 100. A module with
+ * no score that period counts as -100 for its share (the user's choice,
+ * 14 Nov 2026), so a module the team does not use should be given 0%.
+ */
+function FinalRatioCard({ setting, isAdmin, loaded, onSaved }: { setting: FinalWeightsSetting | null; isAdmin: boolean; loaded: boolean; onSaved: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  if (!loaded || (!setting && !isAdmin)) return null
+
+  const start = () => {
+    const w = setting?.weights ?? {}
+    setDraft(Object.fromEntries(SCORE_MODULES.map((m) => [m.id, String(w[m.id] ?? 0)])))
+    setEditing(true)
+  }
+  const numbers = SCORE_MODULES.map((m) => (draft[m.id] ?? '').trim() === '' ? 0 : Number(draft[m.id]))
+  const valid = numbers.every((n) => Number.isFinite(n) && n >= 0 && n <= 100)
+  const total = Math.round(numbers.reduce((a, n) => a + (Number.isFinite(n) ? n : 0), 0) * 100) / 100
+  const ok = valid && Math.abs(total - 100) < 0.001
+
+  const save = async (weights: FinalWeights | null) => {
+    setSaving(true)
+    try {
+      await saveFinalWeights(weights)
+      toast.success(weights ? 'Final score ratio saved.' : 'Back to the plain average.', { description: 'Open weeks, months and years use it now; locked ones keep theirs.' })
+      setEditing(false)
+      await onSaved()
+    } catch (err) {
+      toast.error('Not saved.', { description: err instanceof Error ? err.message : 'Try again.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <GlassCard className="space-y-3 p-4" data-testid="final-ratio">
+      <div className="flex flex-wrap items-center gap-3">
+        <Scale className="h-4 w-4 text-muted-foreground" />
+        <p className="text-sm font-semibold">Final score ratio</p>
+        {!editing && (
+          <p className="text-sm text-muted-foreground">
+            {setting
+              ? SCORE_MODULES.filter((m) => (setting.weights[m.id] ?? 0) > 0)
+                  .map((m) => `${m.label} ${setting.weights[m.id]}%`)
+                  .join(' · ')
+              : 'Not set: the final score is the plain average of the modules that have a score.'}
+          </p>
+        )}
+        {!editing && setting && (
+          <span className="text-xs text-muted-foreground">
+            Set by {getCoordinatorDisplayName(setting.updatedBy)} on {formatDate(setting.updatedAt.slice(0, 10))}
+          </span>
+        )}
+        {isAdmin && !editing && (
+          <Button size="sm" variant="outline" className="ml-auto" onClick={start}>
+            {setting ? 'Change ratio' : 'Set ratio'}
+          </Button>
+        )}
+      </div>
+      {editing && (
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {SCORE_MODULES.map((m) => (
+              <label key={m.id} className="space-y-1">
+                <span className="text-xs text-muted-foreground">{m.label}</span>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    inputMode="decimal"
+                    aria-label={`${m.label} share`}
+                    className="h-9 w-24 text-right"
+                    value={draft[m.id] ?? ''}
+                    onChange={(e) => setDraft((d) => ({ ...d, [m.id]: e.target.value }))}
+                  />
+                  <span className="text-sm text-muted-foreground">%</span>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className={cn('text-sm font-medium', ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600')} data-testid="final-ratio-total">
+              Total {total}%{ok ? '' : ' (must be 100%)'}
+            </p>
+            <p className="text-xs text-muted-foreground">A module with no score that period counts as -100 for its share; give 0% to a module the team does not use.</p>
+            <div className="ml-auto flex gap-2">
+              {setting && (
+                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void save(null)}>
+                  Use plain average
+                </Button>
+              )}
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!ok || saving}
+                onClick={() => void save(Object.fromEntries(SCORE_MODULES.map((m, i) => [m.id, numbers[i]])) as FinalWeights)}
+              >
+                {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                Save ratio
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </GlassCard>
   )
 }
