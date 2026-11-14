@@ -23,6 +23,10 @@ import { formatDate, todayISO } from '@/lib/utils'
 const newId = () => `quote-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 const selectClass = 'h-9 w-full rounded-md border border-border bg-background px-2 text-sm'
 
+/** "14 Nov 2026, 2:55 pm" */
+const closedStamp = (iso: string) =>
+  new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+
 export function QuotationDialog({
   quotation,
   all,
@@ -69,8 +73,6 @@ export function QuotationDialog({
     setForm((f) => {
       const next = { ...f, [key]: value }
       // Closed or Lost: the closing date is today unless one is already set.
-      if (key === 'status' && value !== 'open' && !f.closing_date) next.closing_date = today
-      if (key === 'status' && value === 'open') next.closing_date = ''
       // A new quotation's type picks its series: the number becomes that series' next one,
       // unless someone has typed a number of their own.
       if (key === 'print_type' && !quotation && value) {
@@ -111,7 +113,9 @@ export function QuotationDialog({
       print_type: (form.print_type as QuotationPrintType) || null,
       followups: live?.followups ?? [],
       earlier_followups: live?.earlier_followups ?? 0,
-      closing_date: form.status === 'open' ? null : form.closing_date || today,
+      // Recorded by the store when it is saved (date and time, not editable); sent as it stands.
+      closing_date: form.status === 'open' ? null : quotation?.status === form.status ? quotation.closing_date : today,
+      closed_at: form.status === 'open' ? null : quotation?.status === form.status ? quotation.closed_at ?? null : null,
       status: form.status,
       customer_type: (form.customer_type as Quotation['customer_type']) || null,
       // Only a closed (won) quotation carries an amount: the order value.
@@ -220,7 +224,19 @@ export function QuotationDialog({
             </select>
           </div>
           {form.status === 'closed' && field('Order amount (Rs)', 'amount', { inputMode: 'decimal' })}
-          {form.status !== 'open' && field('Closing date', 'closing_date', { type: 'date' })}
+          {form.status !== 'open' && (
+            <div className="space-y-1">
+              <Label>{form.status === 'lost' ? 'Lost on' : 'Closing date'}</Label>
+              <p className="flex h-9 items-center rounded-md border border-border/60 bg-muted/40 px-3 text-sm" data-testid="quotation-closed-at">
+                {quotation?.status === form.status && quotation.closed_at
+                  ? closedStamp(quotation.closed_at)
+                  : quotation?.status === form.status && quotation.closing_date
+                    ? formatDate(quotation.closing_date)
+                    : 'Recorded automatically when you save'}
+              </p>
+              <p className="text-[11px] text-muted-foreground">Recorded by the system; it cannot be changed.</p>
+            </div>
+          )}
           {canManageTeam && (
             <div className="space-y-1">
               <Label htmlFor="q-owner">Coordinator</Label>

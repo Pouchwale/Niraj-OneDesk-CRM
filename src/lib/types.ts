@@ -504,6 +504,12 @@ export interface Quotation {
   /** Follow-ups counted in the old sheet before the CRM took over. */
   earlier_followups: number
   closing_date: string | null
+  /**
+   * When it was closed or lost, to the second (since 14 Nov 2026): recorded by
+   * the system when the status becomes Closed or Lost, never typed. Older
+   * quotations have only their closing date.
+   */
+  closed_at?: string | null
   status: QuotationStatus
   customer_type: 'new' | 'existing' | null
   amount: number | null

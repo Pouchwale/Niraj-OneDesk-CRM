@@ -1,6 +1,6 @@
 import { cleanFestivalConfig } from './festival-config'
 import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
-import { todayISO } from './utils'
+import { todayISO, toLocalISODate } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
 import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, disputedAmountOf, isBankrupt, isNoFollowup, isSetAside, markNoFollowup } from './no-followup'
@@ -1476,11 +1476,30 @@ class DemoCompanyStore {
     return [...this.quotations]
   }
 
-  /** Adds a quotation, or replaces the one with the same id. */
-  saveQuotation(quotation: Quotation): void {
+  /**
+   * Adds a quotation, or replaces the one with the same id.
+   *
+   * Closed or Lost is stamped here, not taken from the form (14 Nov 2026: the
+   * user wants the date and time recorded automatically, and unchangeable).
+   * When the status becomes Closed or Lost the closing time is now; while it
+   * stays the same, the time already recorded stands, whatever is sent; back
+   * to Open clears it.
+   */
+  saveQuotation(quotation: Quotation, at?: unknown): void {
     if (!quotation?.id || !quotation.customer_name) return
+    // Only a test hands in the time; a browser cannot choose it.
+    const now = at instanceof Date ? at : new Date()
+    const held = this.quotations.find((q) => q.id === quotation.id)
+    let stamped: Quotation
+    if (quotation.status === 'open') {
+      stamped = { ...quotation, closing_date: null, closed_at: null }
+    } else if (held && held.status === quotation.status) {
+      stamped = { ...quotation, closing_date: held.closing_date ?? null, closed_at: held.closed_at ?? null }
+    } else {
+      stamped = { ...quotation, closing_date: toLocalISODate(now), closed_at: now.toISOString() }
+    }
     const others = this.quotations.filter((q) => q.id !== quotation.id)
-    this.quotations = [...others, quotation]
+    this.quotations = [...others, stamped]
   }
 
   addQuotationFollowup(id: string, entry: QuotationFollowup): void {
