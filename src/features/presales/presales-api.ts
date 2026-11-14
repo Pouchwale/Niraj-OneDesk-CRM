@@ -1,6 +1,6 @@
 /** Pre Sales Analysis on the server (see server/modules/presales). */
 
-import { PRESALES_ROUTE, type PresalesReminder, type PresalesResponse } from '../../../shared/presales'
+import { PRESALES_ROUTE, type PresalesFollowup, type PresalesMode, type PresalesResponse, type PresalesResponseId } from '../../../shared/presales'
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -18,5 +18,15 @@ export const getPresales = () => call<PresalesResponse>(PRESALES_ROUTE)
 
 export const getPresalesStatus = () => call<{ configured: boolean; modifiedAt: string | null }>(`${PRESALES_ROUTE}/status`)
 
-export const markReminded = (customerCode: string, note: string) =>
-  call<PresalesReminder>(`${PRESALES_ROUTE}/reminders`, { method: 'POST', body: JSON.stringify({ customerCode, note }) })
+export interface NewPresalesFollowup {
+  customerCode: string
+  items: string[]
+  mode: PresalesMode
+  response: PresalesResponseId
+  said: string
+  expectedOrderDate: string | null
+  nextDate: string | null
+}
+
+export const logPresalesFollowup = (followup: NewPresalesFollowup) =>
+  call<PresalesFollowup>(`${PRESALES_ROUTE}/followups`, { method: 'POST', body: JSON.stringify(followup) })

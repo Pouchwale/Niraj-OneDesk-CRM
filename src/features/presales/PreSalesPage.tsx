@@ -1,14 +1,16 @@
 /**
- * Pre Sales Analysis (14 Nov 2026): who ordered in these months last year and
- * has not ordered yet this year, so the coordinator can remind them before
- * their usual time. Read from the Pre-Sales-Order-CRM workbook by the server,
- * which sends a coordinator only the customers the CRM assigns to them; the
- * team leader and administrator see everyone, customers with no CRM account
- * under "Not assigned". The page picks up each new save of the file.
+ * Pre Sales Analysis (14 Nov 2026): what each customer ordered in these months
+ * last year, item by item, and which items they have not ordered yet this
+ * year, so the coordinator can follow them up before their usual time. A
+ * follow-up works like the Active/Overdue ones: the items talked about, how,
+ * what the customer said, an expected order date and a next follow-up date.
+ * Read from the Pre-Sales-Order-CRM workbook by the server, which sends a
+ * coordinator only their customers; the team leader and administrator see
+ * everyone. The page picks up each new save of the file.
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import { BellRing, CheckCircle2, ChevronDown, ChevronRight, FileSpreadsheet, Loader2, RefreshCw, Search, ShoppingCart, Users } from 'lucide-react'
+import { BellRing, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, FileSpreadsheet, Loader2, PhoneCall, RefreshCw, Search, ShoppingCart, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
@@ -22,22 +24,32 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
-import { analysePresales, defaultMonths, monthName, monthWindows, reminderOf, REMINDER_FRESH_DAYS, windowLabel, type CustomerPreSales } from '@/lib/presales'
+import { analysePresales, defaultMonths, FOLLOWUP_HOLD_DAYS, monthName, monthWindows, windowLabel, type CustomerPreSales, type ItemState } from '@/lib/presales'
 import { cn, formatDate, todayISO } from '@/lib/utils'
-import type { PresalesResponse } from '../../../shared/presales'
-import { getPresales, getPresalesStatus, markReminded } from './presales-api'
+import { PRESALES_MODES, PRESALES_RESPONSES, type PresalesFollowup, type PresalesMode, type PresalesResponse, type PresalesResponseId } from '../../../shared/presales'
+import { getPresales, getPresalesStatus, logPresalesFollowup } from './presales-api'
 
 const ALL = '__all'
 const UNASSIGNED = '__none'
-type Show = 'to_remind' | 'reminded' | 'ordered_again' | 'all'
+type Show = ItemState | 'all'
 const SHOWS: { id: Show; label: string }[] = [
   { id: 'to_remind', label: 'To remind' },
-  { id: 'reminded', label: 'Reminded' },
+  { id: 'followed_up', label: 'Followed up' },
   { id: 'ordered_again', label: 'Ordered again' },
   { id: 'all', label: 'All' },
 ]
 const qtyText = (n: number) => n.toLocaleString('en-IN')
 const when = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
+const responseLabel = (id: PresalesResponseId) => PRESALES_RESPONSES.find((r) => r.id === id)?.label ?? id
+const modeLabel = (id: PresalesMode) => PRESALES_MODES.find((m) => m.id === id)?.label ?? id
+const STATE_BADGE: Record<ItemState, { label: string; className: string }> = {
+  to_remind: { label: 'To remind', className: 'border-amber-500/40 text-amber-700 dark:text-amber-400' },
+  followed_up: { label: 'Followed up', className: 'border-sky-500/40 text-sky-700 dark:text-sky-400' },
+  ordered_again: { label: 'Ordered again', className: 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400' },
+}
+
+/** "14 Nov 2026 · Will order · Krina" */
+const followupLine = (f: PresalesFollowup) => `${formatDate(f.at.slice(0, 10))} · ${responseLabel(f.response)} · ${f.byName}`
 
 export function PreSalesPage() {
   const { canManageTeam } = useAuth()
@@ -50,7 +62,7 @@ export function PreSalesPage() {
   const [show, setShow] = useState<Show>('to_remind')
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<string | null>(null)
-  const [reminding, setReminding] = useState<CustomerPreSales | null>(null)
+  const [following, setFollowing] = useState<CustomerPreSales | null>(null)
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -80,37 +92,45 @@ export function PreSalesPage() {
   }, [data, load])
 
   const windows = useMemo(() => monthWindows(months, today), [months, today])
-  const analysed = useMemo(() => (data ? analysePresales(data.customers, data.lines, windows) : []), [data, windows])
-  const withReminder = useMemo(
-    () => analysed.map((c) => ({ c, r: reminderOf(data?.reminders ?? [], c.code, today) })),
-    [analysed, data, today]
-  )
+  const analysed = useMemo(() => (data ? analysePresales(data.customers, data.lines, windows, data.followups, today) : []), [data, windows, today])
   const owners = useMemo(() => {
-    const ids = new Set(analysed.map((c) => c.coordinatorId ?? UNASSIGNED))
-    return [...ids].filter((id) => id !== UNASSIGNED).sort((a, b) => getCoordinatorDisplayName(a).localeCompare(getCoordinatorDisplayName(b)))
+    const ids = new Set(analysed.map((c) => c.coordinatorId).filter((id): id is string => Boolean(id)))
+    return [...ids].sort((a, b) => getCoordinatorDisplayName(a).localeCompare(getCoordinatorDisplayName(b)))
   }, [analysed])
   const hasUnassigned = analysed.some((c) => !c.coordinatorId)
 
-  const scoped = withReminder.filter(({ c }) => owner === ALL || (owner === UNASSIGNED ? !c.coordinatorId : c.coordinatorId === owner))
-  const counts = {
-    to_remind: scoped.filter(({ c, r }) => c.status === 'to_remind' && !r.reminded).length,
-    reminded: scoped.filter(({ c, r }) => c.status === 'to_remind' && r.reminded).length,
-    ordered_again: scoped.filter(({ c }) => c.status === 'ordered_again').length,
+  const scoped = analysed.filter((c) => owner === ALL || (owner === UNASSIGNED ? !c.coordinatorId : c.coordinatorId === owner))
+  const customerCounts: Record<Show, number> = {
+    to_remind: scoped.filter((c) => c.status === 'to_remind').length,
+    followed_up: scoped.filter((c) => c.status === 'followed_up').length,
+    ordered_again: scoped.filter((c) => c.status === 'ordered_again').length,
     all: scoped.length,
   }
+  const itemCounts = scoped.reduce(
+    (t, c) => ({ to_remind: t.to_remind + c.counts.to_remind, followed_up: t.followed_up + c.counts.followed_up, ordered_again: t.ordered_again + c.counts.ordered_again }),
+    { to_remind: 0, followed_up: 0, ordered_again: 0 }
+  )
   const needle = search.trim().toLowerCase()
   const rows = scoped
-    .filter(({ c, r }) =>
-      show === 'all' ? true : show === 'ordered_again' ? c.status === 'ordered_again' : c.status === 'to_remind' && (show === 'reminded' ? r.reminded : !r.reminded)
+    .filter((c) => show === 'all' || c.status === show)
+    .filter(
+      (c) =>
+        !needle ||
+        c.name.toLowerCase().includes(needle) ||
+        c.code.toLowerCase().includes(needle) ||
+        c.items.some((i) => i.itemName.toLowerCase().includes(needle) || i.itemCode.toLowerCase().includes(needle))
     )
-    .filter(({ c }) => !needle || c.name.toLowerCase().includes(needle) || c.code.toLowerCase().includes(needle))
 
   const toggleMonth = (m: number) => setMonths((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]))
   const ownerName = (c: CustomerPreSales) => (c.coordinatorId ? getCoordinatorDisplayName(c.coordinatorId) : 'Not assigned')
 
   const file = data?.file
   const header = (
-    <PageHeader title="Pre Sales Analysis" subtitle="Customers who ordered in these months last year and have not ordered yet this year: remind them before their usual time" icon={<ShoppingCart className="h-5 w-5" />}>
+    <PageHeader
+      title="Pre Sales Analysis"
+      subtitle="Item by item: what customers ordered in these months last year and have not ordered yet this year, to follow up before their usual time"
+      icon={<ShoppingCart className="h-5 w-5" />}
+    >
       <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading} data-testid="presales-sync">
         <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} /> Sync now
       </Button>
@@ -194,19 +214,20 @@ export function PreSalesPage() {
             )}
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Customer or code" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+              <Input placeholder="Customer, code or item" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
             </div>
           </div>
           <p className="text-xs font-medium text-muted-foreground" data-testid="presales-window">
-            Last year {windowLabel(windows, 'lastYear')} against this year {windowLabel(windows, 'thisYear')}. Orders = sales orders; quantity = the lines added up (the file has no amount).
+            Last year {windowLabel(windows, 'lastYear')} against this year {windowLabel(windows, 'thisYear')}, item by item. Orders = sales orders; quantity = the lines added up (the file has no
+            amount).
           </p>
         </GlassCard>
 
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <KpiCard title="To remind" value={counts.to_remind} icon={BellRing} color="amber" hint="Ordered last year, not yet this year" />
-          <KpiCard title="Reminded" value={counts.reminded} icon={CheckCircle2} color="blue" hint={`In the last ${REMINDER_FRESH_DAYS} days`} />
-          <KpiCard title="Ordered again" value={counts.ordered_again} icon={ShoppingCart} color="emerald" hint="Already ordered this year" />
-          <KpiCard title="Customers last year" value={counts.all} icon={Users} color="violet" hint={windowLabel(windows, 'lastYear')} />
+          <KpiCard title="Items to remind" value={itemCounts.to_remind} icon={BellRing} color="amber" hint={`${customerCounts.to_remind} customers`} />
+          <KpiCard title="Items followed up" value={itemCounts.followed_up} icon={PhoneCall} color="blue" hint="Until their next follow-up date" />
+          <KpiCard title="Items ordered again" value={itemCounts.ordered_again} icon={CheckCircle2} color="emerald" hint="Already ordered this year" />
+          <KpiCard title="Customers last year" value={customerCounts.all} icon={Users} color="violet" hint={windowLabel(windows, 'lastYear')} />
         </div>
 
         <GlassCard className="space-y-3 p-4 sm:p-5">
@@ -220,7 +241,7 @@ export function PreSalesPage() {
                 onClick={() => setShow(s.id)}
                 className={cn('rounded-md px-3 py-1.5 text-sm', show === s.id ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground')}
               >
-                {s.label} ({counts[s.id]})
+                {s.label} ({customerCounts[s.id]})
               </button>
             ))}
           </div>
@@ -233,17 +254,17 @@ export function PreSalesPage() {
                   <tr>
                     <th className="px-4 py-2.5 text-left font-medium">Customer</th>
                     {canManageTeam && <th className="px-3 py-2.5 text-left font-medium">Coordinator</th>}
+                    <th className="px-3 py-2.5 text-left font-medium">Items</th>
                     <th className="px-3 py-2.5 text-right font-medium">Orders last year</th>
-                    <th className="px-3 py-2.5 text-right font-medium">Quantity last year</th>
-                    <th className="px-3 py-2.5 text-right font-medium">Orders this year</th>
                     <th className="px-3 py-2.5 text-left font-medium">Last order</th>
-                    <th className="px-3 py-2.5 text-left font-medium">Reminder</th>
+                    <th className="px-3 py-2.5 text-left font-medium">Last follow-up</th>
                     <th className="px-3 py-2.5" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {rows.map(({ c, r }) => {
+                  {rows.map((c) => {
                     const isOpen = open === c.code
+                    const last = c.followups[0] ?? null
                     return (
                       <Fragment key={c.code}>
                         <tr className={cn('cursor-pointer hover:bg-muted/30', isOpen && 'bg-muted/30')} onClick={() => setOpen(isOpen ? null : c.code)} data-testid="presales-row">
@@ -260,73 +281,130 @@ export function PreSalesPage() {
                             <td className={cn('whitespace-nowrap px-3 py-2.5', !c.coordinatorId && 'text-amber-600')}>
                               {ownerName(c)}
                               {c.assignedFrom === 'file' && (
-                                <span className="block text-[11px] text-muted-foreground" title="This customer has no account in Active or Overdue Payments, so the coordinator is the one named on its latest order in the Pre-Sales file.">
+                                <span
+                                  className="block text-[11px] text-muted-foreground"
+                                  title="This customer has no account in Active or Overdue Payments, so the coordinator is the one named on its latest order in the Pre-Sales file."
+                                >
                                   as per Pre-Sales file (customer has no Active/Overdue account)
                                 </span>
                               )}
                               {!c.coordinatorId && c.fileCoordinator && <span className="block text-[11px] text-muted-foreground">file names: {c.fileCoordinator} (not a CRM coordinator)</span>}
                             </td>
                           )}
-                          <td className="px-3 py-2.5 text-right tabular-nums">{c.lastYear.orders}</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums">{qtyText(c.lastYear.qty)}</td>
-                          <td className={cn('px-3 py-2.5 text-right tabular-nums', c.thisYear.orders ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-rose-600')}>{c.thisYear.orders}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5">{c.lastOrder ? formatDate(c.lastOrder) : '—'}</td>
                           <td className="px-3 py-2.5">
-                            {r.latest ? (
-                              <span className={cn('text-xs', r.reminded ? 'text-foreground' : 'text-muted-foreground')} title={r.latest.note ?? undefined}>
-                                {r.reminded && <Badge variant="outline" className="mr-1 font-normal">Reminded</Badge>}
-                                {formatDate(r.latest.at.slice(0, 10))} by {r.latest.byName}
-                                {r.latest.note && <span className="block max-w-[220px] truncate text-muted-foreground">{r.latest.note}</span>}
+                            <span className="flex flex-wrap gap-1">
+                              {(['to_remind', 'followed_up', 'ordered_again'] as const).map((s) =>
+                                c.counts[s] ? (
+                                  <Badge key={s} variant="outline" className={cn('font-normal', STATE_BADGE[s].className)}>
+                                    {c.counts[s]} {STATE_BADGE[s].label.toLowerCase()}
+                                  </Badge>
+                                ) : null
+                              )}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">{c.lastYear.orders}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5">{c.lastOrder ? formatDate(c.lastOrder) : '—'}</td>
+                          <td className="px-3 py-2.5 text-xs">
+                            {last ? (
+                              <span title={last.said}>
+                                {followupLine(last)}
+                                <span className="block max-w-[220px] truncate text-muted-foreground">{last.said}</span>
                               </span>
                             ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
+                              <span className="text-muted-foreground">—</span>
                             )}
                           </td>
                           <td className="px-3 py-2.5 text-right">
-                            {c.status === 'to_remind' && (
+                            {c.status !== 'ordered_again' && (
                               <Button
                                 size="sm"
-                                variant={r.reminded ? 'ghost' : 'outline'}
+                                variant={c.status === 'to_remind' ? 'outline' : 'ghost'}
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  setReminding(c)
+                                  setFollowing(c)
                                 }}
-                                data-testid="presales-remind"
+                                data-testid="presales-follow-up"
                               >
-                                <BellRing className="mr-1.5 h-3.5 w-3.5" /> Mark reminded
+                                <ClipboardCheck className="mr-1.5 h-3.5 w-3.5" /> Log follow-up
                               </Button>
                             )}
                           </td>
                         </tr>
                         {isOpen && (
                           <tr className="bg-muted/20" data-testid="presales-items">
-                            <td colSpan={canManageTeam ? 8 : 7} className="px-4 pb-3 pt-1">
+                            <td colSpan={canManageTeam ? 7 : 6} className="space-y-3 px-4 pb-4 pt-1">
                               <p className="py-1.5 text-xs font-medium text-muted-foreground">
-                                Ordered in {windowLabel(windows, 'lastYear')}: {c.lastYear.items.length} {c.lastYear.items.length === 1 ? 'item' : 'items'}
-                                {c.thisYear.orders ? ` · this year so far: ${c.thisYear.orders} orders, quantity ${qtyText(c.thisYear.qty)}` : ' · no order yet this year'}
+                                {c.items.length} {c.items.length === 1 ? 'item' : 'items'} ordered in {windowLabel(windows, 'lastYear')} · quantity {qtyText(c.lastYear.qty)}
                               </p>
                               <table className="w-full text-sm">
                                 <thead className="text-xs text-muted-foreground">
                                   <tr>
                                     <th className="py-1.5 pr-3 text-left font-medium">Item</th>
-                                    <th className="px-3 py-1.5 text-left font-medium">Item code</th>
-                                    <th className="px-3 py-1.5 text-right font-medium">Orders</th>
-                                    <th className="px-3 py-1.5 text-right font-medium">Quantity</th>
-                                    <th className="py-1.5 pl-3 text-left font-medium">Last ordered</th>
+                                    <th className="px-3 py-1.5 text-right font-medium">Last year</th>
+                                    <th className="px-3 py-1.5 text-left font-medium">Last ordered</th>
+                                    <th className="px-3 py-1.5 text-right font-medium">This year</th>
+                                    <th className="px-3 py-1.5 text-left font-medium">Status</th>
+                                    <th className="py-1.5 pl-3 text-left font-medium">Latest follow-up</th>
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-border/40">
-                                  {c.lastYear.items.map((i) => (
-                                    <tr key={i.itemCode || i.itemName}>
-                                      <td className="py-1.5 pr-3">{i.itemName || '—'}</td>
-                                      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-xs">{i.itemCode || '—'}</td>
-                                      <td className="px-3 py-1.5 text-right tabular-nums">{i.orders}</td>
-                                      <td className="px-3 py-1.5 text-right tabular-nums">{qtyText(i.qty)}</td>
-                                      <td className="whitespace-nowrap py-1.5 pl-3">{formatDate(i.lastDate)}</td>
+                                  {c.items.map((i) => (
+                                    <tr key={i.key} data-testid="presales-item">
+                                      <td className="py-1.5 pr-3">
+                                        {i.itemName || '—'}
+                                        <span className="block font-mono text-[11px] text-muted-foreground">{i.itemCode}</span>
+                                      </td>
+                                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
+                                        {qtyText(i.qty)}
+                                        <span className="block text-[11px] text-muted-foreground">
+                                          {i.orders} {i.orders === 1 ? 'order' : 'orders'}
+                                        </span>
+                                      </td>
+                                      <td className="whitespace-nowrap px-3 py-1.5">{formatDate(i.lastDate)}</td>
+                                      <td
+                                        className={cn(
+                                          'whitespace-nowrap px-3 py-1.5 text-right tabular-nums',
+                                          i.thisYearOrders ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'
+                                        )}
+                                      >
+                                        {i.thisYearOrders ? qtyText(i.thisYearQty) : '—'}
+                                      </td>
+                                      <td className="px-3 py-1.5">
+                                        <Badge variant="outline" className={cn('font-normal', STATE_BADGE[i.state].className)}>
+                                          {STATE_BADGE[i.state].label}
+                                        </Badge>
+                                      </td>
+                                      <td className="py-1.5 pl-3 text-xs">
+                                        {i.followup ? (
+                                          <span title={i.followup.said}>
+                                            {followupLine(i.followup)}
+                                            {i.followup.expectedOrderDate && ` · order expected ${formatDate(i.followup.expectedOrderDate)}`}
+                                            {i.followup.nextDate && <span className="block text-muted-foreground">next {formatDate(i.followup.nextDate)}</span>}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted-foreground">—</span>
+                                        )}
+                                      </td>
                                     </tr>
                                   ))}
                                 </tbody>
                               </table>
+                              {c.followups.length > 0 && (
+                                <div className="space-y-1.5" data-testid="presales-history">
+                                  <p className="text-xs font-medium text-muted-foreground">Follow-ups ({c.followups.length})</p>
+                                  {c.followups.map((f) => (
+                                    <div key={f.id} className="rounded-md border border-border/50 bg-background/60 px-3 py-2 text-xs">
+                                      <p className="font-medium">
+                                        {when(f.at)} · {modeLabel(f.mode)} · {responseLabel(f.response)} · {f.byName}
+                                        {f.expectedOrderDate && ` · order expected ${formatDate(f.expectedOrderDate)}`}
+                                        {f.nextDate && ` · next ${formatDate(f.nextDate)}`}
+                                      </p>
+                                      <p className="mt-0.5 text-muted-foreground">“{f.said}”</p>
+                                      <p className="mt-0.5 text-[11px] text-muted-foreground">Items: {f.items.map((k) => c.items.find((i) => i.key === k)?.itemName || k).join(', ')}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </td>
                           </tr>
                         )}
@@ -347,11 +425,11 @@ export function PreSalesPage() {
       {header}
       {fileCard}
       {body}
-      <RemindDialog
-        customer={reminding}
-        onClose={() => setReminding(null)}
+      <FollowupDialog
+        customer={following}
+        onClose={() => setFollowing(null)}
         onSaved={async () => {
-          setReminding(null)
+          setFollowing(null)
           await load(true)
         }}
       />
@@ -359,18 +437,49 @@ export function PreSalesPage() {
   )
 }
 
-function RemindDialog({ customer, onClose, onSaved }: { customer: CustomerPreSales | null; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [note, setNote] = useState('')
+/** A follow-up about some of the customer's items, as in Active/Overdue Payments. */
+function FollowupDialog({ customer, onClose, onSaved }: { customer: CustomerPreSales | null; onClose: () => void; onSaved: () => Promise<void> }) {
+  const open = customer?.items.filter((i) => i.state !== 'ordered_again') ?? []
+  const [ticked, setTicked] = useState<Set<string>>(new Set())
+  const [mode, setMode] = useState<PresalesMode>('call')
+  const [response, setResponse] = useState<PresalesResponseId | ''>('')
+  const [said, setSaid] = useState('')
+  const [expected, setExpected] = useState('')
+  const [nextDate, setNextDate] = useState('')
   const [saving, setSaving] = useState(false)
   useEffect(() => {
-    if (customer) setNote('')
-  }, [customer])
-  const save = async () => {
     if (!customer) return
+    const toRemind = customer.items.filter((i) => i.state === 'to_remind').map((i) => i.key)
+    setTicked(new Set(toRemind.length ? toRemind : customer.items.filter((i) => i.state === 'followed_up').map((i) => i.key)))
+    setMode('call')
+    setResponse('')
+    setSaid('')
+    setExpected('')
+    setNextDate('')
+  }, [customer])
+  const problem = !ticked.size
+    ? 'Tick the items you talked about.'
+    : !response
+      ? 'Choose what the customer said.'
+      : response === 'order_expected' && !expected
+        ? 'Give the expected order date.'
+        : said.trim().length < 3
+          ? 'Write what the customer said.'
+          : null
+  const save = async () => {
+    if (!customer || problem || !response) return
     setSaving(true)
     try {
-      await markReminded(customer.code, note)
-      toast.success('Marked as reminded.', { description: customer.name })
+      await logPresalesFollowup({
+        customerCode: customer.code,
+        items: [...ticked],
+        mode,
+        response,
+        said: said.trim(),
+        expectedOrderDate: response === 'order_expected' ? expected : null,
+        nextDate: nextDate || null,
+      })
+      toast.success('Follow-up logged.', { description: `${customer.name}: ${ticked.size} ${ticked.size === 1 ? 'item' : 'items'}` })
       await onSaved()
     } catch (err) {
       toast.error('Not saved.', { description: err instanceof Error ? err.message : 'Try again.' })
@@ -378,24 +487,105 @@ function RemindDialog({ customer, onClose, onSaved }: { customer: CustomerPreSal
       setSaving(false)
     }
   }
+  const flip = (key: string) =>
+    setTicked((t) => {
+      const next = new Set(t)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   return (
     <Dialog open={Boolean(customer)} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Mark reminded</DialogTitle>
+          <DialogTitle>Log follow-up</DialogTitle>
           <DialogDescription>{customer ? `${customer.name} (${customer.code}): today's date and your name are recorded.` : ''}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-1.5">
-          <Label htmlFor="presales-note">What did they say? (optional)</Label>
-          <Textarea id="presales-note" rows={3} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Will send the PO next week" />
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>
+                Items talked about ({ticked.size} of {open.length})
+              </Label>
+              <span className="space-x-2 text-xs">
+                <button type="button" className="text-primary hover:underline" onClick={() => setTicked(new Set(open.map((i) => i.key)))}>
+                  All
+                </button>
+                <button type="button" className="text-primary hover:underline" onClick={() => setTicked(new Set())}>
+                  None
+                </button>
+              </span>
+            </div>
+            <div className="max-h-56 divide-y divide-border/40 overflow-y-auto rounded-md border border-border/50" data-testid="presales-followup-items">
+              {open.map((i) => (
+                <label key={i.key} className="flex cursor-pointer items-start gap-2 px-3 py-1.5 text-sm hover:bg-muted/30">
+                  <input type="checkbox" className="mt-1" checked={ticked.has(i.key)} onChange={() => flip(i.key)} />
+                  <span className="flex-1">
+                    {i.itemName || i.itemCode}
+                    <span className="block text-[11px] text-muted-foreground">
+                      last year {qtyText(i.qty)} · {STATE_BADGE[i.state].label.toLowerCase()}
+                      {i.followup ? ` (${followupLine(i.followup)})` : ''}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Follow-up mode</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESALES_MODES.map((m) => (
+                <Button key={m.id} type="button" size="sm" variant={mode === m.id ? 'default' : 'outline'} onClick={() => setMode(m.id)}>
+                  {m.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Customer response</Label>
+              <Select value={response} onValueChange={(v) => setResponse(v as PresalesResponseId)}>
+                <SelectTrigger aria-label="Customer response" data-testid="presales-response">
+                  <SelectValue placeholder="Select response…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRESALES_RESPONSES.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {response === 'order_expected' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="presales-expected">Expected order date</Label>
+                <Input id="presales-expected" type="date" value={expected} min={todayISO()} onChange={(e) => setExpected(e.target.value)} />
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="presales-said">
+              What the customer said <span className="text-destructive">*</span>
+            </Label>
+            <Textarea id="presales-said" rows={3} maxLength={1000} value={said} onChange={(e) => setSaid(e.target.value)} placeholder="Details of the conversation…" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="presales-next">Next follow-up date</Label>
+            <Input id="presales-next" type="date" className="w-[180px]" value={nextDate} min={todayISO()} onChange={(e) => setNextDate(e.target.value)} />
+            <p className="text-xs text-muted-foreground">
+              The items show as to remind again from this day ({FOLLOWUP_HOLD_DAYS} days from today if left empty), until they are ordered.
+            </p>
+          </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="items-center gap-2">
+          {problem && <span className="mr-auto text-xs text-rose-600">{problem}</span>}
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={() => void save()} disabled={saving} data-testid="presales-remind-save">
+          <Button onClick={() => void save()} disabled={saving || Boolean(problem)} data-testid="presales-followup-save">
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Mark reminded
+            Log follow-up
           </Button>
         </DialogFooter>
       </DialogContent>

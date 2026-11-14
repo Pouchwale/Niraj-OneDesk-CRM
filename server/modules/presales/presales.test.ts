@@ -139,19 +139,35 @@ describe('the route', () => {
     expect(body.lines).toHaveLength(6)
   })
 
-  it('lets a coordinator remind only their own customers, and keeps the reminder', async () => {
+  it('lets a coordinator follow up only their own customers, item by item, checked like the payment follow-ups', async () => {
     const pragati = await signIn('pragati', 'Pragati@123')
-    const remind = (code: string, cookie = pragati) => call(cookie, '/reminders', { method: 'POST', body: JSON.stringify({ customerCode: code, note: '  Will order next week  ' }) })
-    expect((await remind('C0002')).status).toBe(403)
-    expect((await remind('C0003')).status).toBe(403)
-    expect((await remind('C9999')).status).toBe(400)
-    const ok = await remind('c0001')
+    const good = { customerCode: 'c0001', items: ['IT1', 'IT2', 'NOT-THEIRS'], mode: 'call', response: 'order_expected', said: '  Will send the PO next week  ', expectedOrderDate: '2026-11-21', nextDate: '2026-11-22' }
+    const follow = (o: Record<string, unknown>, cookie = pragati) => call(cookie, '/followups', { method: 'POST', body: JSON.stringify({ ...good, ...o }) })
+    expect((await follow({ customerCode: 'C0002', items: ['IT1'] })).status).toBe(403)
+    expect((await follow({ customerCode: 'C0003', items: ['IT9'] })).status).toBe(403)
+    expect((await follow({ customerCode: 'C9999' })).status).toBe(400)
+    expect((await follow({ items: ['NOT-THEIRS'] })).status).toBe(400)
+    expect((await follow({ response: 'maybe' })).status).toBe(400)
+    expect((await follow({ said: ' ' })).status).toBe(400)
+    expect((await follow({ expectedOrderDate: null })).status).toBe(400)
+    const ok = await follow({})
     expect(ok.status).toBe(200)
-    expect(await ok.json()).toMatchObject({ customerCode: 'C0001', by: 'coord-1', note: 'Will order next week' })
+    expect(await ok.json()).toMatchObject({
+      customerCode: 'C0001',
+      items: ['IT1', 'IT2'],
+      by: 'coord-1',
+      mode: 'call',
+      response: 'order_expected',
+      said: 'Will send the PO next week',
+      expectedOrderDate: '2026-11-21',
+      nextDate: '2026-11-22',
+    })
+    // The expected date only goes with "Order expected on a date".
+    expect(await (await follow({ response: 'will_order' })).json()).toMatchObject({ expectedOrderDate: null })
     const body = (await (await call(pragati)).json()) as PresalesResponse
-    expect(body.reminders.map((r) => r.customerCode)).toEqual(['C0001'])
-    // The team leader may remind a customer with no CRM account.
-    expect((await remind('C0003', await signIn('niki', 'Niki@123'))).status).toBe(200)
+    expect(body.followups.map((f) => f.customerCode)).toEqual(['C0001', 'C0001'])
+    // The team leader may follow up a customer with no coordinator found.
+    expect((await follow({ customerCode: 'C0003', items: ['IT9'] }, await signIn('niki', 'Niki@123'))).status).toBe(200)
   })
 
   it('does not hand a coordinator the raw workbook', async () => {

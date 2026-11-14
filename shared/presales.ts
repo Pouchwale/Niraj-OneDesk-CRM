@@ -3,8 +3,9 @@
  *
  * The Pre-Sales-Order-CRM workbook lists every sales-order line (customer,
  * coordinator, SO, date, item, quantity). The page compares the same months
- * last year with this year, so a coordinator can remind a customer who
- * ordered then and has not ordered yet. No imports, so the server can use it.
+ * last year with this year, item by item, so a coordinator can follow up a
+ * customer about each item they ordered then and have not ordered yet. No
+ * imports, so the server can use it.
  */
 
 export const PRESALES_ROUTE = '/api/presales'
@@ -25,6 +26,9 @@ export interface PresalesLine {
   q: number
 }
 
+/** An item's key: its code, or its name when it has no code. */
+export const itemKeyOf = (line: Pick<PresalesLine, 'ic' | 'in'>) => line.ic || line.in
+
 export interface PresalesCustomer {
   code: string
   name: string
@@ -40,13 +44,48 @@ export interface PresalesCustomer {
   fileCoordinator: string | null
 }
 
-export interface PresalesReminder {
+/** How the customer was reached, as in the Active/Overdue follow-ups. */
+export const PRESALES_MODES = [
+  { id: 'call', label: 'Call' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'email', label: 'Email' },
+  { id: 'in_person', label: 'In person' },
+  { id: 'other', label: 'Other' },
+] as const
+export type PresalesMode = (typeof PRESALES_MODES)[number]['id']
+
+/** What the customer said, in the user's six choices (14 Nov 2026). */
+export const PRESALES_RESPONSES = [
+  { id: 'will_order', label: 'Will order' },
+  { id: 'order_expected', label: 'Order expected on a date' },
+  { id: 'samples_quote', label: 'Need samples / new quote' },
+  { id: 'not_this_season', label: 'Not needed this season' },
+  { id: 'no_response', label: 'No response' },
+  { id: 'other_supplier', label: 'Moved to another supplier' },
+] as const
+export type PresalesResponseId = (typeof PRESALES_RESPONSES)[number]['id']
+
+/**
+ * A pre-sales follow-up (14 Nov 2026: the user asked for it to work like the
+ * Active/Overdue follow-ups): which of the customer's items it was about, how,
+ * what the customer said, and when to follow up next.
+ */
+export interface PresalesFollowup {
   id: string
   customerCode: string
+  /** The items talked about (itemKeyOf). */
+  items: string[]
   at: string
   by: string
   byName: string
-  note: string | null
+  mode: PresalesMode
+  response: PresalesResponseId
+  /** What the customer said. */
+  said: string
+  /** For "Order expected on a date". */
+  expectedOrderDate: string | null
+  /** The items show as to remind again from this day (30 days after the follow-up when empty). */
+  nextDate: string | null
 }
 
 export interface PresalesFile {
@@ -62,10 +101,10 @@ export interface PresalesResponse {
   file: PresalesFile
   /** When the server last read the workbook. */
   readAt: string | null
-  /** The customers this person may see (a coordinator: only those the CRM assigns to them). */
+  /** The customers this person may see (a coordinator: only their own). */
   customers: PresalesCustomer[]
   lines: PresalesLine[]
-  reminders: PresalesReminder[]
+  followups: PresalesFollowup[]
   /** Lines the reader skipped (no customer code or no date). */
   skipped: number
 }
