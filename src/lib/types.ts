@@ -476,6 +476,9 @@ export interface QuotationFollowup {
  * Quotation List workbook). Each coordinator keeps their own; the team leader
  * and the administrator see everyone's.
  */
+/** Digital (D-… numbers) or Flexo (F-… numbers). */
+export type QuotationPrintType = 'digital' | 'flexo'
+
 export interface Quotation {
   id: string
   /** The day the enquiry came in (yyyy-mm-dd). */
@@ -491,6 +494,11 @@ export interface Quotation {
   quotation_date: string | null
   sales_employee: string | null
   quotation_no: string | null
+  /**
+   * Digital or Flexo, chosen before the number (since 14 Nov 2026). Older
+   * quotations have none and are read from their number (printTypeOf).
+   */
+  print_type?: QuotationPrintType | null
   /** Follow-ups logged in the CRM, newest last. */
   followups: QuotationFollowup[]
   /** Follow-ups counted in the old sheet before the CRM took over. */

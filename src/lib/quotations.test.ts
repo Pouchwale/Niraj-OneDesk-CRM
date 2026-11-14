@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { followupCount, nextQuotationNo, quotationsFromSheet, sheetDate } from './quotations'
+import { followupCount, nextQuotationNo, nextQuotationNoFor, printTypeOf, quotationsFromSheet, sheetDate } from './quotations'
 
 describe('the old Quotation List', () => {
   it('reads text dates as MM-DD-YYYY and swaps the dates Excel misread', () => {
@@ -40,5 +40,25 @@ describe('the old Quotation List', () => {
 
   it('suggests the next quotation number', () => {
     expect(nextQuotationNo([{ quotation_no: 'F-4510' }, { quotation_no: '4485' }, { quotation_no: 'F - 5292' }])).toBe('F-5293')
+  })
+})
+
+describe('Digital or Flexo (14 Nov 2026)', () => {
+  it('reads an old quotation’s type from its number: F-… Flexo, D-… Digital', () => {
+    expect(printTypeOf({ quotation_no: 'F-5352' })).toBe('flexo')
+    expect(printTypeOf({ quotation_no: 'D - 867' })).toBe('digital')
+    expect(printTypeOf({ quotation_no: 'D- 862' })).toBe('digital')
+    expect(printTypeOf({ quotation_no: '4485' })).toBeNull()
+    expect(printTypeOf({ quotation_no: 'PI-12' })).toBeNull()
+    expect(printTypeOf({ quotation_no: null })).toBeNull()
+    // A type chosen in the CRM wins over the number.
+    expect(printTypeOf({ quotation_no: 'F-1', print_type: 'digital' })).toBe('digital')
+  })
+
+  it('suggests the next number of the chosen series', () => {
+    const used = [{ quotation_no: 'F-5352' }, { quotation_no: 'F - 5349' }, { quotation_no: 'D - 870' }, { quotation_no: 'D-868' }, { quotation_no: '9999' }, { quotation_no: null }]
+    expect(nextQuotationNoFor(used, 'flexo')).toBe('F-5353')
+    expect(nextQuotationNoFor(used, 'digital')).toBe('D-871')
+    expect(nextQuotationNoFor([], 'digital')).toBe('D-1')
   })
 })

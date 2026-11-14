@@ -8,7 +8,7 @@
  * so those are swapped back.
  */
 
-import type { Quotation, QuotationStatus } from './types'
+import type { Quotation, QuotationStatus, QuotationPrintType } from './types'
 
 export const QUOTATION_STATUS_LABEL: Record<QuotationStatus, string> = {
   open: 'Open',
@@ -127,6 +127,34 @@ export function quotationsFromSheet(
     })
   })
   return { quotations: out, skipped }
+}
+
+/** Digital or Flexo, and the letter of its number series (user, 14 Nov 2026: F = Flexo, D = Digital). */
+export const QUOTATION_PRINT_TYPES: { id: QuotationPrintType; label: string; prefix: 'D' | 'F' }[] = [
+  { id: 'digital', label: 'Digital', prefix: 'D' },
+  { id: 'flexo', label: 'Flexo', prefix: 'F' },
+]
+
+/** The series letter a quotation number starts with ("D - 867" → "D"), or null. */
+const seriesOf = (no: string | null | undefined): string | null => (no ?? '').trim().match(/^([A-Za-z]+)\s*-?\s*\d/)?.[1].toUpperCase() ?? null
+
+/** A quotation's type: the one chosen, or read from its number (F-… Flexo, D-… Digital); null when neither says. */
+export function printTypeOf(q: Pick<Quotation, 'quotation_no' | 'print_type'>): QuotationPrintType | null {
+  if (q.print_type) return q.print_type
+  const series = seriesOf(q.quotation_no)
+  return QUOTATION_PRINT_TYPES.find((t) => t.prefix === series)?.id ?? null
+}
+
+/** The next free number of a type's series: one more than the highest D-… (or F-…) used ("D-871"). */
+export function nextQuotationNoFor(quotations: Pick<Quotation, 'quotation_no'>[], type: QuotationPrintType): string {
+  const prefix = QUOTATION_PRINT_TYPES.find((t) => t.id === type)!.prefix
+  let best = 0
+  for (const q of quotations) {
+    if (seriesOf(q.quotation_no) !== prefix) continue
+    const n = Number((q.quotation_no ?? '').match(/(\d+)\s*$/)?.[1])
+    if (Number.isFinite(n) && n > best) best = n
+  }
+  return `${prefix}-${best + 1}`
 }
 
 /** The next number after the highest one used, keeping its prefix ("F-5293"). */

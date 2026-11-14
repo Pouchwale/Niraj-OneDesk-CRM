@@ -16,8 +16,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { getAssignableOwners, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { demoCompanyStore } from '@/lib/demo-companies'
-import { PERFORMANCE, QUOTATION_SOURCES, QUOTATION_STATUS_LABEL, followupCount, nextQuotationNo } from '@/lib/quotations'
-import type { Quotation, QuotationStatus } from '@/lib/types'
+import { PERFORMANCE, QUOTATION_PRINT_TYPES, QUOTATION_SOURCES, QUOTATION_STATUS_LABEL, followupCount, nextQuotationNoFor, printTypeOf } from '@/lib/quotations'
+import type { Quotation, QuotationStatus, QuotationPrintType } from '@/lib/types'
 import { formatDate, todayISO } from '@/lib/utils'
 
 const newId = () => `quote-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -41,12 +41,14 @@ export function QuotationDialog({
   const today = todayISO()
   // The live copy, so a follow-up logged here shows straight away.
   const live = quotation ? all.find((q) => q.id === quotation.id) ?? quotation : null
+  // Every number in use (a coordinator sees only their own quotations, so the server sends all the numbers too).
+  const numbersInUse = () => [...demoCompanyStore.getQuotations(), ...demoCompanyStore.quotationNos.map((n) => ({ quotation_no: n }))]
   const [form, setForm] = useState(() => ({
     inquiry_date: quotation?.inquiry_date ?? today,
     quotation_date: quotation?.quotation_date ?? today,
-    quotation_no:
-      quotation?.quotation_no ??
-      nextQuotationNo([...demoCompanyStore.getQuotations(), ...demoCompanyStore.quotationNos.map((n) => ({ quotation_no: n }))]),
+    // Digital or Flexo comes first on a new quotation; the number follows from it.
+    print_type: (quotation ? printTypeOf(quotation) ?? '' : '') as string,
+    quotation_no: quotation?.quotation_no ?? '',
     customer_name: quotation?.customer_name ?? '',
     concern_person: quotation?.concern_person ?? '',
     contact_number: quotation?.contact_number ?? '',
@@ -69,12 +71,20 @@ export function QuotationDialog({
       // Closed or Lost: the closing date is today unless one is already set.
       if (key === 'status' && value !== 'open' && !f.closing_date) next.closing_date = today
       if (key === 'status' && value === 'open') next.closing_date = ''
+      // A new quotation's type picks its series: the number becomes that series' next one,
+      // unless someone has typed a number of their own.
+      if (key === 'print_type' && !quotation && value) {
+        const suggested = QUOTATION_PRINT_TYPES.map((t) => nextQuotationNoFor(numbersInUse(), t.id))
+        if (!f.quotation_no.trim() || suggested.includes(f.quotation_no.trim())) next.quotation_no = nextQuotationNoFor(numbersInUse(), value as QuotationPrintType)
+      }
       return next
     })
 
   const problem =
     !form.customer_name.trim()
       ? 'Enter the customer.'
+      : !quotation && !form.print_type
+        ? 'Choose Digital or Flexo.'
       : form.status === 'lost' && form.lost_remark.trim().length < 3
         ? 'Say why it was lost.'
         : form.status === 'closed' && !(Number(form.amount) > 0)
@@ -98,6 +108,7 @@ export function QuotationDialog({
       quotation_date: form.quotation_date || null,
       sales_employee: form.sales_employee.trim() || null,
       quotation_no: form.quotation_no.trim() || null,
+      print_type: (form.print_type as QuotationPrintType) || null,
       followups: live?.followups ?? [],
       earlier_followups: live?.earlier_followups ?? 0,
       closing_date: form.status === 'open' ? null : form.closing_date || today,
@@ -167,8 +178,20 @@ export function QuotationDialog({
           {field('Customer', 'customer_name', { placeholder: 'Company name' })}
           {field('Concern person', 'concern_person')}
           {field('Contact number', 'contact_number')}
-          {field('Quotation no', 'quotation_no')}
+          {/* Digital or Flexo sits just above the quotation number (same column), which follows from it. */}
+          <div className="space-y-1">
+            <Label htmlFor="q-print-type">Type</Label>
+            <select id="q-print-type" className={selectClass} value={form.print_type} onChange={(e) => set('print_type', e.target.value)} disabled={!canEdit} data-testid="quotation-print-type">
+              <option value="">Choose Digital or Flexo</option>
+              {QUOTATION_PRINT_TYPES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label} ({t.prefix}-…)
+                </option>
+              ))}
+            </select>
+          </div>
           {field('Enquiry date', 'inquiry_date', { type: 'date' })}
+          {field('Quotation no', 'quotation_no', { placeholder: form.print_type ? '' : 'Choose the type first' })}
           {field('Quotation date', 'quotation_date', { type: 'date' })}
           <div className="space-y-1">
             <Label htmlFor="q-source">Source of enquiry</Label>
