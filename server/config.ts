@@ -29,6 +29,7 @@ export const PATH_ENV: Record<ExcelBook, readonly string[]> = {
   overdue: [BOOK_PATH_ENV.overdue, 'EXCEL_OVERDUE_PAYMENT_PATH', 'EXCEL_OVERDUE_PATH'],
   rfd: [BOOK_PATH_ENV.rfd, 'EXCEL_READY_FOR_DISPATCH_PATH'],
   otif: [BOOK_PATH_ENV.otif, 'EXCEL_OTIF_SCORE_PATH'],
+  presales: [BOOK_PATH_ENV.presales, 'EXCEL_PRE_SALES_PATH'],
 }
 
 export const SHEET_ENV: Record<ExcelBook, readonly string[]> = {
@@ -36,6 +37,7 @@ export const SHEET_ENV: Record<ExcelBook, readonly string[]> = {
   overdue: ['EXCEL_OVERDUE_PAYMENTS_SHEET', 'EXCEL_OVERDUE_PAYMENT_SHEET', 'EXCEL_OVERDUE_SHEET'],
   rfd: ['EXCEL_RFD_SHEET'],
   otif: ['EXCEL_OTIF_SHEET', 'EXCEL_OTIF_SCORE_SHEET'],
+  presales: ['EXCEL_PRESALES_SHEET'],
 }
 
 export function preferredPathEnv(book: ExcelBook): string {

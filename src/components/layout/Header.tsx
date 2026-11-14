@@ -15,6 +15,7 @@ const PAGE_TITLES: [string, string][] = [
   ['/overdue', 'Overdue Payments'],
   ['/rfd', 'Ready for Dispatch'],
   ['/quotations', 'Quotations'],
+  ['/pre-sales', 'Pre Sales Analysis'],
   ['/billing-issues', 'Billing Issues'],
   ['/service', 'Service'],
   ['/self-leads', 'Self Leads'],

@@ -134,8 +134,8 @@ describe('explainSkips', () => {
   })
 
   it('labels the books the way the screens do', () => {
-    expect(BOOK_LABEL).toEqual({ companies: 'Active Payments', overdue: 'Overdue Payments', rfd: 'Ready for Dispatch', otif: 'OTIF Analytics' })
-    // OTIF is read by OTIF Analytics only, never synced into the records.
+    expect(BOOK_LABEL).toEqual({ companies: 'Active Payments', overdue: 'Overdue Payments', rfd: 'Ready for Dispatch', otif: 'OTIF Analytics', presales: 'Pre Sales Analysis' })
+    // OTIF and Pre-Sales are read for their own analysis only, never synced into the records.
     expect(SYNCED_BOOKS).toEqual(['companies', 'overdue', 'rfd'])
   })
 })

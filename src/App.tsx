@@ -29,6 +29,7 @@ const SettingsPage = lazyPage(() => import('@/features/settings/SettingsPage'), 
 const AdminOverviewPage = lazyPage(() => import('@/features/companies/AdminOverviewPage'), 'AdminOverviewPage');
 const RfdPage = lazyPage(() => import('@/features/rfd/RfdPage'), 'RfdPage');
 const QuotationsPage = lazyPage(() => import('@/features/quotations/QuotationsPage'), 'QuotationsPage');
+const PreSalesPage = lazyPage(() => import('@/features/presales/PreSalesPage'), 'PreSalesPage');
 const BillingIssuesPage = lazyPage(() => import('@/features/billing-issues/BillingIssuesPage'), 'BillingIssuesPage');
 const ServicePage = lazyPage(() => import('@/features/service/ServicePage'), 'ServicePage');
 const SelfLeadsPage = lazyPage(() => import('@/features/self-leads/SelfLeadsPage'), 'SelfLeadsPage');
@@ -131,6 +132,7 @@ function AppContent() {
           <Route path="overdue" element={<NotForRfdOnly><OverdueDashboardPage /></NotForRfdOnly>} />
           <Route path="rfd" element={<RfdPage />} />
           <Route path="quotations" element={<NotForRfdOnly><QuotationsPage /></NotForRfdOnly>} />
+          <Route path="pre-sales" element={<NotForRfdOnly><PreSalesPage /></NotForRfdOnly>} />
           <Route path="billing-issues" element={<BillingIssuesPage />} />
           <Route path="service" element={<NotForRfdOnly><ServicePage /></NotForRfdOnly>} />
           <Route path="self-leads" element={<NotForRfdOnly><SelfLeadsPage /></NotForRfdOnly>} />

@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Building2, AlertTriangle, PackageCheck, FileText, ReceiptText, Mail, UserPlus, PartyPopper, History } from 'lucide-react';
+import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Building2, AlertTriangle, PackageCheck, FileText, ReceiptText, Mail, UserPlus, PartyPopper, History, ShoppingCart } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { cn } from '@/lib/utils';
 import { isRfdOnly } from '@/lib/users/rfd-only';
@@ -24,6 +24,7 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
     { to: '/overdue', icon: AlertTriangle, label: 'Overdue Payments', show: !rfdOnly },
     { to: '/rfd', icon: PackageCheck, label: 'Ready for Dispatch', show: true },
     { to: '/quotations', icon: FileText, label: 'Quotations', show: !rfdOnly },
+    { to: '/pre-sales', icon: ShoppingCart, label: 'Pre Sales Analysis', show: !rfdOnly },
     { to: '/billing-issues', icon: ReceiptText, label: 'Billing Issues', show: true },
     { to: '/service', icon: Mail, label: 'Service', show: !rfdOnly },
     { to: '/self-leads', icon: UserPlus, label: 'Self Leads', show: !rfdOnly },

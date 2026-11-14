@@ -101,13 +101,14 @@ export type AiChatEvent =
 
 /* ===================== Excel books ===================== */
 
-export const EXCEL_BOOKS = ['companies', 'overdue', 'rfd', 'otif'] as const
+export const EXCEL_BOOKS = ['companies', 'overdue', 'rfd', 'otif', 'presales'] as const
 export type ExcelBook = (typeof EXCEL_BOOKS)[number]
 
 /**
  * The books imported into the CRM's records. OTIF (since 7 Nov 2026) is only
  * read by OTIF Analytics for its own analysis: nothing is ever imported from
- * it, so it is not one of these.
+ * it, so it is not one of these. Nor is Pre-Sales-Order-CRM (14 Nov 2026),
+ * which the server reads for Pre Sales Analysis.
  */
 export const SYNCED_BOOKS = ['companies', 'overdue', 'rfd'] as const satisfies readonly ExcelBook[]
 export type SyncedBook = (typeof SYNCED_BOOKS)[number]
@@ -122,6 +123,7 @@ export const BOOK_LABEL: Record<ExcelBook, string> = {
   overdue: 'Overdue Payments',
   rfd: 'Ready for Dispatch',
   otif: 'OTIF Analytics',
+  presales: 'Pre Sales Analysis',
 }
 
 /** The setting that points at each book, named after the screen it feeds. */
@@ -130,6 +132,7 @@ export const BOOK_PATH_ENV: Record<ExcelBook, string> = {
   overdue: 'EXCEL_OVERDUE_PAYMENTS_PATH',
   rfd: 'EXCEL_RFD_PATH',
   otif: 'EXCEL_OTIF_PATH',
+  presales: 'EXCEL_PRESALES_PATH',
 }
 
 export interface ExcelBookStatus {

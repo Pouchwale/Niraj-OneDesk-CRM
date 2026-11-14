@@ -20,11 +20,12 @@ export function excelRoutes(service: ExcelService, logger: Logger): Router {
     const book = req.query.book
     // The only thing a caller may choose is which configured book to read.
     if (!isExcelBook(book)) {
-      next(ApiError.badRequest('Ask for book=companies, book=overdue, book=rfd or book=otif.'))
+      next(ApiError.badRequest('Ask for book=companies, book=overdue, book=rfd, book=otif or book=presales.'))
       return
     }
     // OTIF Analytics is the team leader's and the administrator's screen, so its file is theirs too.
-    if (book === 'otif' && req.user?.role !== 'admin' && req.user?.role !== 'team_leader') {
+    // Pre-Sales-Order-CRM is read by the server, which sends each coordinator only their customers.
+    if ((book === 'otif' || book === 'presales') && req.user?.role !== 'admin' && req.user?.role !== 'team_leader') {
       next(ApiError.forbidden('Your account does not have access to that.'))
       return
     }

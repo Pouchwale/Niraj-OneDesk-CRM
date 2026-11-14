@@ -59,10 +59,11 @@ export async function getExcelStatus(): Promise<Record<ExcelBook, ExcelBookStatu
       overdue: data.books?.overdue ?? UNCONFIGURED('overdue'),
       rfd: data.books?.rfd ?? UNCONFIGURED('rfd'),
       otif: data.books?.otif ?? UNCONFIGURED('otif'),
+      presales: data.books?.presales ?? UNCONFIGURED('presales'),
     }
   } catch {
     // No server behind the page (a static preview, say): nothing is connected.
-    return { companies: UNCONFIGURED('companies'), overdue: UNCONFIGURED('overdue'), rfd: UNCONFIGURED('rfd'), otif: UNCONFIGURED('otif') }
+    return { companies: UNCONFIGURED('companies'), overdue: UNCONFIGURED('overdue'), rfd: UNCONFIGURED('rfd'), otif: UNCONFIGURED('otif'), presales: UNCONFIGURED('presales') }
   }
 }
 

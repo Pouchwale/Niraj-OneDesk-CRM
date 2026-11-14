@@ -30,6 +30,7 @@ import { scoreInputs } from './modules/score-history/inputs'
 import { scoreHistoryRoutes } from './modules/score-history/routes'
 import { createOtifReportsStore } from './modules/otif-reports/store'
 import { otifReportRoutes } from './modules/otif-reports/routes'
+import { presalesRoutes } from './modules/presales/routes'
 import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
@@ -185,6 +186,33 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   router.use('/ai', requireSession(accounts, sessions), aiRoutes(ai))
   router.use('/excel', requireSession(accounts, sessions), excelRoutes(excel, logger))
   router.use('/score-history', requireSession(accounts, sessions), scoreHistoryRoutes(scoreHistory, logger))
+  // Pre Sales Analysis (14 Nov 2026): the server reads the workbook and sends each coordinator only their customers,
+  // matched by customer code to the CRM's Active and Overdue Payments accounts.
+  router.use(
+    '/presales',
+    requireSession(accounts, sessions),
+    presalesRoutes({
+      excel,
+      config: config.excel.presales,
+      assigned: () => {
+        const map = new Map<string, string | null>()
+        const snap = data.snapshot()
+        for (const p of snap.overduePayments ?? []) {
+          const code = String(p.bp_code ?? '').trim().toUpperCase()
+          if (code && p.assigned_coordinator_id) map.set(code, p.assigned_coordinator_id)
+        }
+        // Active Payments speaks last: it is the current book.
+        for (const c of snap.companies ?? []) {
+          const code = String(c.sap_bp_code ?? '').trim().toUpperCase()
+          if (code && c.assigned_coordinator_id) map.set(code, c.assigned_coordinator_id)
+        }
+        return map
+      },
+      coordinators: () => accounts.roster().filter((u) => u.role === 'coordinator').map((u) => ({ id: u.id, name: u.full_name })),
+      snapshotDir: config.snapshotDir,
+      logger,
+    })
+  )
 
   router.use(notFoundHandler)
   router.use(errorHandler(logger))
