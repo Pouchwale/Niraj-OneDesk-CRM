@@ -12,10 +12,11 @@
  * the ratio as it is now.
  */
 
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  checkFinalWeights,
+  checkFinalRatio,
   computePeriod,
   earliestDay,
   keysBetween,
@@ -23,6 +24,8 @@ import {
   periodId,
   periodRange,
   recentKeys,
+  ratioOn,
+  type FinalRatio,
   type FinalWeightsSetting,
   type PeriodKind,
   type PeriodScores,
@@ -31,6 +34,12 @@ import {
 import { toLocalISODate } from '../../../src/lib/utils'
 
 export const SCORE_HISTORY_FILE = 'score-history.json'
+
+/** The ratios a file holds; the first single ratio, if a file still has one, reads as a ratio from the start. */
+function ratiosOf(file: { finalWeights?: FinalWeightsSetting | null; finalRatios?: FinalRatio[] }): FinalRatio[] {
+  if (file.finalRatios) return [...file.finalRatios].sort((a, b) => a.from.localeCompare(b.from))
+  return file.finalWeights ? [{ id: 'first', from: '2000-01-01', to: null, ...file.finalWeights }] : []
+}
 const KINDS: PeriodKind[] = ['week', 'month', 'year']
 /** The furthest back the first run fills in. */
 const BACKFILL_YEARS = 5
@@ -40,8 +49,10 @@ interface HistoryFile {
   /** The first day any module had data when the history was first filled in. */
   firstDay: string | null
   periods: Record<string, PeriodScores>
-  /** The administrator's final score ratio; absent while none is set. */
+  /** The first single ratio (14 Nov 2026, never set on the live CRM); read as a ratio from the start. */
   finalWeights?: FinalWeightsSetting | null
+  /** The administrator's final score ratios by dates. */
+  finalRatios?: FinalRatio[]
 }
 
 export interface ScoreHistoryStore {
@@ -51,10 +62,12 @@ export interface ScoreHistoryStore {
   periods(kind: PeriodKind, count: number): PeriodScores[]
   /** Works a locked period out again from today's records; null when it is not locked. */
   relock(id: string, by: string): PeriodScores | null
-  /** The final score ratio now; null while none is set. */
-  finalWeights(): FinalWeightsSetting | null
-  /** Sets the ratio (checked: adds up to 100), or clears it with null. Throws a message for the screen. */
-  setFinalWeights(weights: unknown, by: string): FinalWeightsSetting | null
+  /** The final score ratios by dates, oldest first. */
+  finalRatios(): FinalRatio[]
+  /** Adds a dated ratio, or changes the one with `id`. Throws a message for the screen. */
+  saveFinalRatio(input: unknown, by: string, id?: string): FinalRatio
+  /** Removes a dated ratio; false when there was none. */
+  deleteFinalRatio(id: string): boolean
 }
 
 /**
@@ -123,8 +136,11 @@ export function createScoreHistoryStore(
     }
     data ??= freshInputs()
     const at = now().toISOString()
-    const weights = file.finalWeights?.weights ?? null
-    for (const [kind, key] of due) file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', finalWeights: weights }
+    // Each period locks with the ratio in force on its first day, as it stands now.
+    const ratios = ratiosOf(file)
+    for (const [kind, key] of due) {
+      file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', finalWeights: ratioOn(ratios, periodRange(kind, key).start)?.weights ?? null }
+    }
     write(file)
     return due.map(([kind, key]) => periodId(kind, key))
   }
@@ -140,7 +156,7 @@ export function createScoreHistoryStore(
       const locked = file.periods[periodId(kind, key)]
       if (locked) return locked
       // Still open, or ended within the grace days: worked out live.
-      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, finalWeights: file.finalWeights?.weights ?? null }
+      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, finalWeights: ratioOn(ratiosOf(file), periodRange(kind, key).start)?.weights ?? null }
     })
   }
 
@@ -158,17 +174,32 @@ export function createScoreHistoryStore(
     return again
   }
 
-  const finalWeights = (): FinalWeightsSetting | null => read().finalWeights ?? null
+  const finalRatios = (): FinalRatio[] => ratiosOf(read())
 
-  const setFinalWeights = (weights: unknown, by: string): FinalWeightsSetting | null => {
-    const setting = weights === null ? null : { weights: checkFinalWeights(weights), updatedAt: now().toISOString(), updatedBy: by }
+  const saveFinalRatio = (input: unknown, by: string, id?: string): FinalRatio => {
+    const checked = checkFinalRatio(input)
     const file = read()
-    file.finalWeights = setting
+    const list = ratiosOf(file)
+    if (id && !list.some((r) => r.id === id)) throw new Error('That ratio is not there any more.')
+    if (list.some((r) => r.id !== id && r.from === checked.from)) throw new Error('Another ratio already starts on that date; change that one instead.')
+    const ratio: FinalRatio = { id: id ?? randomUUID(), ...checked, updatedAt: now().toISOString(), updatedBy: by }
+    file.finalRatios = [...list.filter((r) => r.id !== ratio.id), ratio].sort((a, b) => a.from.localeCompare(b.from))
+    delete file.finalWeights
     write(file)
-    return setting
+    return ratio
   }
 
-  return { lockDue, periods, relock, finalWeights, setFinalWeights }
+  const deleteFinalRatio = (id: string): boolean => {
+    const file = read()
+    const list = ratiosOf(file)
+    if (!list.some((r) => r.id === id)) return false
+    file.finalRatios = list.filter((r) => r.id !== id)
+    delete file.finalWeights
+    write(file)
+    return true
+  }
+
+  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio }
 }
 
 /** A minute and a half after start (the data is loaded by then), and every half hour after, lock what has ended. */

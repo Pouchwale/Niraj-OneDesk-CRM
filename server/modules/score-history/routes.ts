@@ -5,7 +5,7 @@
  * again, or set the final score ratio (14 Nov 2026).
  */
 
-import { Router } from 'express'
+import { Router, type NextFunction, type Request, type Response } from 'express'
 import { ApiError } from '../../http/errors'
 import type { Logger } from '../../logger'
 import { requireRole } from '../auth/middleware'
@@ -30,7 +30,7 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
         today: toLocalISODate(new Date()),
         graceDays: lockGraceDays(kind),
         periods: store.periods(kind, count).map((p) => ({ ...p, entries: seesTeam ? p.entries : p.entries.filter((e) => e.coordinatorId === user.id) })),
-        finalWeights: store.finalWeights(),
+        finalRatios: store.finalRatios(),
       }
       res.json(body)
     } catch (err) {
@@ -53,18 +53,32 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
     }
   })
 
-  router.put('/weights', requireRole(), (req, res, next) => {
+  // The final score ratios by dates (14 Nov 2026): the administrator adds, changes and removes them.
+  const saveRatio = (id?: string) => (req: Request, res: Response, next: NextFunction) => {
     try {
-      const weights = (req.body as { weights?: unknown } | undefined)?.weights
-      let setting
+      let ratio
       try {
-        setting = store.setFinalWeights(weights, req.user!.id)
+        ratio = store.saveFinalRatio(req.body, req.user!.id, id ?? (req.params.id ? String(req.params.id) : undefined))
       } catch (err) {
         next(ApiError.badRequest(err instanceof Error ? err.message : 'That ratio cannot be used.'))
         return
       }
-      logger.info('score history: final score ratio set', { weights: setting?.weights ?? null, by: req.user!.id })
-      res.json({ finalWeights: setting })
+      logger.info('score history: final score ratio saved', { from: ratio.from, to: ratio.to, weights: ratio.weights, by: req.user!.id })
+      res.json({ ratio, finalRatios: store.finalRatios() })
+    } catch (err) {
+      next(err)
+    }
+  }
+  router.post('/ratios', requireRole(), saveRatio())
+  router.put('/ratios/:id', requireRole(), saveRatio())
+  router.delete('/ratios/:id', requireRole(), (req, res, next) => {
+    try {
+      if (!store.deleteFinalRatio(String(req.params.id))) {
+        next(ApiError.notFound('That ratio is not there any more.'))
+        return
+      }
+      logger.info('score history: final score ratio removed', { id: req.params.id, by: req.user!.id })
+      res.json({ finalRatios: store.finalRatios() })
     } catch (err) {
       next(err)
     }

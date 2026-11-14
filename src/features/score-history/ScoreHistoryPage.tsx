@@ -12,8 +12,8 @@
  * 100, so the colours, the averages and the locked history are unchanged.
  *
  * The final score ratio (14 Nov 2026): the administrator gives each module a
- * share of the final score (FinalRatioCard). A period uses the ratio it was
- * locked with, an open one the ratio as it is now.
+ * share of the final score, by dates (FinalRatioCard): a period uses the ratio
+ * in force on its first day, as it stood when it locked (an open one: now).
  *
  * Every table is fixed to the page width, so no desktop screen needs a
  * sideways scroll; the final score sits next to the name, where Robi's
@@ -29,6 +29,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getAllCoordinators, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { scoreTone } from '@/features/assistant/scores'
@@ -44,14 +45,16 @@ import {
   periodLabel,
   SCORE_MODULES,
   type FinalWeights,
-  type FinalWeightsSetting,
+  ratioEnd,
+  ratioOn,
+  type FinalRatio,
   type PeriodKind,
   type PeriodScores,
   type ScoreEntry,
   type ScoreHistoryResponse,
   type ScoreModule,
 } from '@/lib/score-history'
-import { getScoreHistory, recalculatePeriod, saveFinalWeights } from '@/lib/score-history-api'
+import { deleteFinalRatio, getScoreHistory, recalculatePeriod, saveFinalRatio } from '@/lib/score-history-api'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { formatFinal, formatPart, formatScore } from './format'
 
@@ -223,8 +226,8 @@ export function ScoreHistoryPage() {
     period?.entries.find((e) => e.coordinatorId === personId && e.module === m)
   const finalOf = (period: PeriodScores | null, personId: string) =>
     finalScoreOf(period?.entries.filter((e) => e.coordinatorId === personId) ?? [], period?.finalWeights ?? null)
-  // The ratio as set now; the hint follows it.
-  const ratio = data?.finalWeights ?? null
+  // The hint follows the period on screen: worked out by a ratio, or the plain average.
+  const ratio = selected?.finalWeights ?? null
   const finalHint = ratio ? FINAL_WEIGHTED_HINT : FINAL_HINT
 
   const workOutAgain = async () => {
@@ -587,40 +590,52 @@ export function ScoreHistoryPage() {
     <div className="space-y-6 pb-24">
       {header}
       {controls}
-      <FinalRatioCard setting={ratio} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
+      <FinalRatioCard ratios={data?.finalRatios ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
       {body}
     </div>
   )
 }
 
 /**
- * The final score ratio: everyone sees it; the administrator sets it. Each
- * module gets a share in percent and the shares add up to 100. A module with
- * no score that period counts as -100 for its share (the user's choice,
- * 14 Nov 2026), so a module the team does not use should be given 0%.
+ * The final score ratios by dates (14 Nov 2026): everyone sees them; the
+ * administrator adds, changes and removes them. Each has a From date and an
+ * optional To date (empty: from then on, until a newer ratio starts) and a
+ * share per module adding up to 100. A week, month or year uses the ratio in
+ * force on its first day; dates no ratio covers use the nearest earlier one.
+ * A period already locked keeps the ratio it locked with.
  */
-function FinalRatioCard({ setting, isAdmin, loaded, onSaved }: { setting: FinalWeightsSetting | null; isAdmin: boolean; loaded: boolean; onSaved: () => Promise<void> }) {
-  const [editing, setEditing] = useState(false)
+function FinalRatioCard({ ratios, today, isAdmin, loaded, onSaved }: { ratios: FinalRatio[]; today: string; isAdmin: boolean; loaded: boolean; onSaved: () => Promise<void> }) {
+  const [editing, setEditing] = useState<FinalRatio | 'new' | null>(null)
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  if (!loaded || (!setting && !isAdmin)) return null
+  if (!loaded || (!ratios.length && !isAdmin)) return null
 
-  const start = () => {
-    const w = setting?.weights ?? {}
-    setDraft(Object.fromEntries(SCORE_MODULES.map((m) => [m.id, String(w[m.id] ?? 0)])))
-    setEditing(true)
+  const inForce = ratioOn(ratios, today)
+  const start = (ratio: FinalRatio | 'new') => {
+    const base = ratio === 'new' ? ratios[ratios.length - 1] : ratio
+    setFrom(ratio === 'new' ? today : ratio.from)
+    setTo(ratio === 'new' ? '' : ratio.to ?? '')
+    setDraft(Object.fromEntries(SCORE_MODULES.map((m) => [m.id, String(base?.weights[m.id] ?? 0)])))
+    setEditing(ratio)
   }
-  const numbers = SCORE_MODULES.map((m) => (draft[m.id] ?? '').trim() === '' ? 0 : Number(draft[m.id]))
+  const numbers = SCORE_MODULES.map((m) => ((draft[m.id] ?? '').trim() === '' ? 0 : Number(draft[m.id])))
   const valid = numbers.every((n) => Number.isFinite(n) && n >= 0 && n <= 100)
   const total = Math.round(numbers.reduce((a, n) => a + (Number.isFinite(n) ? n : 0), 0) * 100) / 100
-  const ok = valid && Math.abs(total - 100) < 0.001
+  const datesOk = Boolean(from) && (!to || to >= from)
+  const ok = valid && Math.abs(total - 100) < 0.001 && datesOk
 
-  const save = async (weights: FinalWeights | null) => {
+  const save = async () => {
+    if (!editing) return
     setSaving(true)
     try {
-      await saveFinalWeights(weights)
-      toast.success(weights ? 'Final score ratio saved.' : 'Back to the plain average.', { description: 'Open weeks, months and years use it now; locked ones keep theirs.' })
-      setEditing(false)
+      await saveFinalRatio(
+        { from, to: to || null, weights: Object.fromEntries(SCORE_MODULES.map((m, i) => [m.id, numbers[i]])) as FinalWeights },
+        editing === 'new' ? undefined : editing.id
+      )
+      toast.success('Final score ratio saved.', { description: 'Weeks, months and years from these dates that are still open use it; locked ones keep theirs.' })
+      setEditing(null)
       await onSaved()
     } catch (err) {
       toast.error('Not saved.', { description: err instanceof Error ? err.message : 'Try again.' })
@@ -628,34 +643,84 @@ function FinalRatioCard({ setting, isAdmin, loaded, onSaved }: { setting: FinalW
       setSaving(false)
     }
   }
+  const remove = async (ratio: FinalRatio) => {
+    if (!window.confirm(`Remove the ratio from ${formatDate(ratio.from)}? Open periods in its dates go to the nearest earlier ratio (or the plain average).`)) return
+    try {
+      await deleteFinalRatio(ratio.id)
+      toast.success('Ratio removed.')
+      await onSaved()
+    } catch (err) {
+      toast.error('Not removed.', { description: err instanceof Error ? err.message : 'Try again.' })
+    }
+  }
+  const datesOf = (r: FinalRatio) => {
+    const end = ratioEnd(r, ratios)
+    return `${formatDate(r.from)} – ${end ? formatDate(end) : 'onward'}${!r.to && end ? ' (until the next ratio)' : ''}`
+  }
 
   return (
     <GlassCard className="space-y-3 p-4" data-testid="final-ratio">
       <div className="flex flex-wrap items-center gap-3">
         <Scale className="h-4 w-4 text-muted-foreground" />
         <p className="text-sm font-semibold">Final score ratio</p>
-        {!editing && (
-          <p className="text-sm text-muted-foreground">
-            {setting
-              ? SCORE_MODULES.filter((m) => (setting.weights[m.id] ?? 0) > 0)
-                  .map((m) => `${m.label} ${setting.weights[m.id]}%`)
-                  .join(' · ')
-              : 'Not set: the final score is the plain average of the modules that have a score.'}
-          </p>
-        )}
-        {!editing && setting && (
-          <span className="text-xs text-muted-foreground">
-            Set by {getCoordinatorDisplayName(setting.updatedBy)} on {formatDate(setting.updatedAt.slice(0, 10))}
-          </span>
-        )}
+        <p className="text-xs text-muted-foreground">
+          {ratios.length
+            ? 'A week, month or year uses the ratio in force on its first day; dates no ratio covers use the nearest earlier one. Locked periods keep theirs.'
+            : 'Not set: the final score is the plain average of the modules that have a score.'}
+        </p>
         {isAdmin && !editing && (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={start}>
-            {setting ? 'Change ratio' : 'Set ratio'}
+          <Button size="sm" variant="outline" className="ml-auto" onClick={() => start('new')} data-testid="final-ratio-add">
+            Add ratio
           </Button>
         )}
       </div>
+
+      {ratios.length > 0 && (
+        <div className="divide-y divide-border/50 rounded-md border border-border/50" data-testid="final-ratio-list">
+          {[...ratios].reverse().map((r) => (
+            <div key={r.id} className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm', inForce?.id === r.id && 'bg-primary/5')}>
+              <span className="min-w-[230px] font-medium">
+                {datesOf(r)}
+                {inForce?.id === r.id && <Badge variant="outline" className="ml-2 font-normal">In force today</Badge>}
+              </span>
+              <span className="flex-1 text-muted-foreground">
+                {SCORE_MODULES.filter((m) => (r.weights[m.id] ?? 0) > 0)
+                  .map((m) => `${m.label} ${r.weights[m.id]}%`)
+                  .join(' · ')}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Set by {getCoordinatorDisplayName(r.updatedBy)} on {formatDate(r.updatedAt.slice(0, 10))}
+              </span>
+              {isAdmin && !editing && (
+                <span className="flex gap-1">
+                  <Button size="sm" variant="ghost" className="h-7" onClick={() => start(r)}>
+                    Change
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-rose-600" onClick={() => void remove(r)}>
+                    Remove
+                  </Button>
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {editing && (
-        <div className="space-y-3">
+        <div className="space-y-3 rounded-md border border-primary/30 p-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="ratio-from" className="text-xs text-muted-foreground">From</Label>
+              <Input id="ratio-from" type="date" className="h-9 w-[160px]" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ratio-to" className="text-xs text-muted-foreground">To (empty = onward)</Label>
+              <Input id="ratio-to" type="date" className="h-9 w-[160px]" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {from ? `${formatDate(from)} – ${to ? formatDate(to) : 'onward, until a newer ratio starts'}` : 'Choose the date the ratio starts'}
+            </p>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {SCORE_MODULES.map((m) => (
               <label key={m.id} className="space-y-1">
@@ -679,23 +744,15 @@ function FinalRatioCard({ setting, isAdmin, loaded, onSaved }: { setting: FinalW
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <p className={cn('text-sm font-medium', ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600')} data-testid="final-ratio-total">
-              Total {total}%{ok ? '' : ' (must be 100%)'}
+              Total {total}%{Math.abs(total - 100) < 0.001 ? '' : ' (must be 100%)'}
+              {!datesOk && ' · check the dates'}
             </p>
             <p className="text-xs text-muted-foreground">A module with no score that period counts as -100 for its share; give 0% to a module the team does not use.</p>
             <div className="ml-auto flex gap-2">
-              {setting && (
-                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void save(null)}>
-                  Use plain average
-                </Button>
-              )}
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => setEditing(false)}>
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => setEditing(null)}>
                 Cancel
               </Button>
-              <Button
-                size="sm"
-                disabled={!ok || saving}
-                onClick={() => void save(Object.fromEntries(SCORE_MODULES.map((m, i) => [m.id, numbers[i]])) as FinalWeights)}
-              >
+              <Button size="sm" disabled={!ok || saving} onClick={() => void save()}>
                 {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                 Save ratio
               </Button>

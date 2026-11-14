@@ -1,6 +1,6 @@
 /** The score history from the server (see server/modules/score-history). */
 
-import { SCORE_HISTORY_ROUTE, type FinalWeights, type FinalWeightsSetting, type PeriodKind, type PeriodScores, type ScoreHistoryResponse } from './score-history'
+import { SCORE_HISTORY_ROUTE, type FinalRatio, type FinalWeights, type PeriodKind, type PeriodScores, type ScoreHistoryResponse } from './score-history'
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -20,8 +20,12 @@ export const getScoreHistory = (kind: PeriodKind, count?: number) =>
   call<ScoreHistoryResponse>(`${SCORE_HISTORY_ROUTE}?kind=${kind}${count ? `&count=${count}` : ''}`)
 
 /** The administrator works a locked period out again from today's records. */
-/** The administrator sets the final score ratio (null goes back to the plain average). */
-export const saveFinalWeights = (weights: FinalWeights | null) =>
-  call<{ finalWeights: FinalWeightsSetting | null }>(`${SCORE_HISTORY_ROUTE}/weights`, { method: 'PUT', body: JSON.stringify({ weights }) })
+/** The administrator adds a dated final score ratio, or changes the one with `id`. */
+export const saveFinalRatio = (ratio: { from: string; to: string | null; weights: FinalWeights }, id?: string) =>
+  call<{ ratio: FinalRatio; finalRatios: FinalRatio[] }>(`${SCORE_HISTORY_ROUTE}/ratios${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(ratio) })
+
+/** The administrator removes a dated ratio. */
+export const deleteFinalRatio = (id: string) =>
+  call<{ finalRatios: FinalRatio[] }>(`${SCORE_HISTORY_ROUTE}/ratios/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 export const recalculatePeriod = (id: string) => call<PeriodScores>(`${SCORE_HISTORY_ROUTE}/recalculate`, { method: 'POST', body: JSON.stringify({ id }) })

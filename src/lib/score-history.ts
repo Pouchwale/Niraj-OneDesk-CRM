@@ -73,6 +73,49 @@ export interface FinalWeightsSetting {
   updatedBy: string
 }
 
+/**
+ * A ratio for a run of dates (14 Nov 2026): from `from` to `to` (both
+ * included); `to` empty is "from this date on, until a newer ratio starts".
+ */
+export interface FinalRatio extends FinalWeightsSetting {
+  id: string
+  from: string
+  to: string | null
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+const isDay = (v: unknown): v is string => typeof v === 'string' && DAY.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
+
+/** A dated ratio as given, checked. Throws a message for the screen. */
+export function checkFinalRatio(value: unknown): { from: string; to: string | null; weights: FinalWeights } {
+  const v = (value ?? {}) as { from?: unknown; to?: unknown; weights?: unknown }
+  if (!isDay(v.from)) throw new Error('Give the date the ratio starts from.')
+  const to = v.to === null || v.to === undefined || v.to === '' ? null : v.to
+  if (to !== null && !isDay(to)) throw new Error('The To date is not a date.')
+  if (to !== null && to < v.from) throw new Error('The To date is before the From date.')
+  return { from: v.from, to, weights: checkFinalWeights(v.weights) }
+}
+
+/** The last day a ratio is in force: its To date, or (open-ended) the day before the next ratio starts; null = no end. */
+export function ratioEnd(ratio: Pick<FinalRatio, 'from' | 'to'>, all: readonly Pick<FinalRatio, 'from' | 'to'>[]): string | null {
+  if (ratio.to) return ratio.to
+  const next = all.filter((r) => r.from > ratio.from).sort((a, b) => a.from.localeCompare(b.from))[0]
+  return next ? addDays(next.from, -1) : null
+}
+
+/**
+ * The ratio in force on a day: the one whose dates cover it (the latest
+ * start if two do); with none, the nearest earlier one (the last to end
+ * before it); before every ratio, none (the plain average).
+ */
+export function ratioOn<R extends Pick<FinalRatio, 'from' | 'to'>>(ratios: readonly R[], day: string): R | null {
+  const covering = ratios.filter((r) => r.from <= day && (ratioEnd(r, ratios) ?? '9999-12-31') >= day)
+  if (covering.length) return covering.sort((a, b) => b.from.localeCompare(a.from))[0]
+  const earlier = ratios.filter((r) => (ratioEnd(r, ratios) ?? '9999-12-31') < day)
+  if (!earlier.length) return null
+  return earlier.sort((a, b) => ratioEnd(b, ratios)!.localeCompare(ratioEnd(a, ratios)!))[0]
+}
+
 /** The ratio as given, checked: known modules, 0-100 each, adding up to 100. Throws a message for the screen. */
 export function checkFinalWeights(value: unknown): FinalWeights {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Give a percentage for each module.')
@@ -162,9 +205,9 @@ export interface PeriodScores {
   /** 'auto', or the administrator who worked it out again. */
   lockedBy: string | null
   /**
-   * The ratio its final score uses: the one set when it was locked, the
-   * current one while it is open. Absent or null: the plain average (every
-   * period locked before a ratio was set).
+   * The ratio its final score uses: the one in force on its first day, as it
+   * stood when the period locked (an open period: as it stands now). Absent or
+   * null: the plain average (every period locked before a ratio was set).
    */
   finalWeights?: FinalWeights | null
   entries: ScoreEntry[]
@@ -175,8 +218,8 @@ export interface ScoreHistoryResponse {
   today: string
   graceDays: number
   periods: PeriodScores[]
-  /** The administrator's ratio now; null while none is set. */
-  finalWeights: FinalWeightsSetting | null
+  /** The administrator's ratios by dates, oldest first; empty while none is set. */
+  finalRatios: FinalRatio[]
 }
 
 /* ===================== Periods ===================== */

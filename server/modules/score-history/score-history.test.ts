@@ -81,36 +81,42 @@ describe('locking', () => {
   })
 })
 
-describe('the final score ratio', () => {
-  it('is kept with each period as it locks; open periods use the ratio now; working out again keeps the old one', () => {
+describe('the final score ratios by dates', () => {
+  it('locks each period with the ratio in force on its first day; open periods use the ratios now', () => {
     const dir = mkdtempSync(join(root, 'ratio-'))
     let clock = new Date('2026-11-06T10:00:00')
     const store = createScoreHistoryStore(dir, () => baseInputs([quote('a', 'c1', '2026-10-01', 'closed')]), () => clock)
-    expect(store.finalWeights()).toBeNull()
+    expect(store.finalRatios()).toEqual([])
     // Locked before any ratio: the plain average, as before.
     store.lockDue()
     expect(store.periods('month', 2)[0].finalWeights).toBeNull()
 
-    const set = store.setFinalWeights({ robi: 60, quotations: 40 }, 'admin-0')!
-    expect(set).toMatchObject({ weights: { robi: 60, quotations: 40 }, updatedBy: 'admin-0' })
-    expect(store.finalWeights()?.weights).toEqual({ robi: 60, quotations: 40 })
+    // October's ratio, set afterwards, does not reach the locked October.
+    store.saveFinalRatio({ from: '2026-10-01', to: '2026-10-31', weights: { robi: 50, quotations: 50 } }, 'admin-0')
+    // From 31 Oct (the Saturday the week 31 Oct - 6 Nov starts) onward.
+    const nov = store.saveFinalRatio({ from: '2026-10-31', to: null, weights: { robi: 60, quotations: 40 } }, 'admin-0')
+    expect(store.finalRatios().map((r) => r.from)).toEqual(['2026-10-01', '2026-10-31'])
     const [october, november] = store.periods('month', 2)
-    expect(october.finalWeights).toBeNull() // locked: keeps how it was worked out
-    expect(november.finalWeights).toEqual({ robi: 60, quotations: 40 }) // open: the ratio now
+    expect(october.finalWeights).toBeNull()
+    expect(november.finalWeights).toEqual({ robi: 60, quotations: 40 })
 
-    // The week ending 6 Nov locks on Tuesday 10 Nov, with the ratio of that day.
+    // The week 31 Oct - 6 Nov locks on Tuesday 10 Nov with the ratio of its first day, 31 Oct.
     clock = new Date('2026-11-12T10:00:00')
     expect(store.lockDue()).toEqual(['week:2026-10-31'])
-    store.setFinalWeights({ robi: 100 }, 'admin-0')
+    store.saveFinalRatio({ from: '2026-10-31', to: null, weights: { robi: 100 } }, 'admin-0', nov.id)
     const week = store.periods('week', 3).find((p) => p.key === '2026-10-31')!
     expect(week.finalWeights).toEqual({ robi: 60, quotations: 40 })
     expect(store.relock('week:2026-10-31', 'admin-0')!.finalWeights).toEqual({ robi: 60, quotations: 40 })
-    expect(store.relock('month:2026-10', 'admin-0')!.finalWeights).toBeNull()
+    // The open week of 7 Nov uses the changed ratio.
+    expect(store.periods('week', 1)[0].finalWeights).toEqual({ robi: 100 })
 
-    expect(() => store.setFinalWeights({ robi: 70 }, 'admin-0')).toThrow(/add up to 70%/)
-    expect(store.finalWeights()?.weights).toEqual({ robi: 100 })
-    expect(store.setFinalWeights(null, 'admin-0')).toBeNull()
-    expect(store.finalWeights()).toBeNull()
+    expect(() => store.saveFinalRatio({ from: '2026-10-31', to: null, weights: { robi: 100 } }, 'admin-0')).toThrow(/already starts on that date/)
+    expect(() => store.saveFinalRatio({ from: '2026-12-01', to: '2026-11-01', weights: { robi: 100 } }, 'admin-0')).toThrow(/before the From date/)
+    expect(() => store.saveFinalRatio({ from: '2026-12-01', weights: { robi: 70 } }, 'admin-0')).toThrow(/add up to 70%/)
+    expect(store.deleteFinalRatio(nov.id)).toBe(true)
+    expect(store.deleteFinalRatio(nov.id)).toBe(false)
+    // With only October's ratio left, November takes the nearest earlier one.
+    expect(store.periods('week', 1)[0].finalWeights).toEqual({ robi: 50, quotations: 50 })
   })
 })
 
@@ -162,21 +168,27 @@ describe('the route', () => {
     expect(mine.periods[1].entries.find((e) => e.module === 'quotations')?.score).toBe(100)
   })
 
-  it('lets only the administrator set the final score ratio, and sends it to everyone', async () => {
-    const put = async (cookie: string, weights: unknown) =>
-      fetch(`http://127.0.0.1:${port}${SCORE_HISTORY_ROUTE}/weights`, { method: 'PUT', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ weights }) })
-    expect((await put(await signIn('niki', 'Niki@123'), { robi: 100 })).status).toBe(403)
-    expect((await put(await signIn('pragati', 'Pragati@123'), { robi: 100 })).status).toBe(403)
+  it('lets only the administrator set the dated ratios, and sends them to everyone', async () => {
+    const send = async (cookie: string, method: string, path: string, body?: unknown) =>
+      fetch(`http://127.0.0.1:${port}${SCORE_HISTORY_ROUTE}${path}`, { method, headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) })
+    const ratio = { from: '2026-01-01', to: null, weights: { robi: 50, quotations: 50 } }
+    expect((await send(await signIn('niki', 'Niki@123'), 'POST', '/ratios', ratio)).status).toBe(403)
+    expect((await send(await signIn('pragati', 'Pragati@123'), 'POST', '/ratios', ratio)).status).toBe(403)
     const admin = await signIn('admin', 'Admin@123')
-    const wrong = await put(admin, { robi: 50 })
+    const wrong = await send(admin, 'POST', '/ratios', { ...ratio, weights: { robi: 50 } })
     expect(wrong.status).toBe(400)
     expect(((await wrong.json()) as { error: { message: string } }).error.message).toMatch(/must add up to 100%/)
-    expect((await put(admin, { robi: 50, quotations: 50 })).status).toBe(200)
+    const made = await send(admin, 'POST', '/ratios', ratio)
+    expect(made.status).toBe(200)
+    const { ratio: saved } = (await made.json()) as { ratio: { id: string } }
     const mine = (await (await get(await signIn('pragati', 'Pragati@123'))).json()) as ScoreHistoryResponse
-    expect(mine.finalWeights?.weights).toEqual({ robi: 50, quotations: 50 })
+    expect(mine.finalRatios.map((r) => r.weights)).toEqual([{ robi: 50, quotations: 50 }])
     expect(mine.periods[1].finalWeights).toEqual({ robi: 50, quotations: 50 })
-    expect((await put(admin, null)).status).toBe(200)
-    expect(((await (await get(admin)).json()) as ScoreHistoryResponse).finalWeights).toBeNull()
+    expect((await send(admin, 'PUT', `/ratios/${saved.id}`, { ...ratio, weights: { robi: 100 } })).status).toBe(200)
+    expect((await send(await signIn('niki', 'Niki@123'), 'DELETE', `/ratios/${saved.id}`)).status).toBe(403)
+    expect((await send(admin, 'DELETE', `/ratios/${saved.id}`)).status).toBe(200)
+    expect((await send(admin, 'DELETE', `/ratios/${saved.id}`)).status).toBe(404)
+    expect(((await (await get(admin)).json()) as ScoreHistoryResponse).finalRatios).toEqual([])
   })
 
   it('lets only the administrator work a period out again', async () => {

@@ -7,7 +7,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   attendanceLookup,
+  checkFinalRatio,
   checkFinalWeights,
+  ratioEnd,
+  ratioOn,
   computePeriod,
   earliestDay,
   finalScoreOf,
@@ -223,6 +226,27 @@ describe('the final score', () => {
     expect(() => checkFinalWeights({ otif: 100 })).toThrow(/no module/)
     expect(() => checkFinalWeights(null)).toThrow()
     expect(() => checkFinalWeights([100])).toThrow()
+  })
+
+  it('finds the ratio in force on a day: covering it, else the nearest earlier, else none', () => {
+    const r = (id: string, from: string, to: string | null) => ({ id, from, to })
+    const ratios = [r('oct', '2026-10-01', '2026-10-31'), r('nov', '2026-11-01', null), r('dec', '2026-12-01', '2026-12-31')]
+    expect(ratioOn(ratios, '2026-09-30')).toBeNull()
+    expect(ratioOn(ratios, '2026-10-15')?.id).toBe('oct')
+    expect(ratioOn(ratios, '2026-11-30')?.id).toBe('nov') // open-ended: until December's starts
+    expect(ratioEnd(ratios[1], ratios)).toBe('2026-11-30')
+    expect(ratioOn(ratios, '2026-12-01')?.id).toBe('dec')
+    expect(ratioOn(ratios, '2027-01-05')?.id).toBe('dec') // after every ratio: the nearest earlier
+    // A gap between two ratios takes the one before it.
+    expect(ratioOn([r('a', '2026-01-01', '2026-01-31'), r('b', '2026-03-01', null)], '2026-02-10')?.id).toBe('a')
+    expect(ratioEnd(r('only', '2026-01-01', null), [r('only', '2026-01-01', null)])).toBeNull()
+  })
+
+  it('checks a dated ratio', () => {
+    expect(checkFinalRatio({ from: '2026-11-01', to: '', weights: { robi: 100 } })).toEqual({ from: '2026-11-01', to: null, weights: { robi: 100 } })
+    expect(() => checkFinalRatio({ to: '2026-11-30', weights: { robi: 100 } })).toThrow(/starts from/)
+    expect(() => checkFinalRatio({ from: '2026-11-01', to: '30-11-2026', weights: { robi: 100 } })).toThrow(/not a date/)
+    expect(() => checkFinalRatio({ from: '2026-11-01', to: '2026-10-01', weights: { robi: 100 } })).toThrow(/before the From date/)
   })
 
   it('works on a whole period for one coordinator', () => {
