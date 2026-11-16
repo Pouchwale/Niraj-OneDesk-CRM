@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path'
 import {
   checkFinalRatio,
+  checkLeadTarget,
   computePeriod,
   earliestDay,
   keysBetween,
@@ -27,6 +28,7 @@ import {
   ratioOn,
   type FinalRatio,
   type FinalWeightsSetting,
+  type LeadTarget,
   type PeriodKind,
   type PeriodScores,
   type ScoreInputs,
@@ -53,7 +55,11 @@ interface HistoryFile {
   finalWeights?: FinalWeightsSetting | null
   /** The administrator's final score ratios by dates. */
   finalRatios?: FinalRatio[]
+  /** The administrator's Self Leads targets by dates (16 Nov 2026). */
+  leadTargets?: LeadTarget[]
 }
+
+const leadTargetsOf = (file: HistoryFile): LeadTarget[] => [...(file.leadTargets ?? [])].sort((a, b) => a.from.localeCompare(b.from))
 
 export interface ScoreHistoryStore {
   /** Locks every period that has ended and is not locked yet. Returns the ids locked. */
@@ -68,6 +74,12 @@ export interface ScoreHistoryStore {
   saveFinalRatio(input: unknown, by: string, id?: string): FinalRatio
   /** Removes a dated ratio; false when there was none. */
   deleteFinalRatio(id: string): boolean
+  /** The Self Leads targets by dates, oldest first. */
+  leadTargets(): LeadTarget[]
+  /** Adds a dated Self Leads target, or changes the one with `id`. Throws a message for the screen. */
+  saveLeadTarget(input: unknown, by: string, id?: string): LeadTarget
+  /** Removes a dated Self Leads target; false when there was none. */
+  deleteLeadTarget(id: string): boolean
 }
 
 /**
@@ -103,7 +115,8 @@ export function createScoreHistoryStore(
   // The day is part of the signature: Robi's live days are judged against today.
   const sigNow = () => (signature ? `${toLocalISODate(now())}|${signature()}` : null)
   const freshInputs = () => {
-    const data = inputs()
+    // The Self Leads targets live in this file; open periods score against them as they stand.
+    const data: ScoreInputs = { ...inputs(), selfLeadTargets: leadTargetsOf(read()) }
     const sig = sigNow()
     live = sig ? { sig, data } : null
     return data
@@ -199,7 +212,32 @@ export function createScoreHistoryStore(
     return true
   }
 
-  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio }
+  const leadTargets = (): LeadTarget[] => leadTargetsOf(read())
+
+  const saveLeadTarget = (input: unknown, by: string, id?: string): LeadTarget => {
+    const checked = checkLeadTarget(input)
+    const file = read()
+    const list = leadTargetsOf(file)
+    if (id && !list.some((t) => t.id === id)) throw new Error('That target is not there any more.')
+    if (list.some((t) => t.id !== id && t.from === checked.from)) throw new Error('Another target already starts on that date; change that one instead.')
+    const target: LeadTarget = { id: id ?? randomUUID(), ...checked, updatedAt: now().toISOString(), updatedBy: by }
+    file.leadTargets = [...list.filter((t) => t.id !== target.id), target].sort((a, b) => a.from.localeCompare(b.from))
+    write(file)
+    live = null
+    return target
+  }
+
+  const deleteLeadTarget = (id: string): boolean => {
+    const file = read()
+    const list = leadTargetsOf(file)
+    if (!list.some((t) => t.id === id)) return false
+    file.leadTargets = list.filter((t) => t.id !== id)
+    write(file)
+    live = null
+    return true
+  }
+
+  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio, leadTargets, saveLeadTarget, deleteLeadTarget }
 }
 
 /** A minute and a half after start (the data is loaded by then), and every half hour after, lock what has ended. */

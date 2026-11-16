@@ -31,6 +31,7 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
         graceDays: lockGraceDays(kind),
         periods: store.periods(kind, count).map((p) => ({ ...p, entries: seesTeam ? p.entries : p.entries.filter((e) => e.coordinatorId === user.id) })),
         finalRatios: store.finalRatios(),
+        leadTargets: store.leadTargets(),
       }
       res.json(body)
     } catch (err) {
@@ -69,6 +70,29 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
       next(err)
     }
   }
+  // Self Leads targets by dates (16 Nov 2026): the administrator adds, changes and removes them.
+  const saveTarget = (req: Request, res: Response, next: NextFunction) => {
+    let target
+    try {
+      target = store.saveLeadTarget(req.body, req.user!.id, req.params.id ? String(req.params.id) : undefined)
+    } catch (err) {
+      next(ApiError.badRequest(err instanceof Error ? err.message : 'That target cannot be used.'))
+      return
+    }
+    logger.info('score history: self leads target saved', { from: target.from, to: target.to, full: target.full, partial: target.partial, by: req.user!.id })
+    res.json({ target, leadTargets: store.leadTargets() })
+  }
+  router.post('/lead-targets', requireRole(), saveTarget)
+  router.put('/lead-targets/:id', requireRole(), saveTarget)
+  router.delete('/lead-targets/:id', requireRole(), (req, res, next) => {
+    if (!store.deleteLeadTarget(String(req.params.id))) {
+      next(ApiError.notFound('That target is not there any more.'))
+      return
+    }
+    logger.info('score history: self leads target removed', { id: req.params.id, by: req.user!.id })
+    res.json({ leadTargets: store.leadTargets() })
+  })
+
   router.post('/ratios', requireRole(), saveRatio())
   router.put('/ratios/:id', requireRole(), saveRatio())
   router.delete('/ratios/:id', requireRole(), (req, res, next) => {

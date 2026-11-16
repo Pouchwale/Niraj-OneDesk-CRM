@@ -21,6 +21,8 @@ export type OtifCustomerCounts = Record<string, Record<string, number>>
 
 export interface OtifCustomerTally {
   counts: OtifCustomerCounts
+  /** The same by week: the week's Saturday (yyyy-mm-dd, Saturday to Friday) → coordinator id → different customers. */
+  weeks: OtifCustomerCounts
   /** month → Relation Manager as the file writes it ("(blank)" when empty) → customers, for names that are no CRM coordinator. */
   unmatched: Record<string, Record<string, number>>
 }
@@ -34,7 +36,16 @@ export interface ServiceOtifResponse {
   readAt: string | null
   fileModifiedAt: string | null
   counts: OtifCustomerCounts | null
+  /** By week (its Saturday), for the Service score of a week. */
+  weeks: OtifCustomerCounts | null
   unmatched: OtifCustomerTally['unmatched'] | null
+}
+
+/** The Saturday starting the company week (Saturday to Friday) a day falls in. */
+export function saturdayOf(day: string): string {
+  const t = Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)))
+  const back = (new Date(t).getUTCDay() + 1) % 7
+  return new Date(t - back * 86_400_000).toISOString().slice(0, 10)
 }
 
 /** A customer name as compared: case and spacing aside. */
@@ -52,6 +63,7 @@ export function countOtifCustomers(
   from: string = OTIF_CUSTOMERS_FROM
 ): OtifCustomerTally {
   const seen = new Map<string, Set<string>>()
+  const weekly = new Map<string, Set<string>>()
   for (const r of rows) {
     if (!r.poClosedDate || !r.customerName) continue
     const month = r.poClosedDate.slice(0, 7)
@@ -62,6 +74,17 @@ export function countOtifCustomers(
     let set = seen.get(key)
     if (!set) seen.set(key, (set = new Set()))
     set.add(customerKey(r.customerName))
+    if (id) {
+      const wk = `${saturdayOf(r.poClosedDate)}|${id}`
+      let ws = weekly.get(wk)
+      if (!ws) weekly.set(wk, (ws = new Set()))
+      ws.add(customerKey(r.customerName))
+    }
+  }
+  const weeks: OtifCustomerCounts = {}
+  for (const [key, set] of weekly) {
+    const [week, id] = key.split('|')
+    ;(weeks[week] ??= {})[id] = set.size
   }
   const counts: OtifCustomerCounts = {}
   const unmatched: OtifCustomerTally['unmatched'] = {}
@@ -71,5 +94,5 @@ export function countOtifCustomers(
     const into = kind === 'c' ? counts : unmatched
     ;(into[month] ??= {})[name] = set.size
   }
-  return { counts, unmatched }
+  return { counts, weeks, unmatched }
 }

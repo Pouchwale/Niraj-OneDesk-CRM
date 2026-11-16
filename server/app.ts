@@ -152,7 +152,11 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   })
   const scoreHistory = createScoreHistoryStore(
     config.snapshotDir,
-    () => scoreInputs(data, snapshots, () => accounts.roster(), undefined, () => otifCustomers.get().counts),
+    () =>
+      scoreInputs(data, snapshots, () => accounts.roster(), undefined, () => {
+        const otif = otifCustomers.get()
+        return otif.counts && otif.weeks ? { months: otif.counts, weeks: otif.weeks } : null
+      }),
     () => new Date(),
     () =>
       [

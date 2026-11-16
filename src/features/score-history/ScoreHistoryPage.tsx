@@ -57,6 +57,7 @@ import {
 import { deleteFinalRatio, getScoreHistory, recalculatePeriod, saveFinalRatio } from '@/lib/score-history-api'
 import { markSwitchedOff } from '@/lib/score-history'
 import { useModuleAccess } from '@/features/auth/module-access'
+import { LeadTargetCard } from './LeadTargetCard'
 import { scoreModulesOff } from '../../../shared/module-access'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { formatFinal, formatPart, formatScore } from './format'
@@ -116,10 +117,15 @@ function detailText(e: ScoreEntry, kind: PeriodKind): string {
       return kind === 'year' ? `${plural(d.issues, 'issue')}; average of ${plural(d.months, 'month')}` : plural(d.issues, 'issue')
     case 'service':
       if (kind === 'year') return `${plural(d.mails, 'mail')}; average of ${plural(d.months, 'month')}`
-      if (kind === 'week') return `${plural(d.mails, 'mail')}, ${d.points} points (the score is monthly)`
+      if (kind === 'week' && d.customers === undefined) return `${plural(d.mails, 'mail')}, ${d.points} points (the score is monthly)`
+      if (kind === 'week') return `${plural(d.mails, 'mail')}, ${d.points} points ÷ ${d.customers ?? '—'} customers with a PO closed that week`
       return `${plural(d.mails, 'mail')}, ${d.points} points ÷ ${d.customers ?? '—'} customers`
     case 'self_leads':
-      return `${plural(d.leads, 'lead')}, ${d.connected} connected, ${d.closed} closed, ${d.lost} lost`
+      // Before 16 Nov 2026 Self Leads was the conversion of the leads; since, the new leads against the week's target.
+      if (d.connected !== undefined) return `${plural(d.leads, 'lead')}, ${d.connected} connected, ${d.closed} closed, ${d.lost} lost`
+      if (kind === 'week') return `${plural(d.leads, 'new lead')} (target ${d.target}: 100%; fewer ${d.partial}%; none 0%)`
+      if (kind === 'year') return `Average of ${plural(d.months, 'month')}`
+      return `${plural(d.leads, 'new lead')}; average of ${plural(d.weeks, 'week')}`
   }
 }
 
@@ -127,7 +133,8 @@ function detailText(e: ScoreEntry, kind: PeriodKind): string {
 function cellText(e: ScoreEntry | undefined, kind: PeriodKind): string {
   if (!e) return '—'
   if (e.na) return 'N/A'
-  if (e.module === 'service' && kind === 'week') return plural(e.detail.mails, 'mail')
+  // Weeks locked before 16 Nov 2026 kept only the mails; since, a week has its own score.
+  if (e.module === 'service' && kind === 'week' && e.detail.customers === undefined) return plural(e.detail.mails, 'mail')
   return formatScore(e.module, e.score)
 }
 
@@ -507,7 +514,7 @@ export function ScoreHistoryPage() {
                   const avg = averageOf(selected.entries.filter((e) => e.module === m.id).map((e) => e.score))
                   return (
                     <td key={m.id} className={cn(TD, toneOf(m.id, avg))}>
-                      {m.id === 'service' && kind === 'week' ? '—' : formatScore(m.id, avg)}
+                      {m.id === 'service' && kind === 'week' && avg === null ? '—' : formatScore(m.id, avg)}
                     </td>
                   )
                 })}
@@ -573,7 +580,7 @@ export function ScoreHistoryPage() {
                         </td>
                       )
                     })}
-                    <td className={cn(TD, 'border-l border-border/60 font-semibold', toneOf(m.id, avg))}>{m.id === 'service' && kind === 'week' ? '—' : formatScore(m.id, avg)}</td>
+                    <td className={cn(TD, 'border-l border-border/60 font-semibold', toneOf(m.id, avg))}>{m.id === 'service' && kind === 'week' && avg === null ? '—' : formatScore(m.id, avg)}</td>
                     <td className={cn(TD, FINAL_COL, finalTone(final))} title={`Average final score over the last ${span}`}>
                       {formatFinal(final === null ? null : round1(final))}
                       {onlyOne && (
@@ -602,6 +609,7 @@ export function ScoreHistoryPage() {
       {header}
       {controls}
       <FinalRatioCard ratios={data?.finalRatios ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
+      <LeadTargetCard targets={data?.leadTargets ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
       {body}
     </div>
   )

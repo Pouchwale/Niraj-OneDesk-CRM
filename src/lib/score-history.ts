@@ -28,7 +28,6 @@
 
 import { billingIssueScore } from './billing-issues'
 import { conversionsOf, dayFor } from './quotation-stats'
-import { leadSummary } from './self-leads'
 import { serviceScores } from './service-records'
 import type { AttendanceEntry, BillingIssue, Quotation, RobiOffDay, SelfLead, ServiceCustomerTarget, ServiceRecord } from './types'
 import type { OtifCustomerCounts } from '../../shared/service-otif'
@@ -43,7 +42,7 @@ export const SCORE_MODULES: { id: ScoreModule; label: string; short: string; hin
   { id: 'quotations', label: 'Quotations', short: 'Quotations', hint: 'Average points per customer (Closed + New 100, Closed + Existing 50) as the gap from 100, counted by enquiry date: 85 points shows as -15.' },
   { id: 'billing', label: 'Billing Issues', short: 'Billing', hint: 'From the number of issues as Responsible Person 1, as the gap from 100: 0 issues → 0, 1 → -50, 2 → -100, 3-5 → -125, 6-10 → -150, more → -200. A year is the average of its months.' },
   { id: 'service', label: 'Service', short: 'Service', hint: 'The monthly Final score as the gap from 100 (0 at best). A week shows the mails only; a year is the average of its months.' },
-  { id: 'self_leads', label: 'Self Leads', short: 'Self Leads', hint: 'Conversion (closed ÷ connected leads) as the gap from 100%, by lead date: 40% converted shows as -60%.' },
+  { id: 'self_leads', label: 'Self Leads', short: 'Self Leads', hint: 'New leads in a week against the target (3 or more 0%, 1–2 -70%, none -100%, as the administrator sets); a month is the average of its weeks.' },
 ]
 
 export const SCORE_HISTORY_ROUTE = '/api/score-history'
@@ -198,6 +197,41 @@ export function markSwitchedOff(periods: readonly PeriodScores[], offOf: (coordi
   })
 }
 
+/** A Self Leads target as the administrator set it, by dates like the final score ratio (16 Nov 2026). */
+export interface LeadTarget {
+  id: string
+  from: string
+  to: string | null
+  /** New leads in a week for full marks (100%). */
+  full: number
+  /** The score (0-100) for at least one lead but fewer than `full`. */
+  partial: number
+  updatedAt: string
+  updatedBy: string
+}
+
+/** Before the administrator sets any: 3 leads for 100%, 1-2 for 30%. */
+export const DEFAULT_LEAD_TARGET = { full: 3, partial: 30 } as const
+
+/** The target in force on a day (the ratio's rule for dates); none set: the default. */
+export function leadTargetOn(targets: readonly LeadTarget[], day: string): Pick<LeadTarget, 'full' | 'partial'> {
+  return ratioOn(targets, day) ?? DEFAULT_LEAD_TARGET
+}
+
+/** A target as given, checked. Throws a message for the screen. */
+export function checkLeadTarget(value: unknown): { from: string; to: string | null; full: number; partial: number } {
+  const v = (value ?? {}) as { from?: unknown; to?: unknown; full?: unknown; partial?: unknown }
+  if (!isDay(v.from)) throw new Error('Give the date the target starts from.')
+  const to = v.to === null || v.to === undefined || v.to === '' ? null : v.to
+  if (to !== null && !isDay(to)) throw new Error('The To date is not a date.')
+  if (to !== null && to < v.from) throw new Error('The To date is before the From date.')
+  const full = Number(v.full)
+  const partial = Number(v.partial)
+  if (!Number.isInteger(full) || full < 1 || full > 100) throw new Error('Leads for full marks must be a whole number from 1 to 100.')
+  if (!Number.isFinite(partial) || partial < 0 || partial > 100) throw new Error('The score for fewer leads must be 0 to 100%.')
+  return { from: v.from, to, full, partial }
+}
+
 /** Days after a month or year ends before it is locked, so entries made late for its last days still count. */
 export const LOCK_GRACE_DAYS = 2
 
@@ -255,6 +289,8 @@ export interface ScoreHistoryResponse {
   periods: PeriodScores[]
   /** The administrator's ratios by dates, oldest first; empty while none is set. */
   finalRatios: FinalRatio[]
+  /** The administrator's Self Leads targets by dates, oldest first; empty: the default (3 leads, 30%). */
+  leadTargets?: LeadTarget[]
 }
 
 /* ===================== Periods ===================== */
@@ -386,6 +422,10 @@ export interface ScoreInputs {
   serviceTargets: readonly ServiceCustomerTarget[]
   /** Total Customers from the OTIF file, November 2026 on (shared/service-otif.ts); null when it could not be read. */
   serviceOtif?: OtifCustomerCounts | null
+  /** The same by week (its Saturday), for a week's Service score (16 Nov 2026); left out: weeks show the mails only. */
+  serviceOtifWeeks?: OtifCustomerCounts | null
+  /** The administrator's Self Leads targets by dates (16 Nov 2026); none: 3 leads for full marks, 30% for fewer. */
+  selfLeadTargets?: readonly LeadTarget[]
   selfLeads: readonly SelfLead[]
 }
 
@@ -527,6 +567,17 @@ function serviceMonthEntries(inputs: ScoreInputs, month: string, nameOf: (id: st
 }
 
 function serviceWeekEntries(inputs: ScoreInputs, start: string, end: string, nameOf: (id: string) => string): ScoreEntry[] {
+  // Since 16 Nov 2026 a week has a score of its own: (points ÷ the week's OTIF customers) × 10, at most 100.
+  if (inputs.serviceOtifWeeks !== undefined) {
+    const weeks = inputs.serviceOtifWeeks
+    return serviceScoresBy(inputs, start, end, (id) => (weeks ? (weeks[start]?.[id] ?? 0) : null)).map((s) => ({
+      coordinatorId: s.coordinatorId,
+      name: nameOf(s.coordinatorId),
+      module: 'service' as const,
+      score: s.finalScore === null ? null : round(s.finalScore, 2),
+      detail: { mails: s.mails, points: s.sumOfScore, customers: s.totalCustomers },
+    }))
+  }
   const per = new Map<string, { mails: number; points: number }>()
   for (const r of inputs.serviceRecords) {
     if (!r.coordinator_id || r.date < start || r.date > end) continue
@@ -538,22 +589,73 @@ function serviceWeekEntries(inputs: ScoreInputs, start: string, end: string, nam
   return [...per.entries()].map(([id, t]) => ({ coordinatorId: id, name: nameOf(id), module: 'service' as const, score: null, detail: { mails: t.mails, points: t.points } }))
 }
 
-function selfLeadEntries(inputs: ScoreInputs, start: string, end: string, nameOf: (id: string) => string): ScoreEntry[] {
-  const per = new Map<string, SelfLead[]>()
-  for (const l of inputs.selfLeads) {
-    if (!l.coordinator_id || l.date < start || l.date > end) continue
-    per.set(l.coordinator_id, [...(per.get(l.coordinator_id) ?? []), l])
-  }
-  return [...per.entries()].map(([id, list]) => {
-    const s = leadSummary(list)
-    return {
-      coordinatorId: id,
-      name: nameOf(id),
-      module: 'self_leads' as const,
-      score: s.conversion,
-      detail: { leads: s.leads, connected: s.connected, closed: s.closed, lost: s.lost, valueWon: s.valueWon },
+/**
+ * Each coordinator's Service figures for a stretch of days against a customer
+ * count (null: none known): mails, points, and the score as the month's rule
+ * works it out.
+ */
+function serviceScoresBy(inputs: ScoreInputs, start: string, end: string, customersOf: (id: string) => number | null) {
+  return inputs.coordinators.map((c) => {
+    let mails = 0
+    let points = 0
+    for (const r of inputs.serviceRecords) {
+      if (r.coordinator_id !== c.id || r.date < start || r.date > end) continue
+      mails++
+      points += r.information_date ? 10 : 0
     }
+    const customers = customersOf(c.id)
+    const usable = customers !== null && customers > 0
+    return { coordinatorId: c.id, mails, sumOfScore: points, totalCustomers: customers, finalScore: usable ? Math.min(100, (points / customers) * 10) : null }
   })
+}
+
+/**
+ * Self Leads (16 Nov 2026, the user's rule): each Saturday-to-Friday week is
+ * scored on the coordinator's new leads (by lead date) against the target in
+ * force on its Saturday: the target or more 100% (0), at least one the
+ * partial score (30%, -70), none 0% (-100). A month is the average of the
+ * weeks starting in it (those begun by today); a year, of its months. Nothing
+ * before the first lead was ever logged.
+ */
+export function selfLeadWeekScore(leads: number, target: Pick<LeadTarget, 'full' | 'partial'>): number {
+  return leads >= target.full ? 100 : leads >= 1 ? target.partial : 0
+}
+
+function selfLeadWeeks(inputs: ScoreInputs, weekKeys: readonly string[]): Map<string, { scores: number[]; leads: number; target: Pick<LeadTarget, 'full' | 'partial'> }> {
+  const first = inputs.selfLeads.reduce<string | null>((min, l) => (!min || l.date < min ? l.date : min), null)
+  const out = new Map<string, { scores: number[]; leads: number; target: Pick<LeadTarget, 'full' | 'partial'> }>()
+  if (!first) return out
+  for (const week of weekKeys) {
+    const end = addDays(week, 6)
+    if (end < first) continue
+    const target = leadTargetOn(inputs.selfLeadTargets ?? [], week)
+    for (const c of inputs.coordinators) {
+      const leads = inputs.selfLeads.filter((l) => l.coordinator_id === c.id && l.date >= week && l.date <= end).length
+      const t = out.get(c.id) ?? { scores: [], leads: 0, target }
+      t.scores.push(selfLeadWeekScore(leads, target))
+      t.leads += leads
+      out.set(c.id, t)
+    }
+  }
+  return out
+}
+
+function selfLeadEntries(inputs: ScoreInputs, kind: PeriodKind, key: string, today: string, nameOf: (id: string) => string): ScoreEntry[] {
+  if (kind === 'year') {
+    return yearOfMonths((m) => selfLeadEntries(inputs, 'month', m, today, nameOf), key, today, nameOf)
+  }
+  const { start, end } = periodRange(kind, key)
+  const weeks =
+    kind === 'week'
+      ? [weekOf(start)]
+      : keysBetween('week', start, end).filter((w) => w >= start && w <= end && w <= today)
+  return [...selfLeadWeeks(inputs, weeks).entries()].map(([id, t]) => ({
+    coordinatorId: id,
+    name: nameOf(id),
+    module: 'self_leads' as const,
+    score: round(average(t.scores)!, 2),
+    detail: (kind === 'week' ? { leads: t.leads, target: t.target.full, partial: t.target.partial } : { leads: t.leads, weeks: t.scores.length }) as Record<string, number | null>,
+  }))
 }
 
 /** A year's monthly scores averaged per coordinator (billing and service), months up to `today` only. */
@@ -596,7 +698,7 @@ export function computePeriod(inputs: ScoreInputs, kind: PeriodKind, key: string
           ? serviceMonthEntries(inputs, key, nameOf)
           : []
         : yearOfMonths((m) => (firstService && periodRange('month', m).end >= firstService ? serviceMonthEntries(inputs, m, nameOf) : []), key, today, nameOf)),
-    ...selfLeadEntries(inputs, start, end, nameOf),
+    ...selfLeadEntries(inputs, kind, key, today, nameOf),
   ]
     // Coordinators' scores only: a quotation the team leader logged as herself is not a coordinator's score.
     .filter((e) => names.has(e.coordinatorId))

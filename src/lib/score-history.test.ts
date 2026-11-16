@@ -8,6 +8,9 @@ import { describe, expect, it } from 'vitest'
 import {
   attendanceLookup,
   checkFinalRatio,
+  checkLeadTarget,
+  DEFAULT_LEAD_TARGET,
+  selfLeadWeekScore,
   checkFinalWeights,
   ratioEnd,
   ratioOn,
@@ -146,8 +149,38 @@ describe('scoring a week', () => {
     expect(pick(week.entries, 'service', 'c1')).toMatchObject({ score: null, detail: { mails: 2, points: 10 } })
   })
 
-  it('scores self leads as closed ÷ connected', () => {
-    expect(pick(week.entries, 'self_leads', 'c1')).toMatchObject({ score: 50, detail: { leads: 3, connected: 2, closed: 1 } })
+  it('scores self leads on the week’s new leads against the target (16 Nov 2026)', () => {
+    // Asha logged 3 leads that week: the default target, so 100%.
+    expect(pick(week.entries, 'self_leads', 'c1')).toMatchObject({ score: 100, detail: { leads: 3, target: 3, partial: 30 } })
+    // Nobody else logged one: 0% (-100), counted.
+    expect(pick(week.entries, 'self_leads', 'c2')).toMatchObject({ score: 0, detail: { leads: 0 } })
+    // The administrator's target: 4 for full marks, 40% for fewer.
+    const target = [{ id: 't', from: '2026-10-01', to: null, full: 4, partial: 40, updatedAt: '', updatedBy: '' }]
+    const raised = computePeriod({ ...inputs, selfLeadTargets: target }, 'week', '2026-10-26', '2026-11-06')
+    expect(pick(raised.entries, 'self_leads', 'c1')).toMatchObject({ score: 40, detail: { leads: 3, target: 4, partial: 40 } })
+    // A month is the average of the weeks starting in it (begun by today), none before the first lead.
+    const month = computePeriod(inputs, 'month', '2026-10', '2026-11-06')
+    expect(pick(month.entries, 'self_leads', 'c1')).toMatchObject({ score: 50, detail: { leads: 3, weeks: 2 } })
+  })
+
+  it('gives a Service week its own score from the week’s OTIF customers (16 Nov 2026)', () => {
+    // 1 informed mail = 10 points; 10 ÷ 1 customer that week × 10 = 100.
+    const withOtif = computePeriod({ ...inputs, serviceOtifWeeks: { '2026-10-24': { c1: 1 } } }, 'week', '2026-10-24', '2026-11-06')
+    expect(pick(withOtif.entries, 'service', 'c1')).toMatchObject({ score: 100, detail: { mails: 2, points: 10, customers: 1 } })
+    // No OTIF customers that week: no score; the file not read: no score either.
+    expect(pick(withOtif.entries, 'service', 'c2')).toMatchObject({ score: null, detail: { customers: 0 } })
+    const unread = computePeriod({ ...inputs, serviceOtifWeeks: null }, 'week', '2026-10-24', '2026-11-06')
+    expect(pick(unread.entries, 'service', 'c1')).toMatchObject({ score: null, detail: { customers: null } })
+  })
+
+  it('gives 1 or 2 leads the partial score', () => {
+    expect(selfLeadWeekScore(0, DEFAULT_LEAD_TARGET)).toBe(0)
+    expect(selfLeadWeekScore(1, DEFAULT_LEAD_TARGET)).toBe(30)
+    expect(selfLeadWeekScore(2, DEFAULT_LEAD_TARGET)).toBe(30)
+    expect(selfLeadWeekScore(3, DEFAULT_LEAD_TARGET)).toBe(100)
+    expect(selfLeadWeekScore(7, DEFAULT_LEAD_TARGET)).toBe(100)
+    expect(() => checkLeadTarget({ from: '2026-11-16', full: 0, partial: 30 })).toThrow(/whole number/)
+    expect(checkLeadTarget({ from: '2026-11-16', full: '3', partial: '30' })).toEqual({ from: '2026-11-16', to: null, full: 3, partial: 30 })
   })
 
   it('keeps coordinators’ scores only', () => {
@@ -251,8 +284,8 @@ describe('the final score', () => {
 
   it('works on a whole period for one coordinator', () => {
     const week = computePeriod(inputs, 'week', '2026-10-26', '2026-11-06')
-    // Asha: Robi -13 → 87, KPI 90, quotations 50, billing 100, self leads 50 → 377 / 5 = 75.4.
-    expect(finalScoreOf(week.entries.filter((e) => e.coordinatorId === 'c1')).score).toBe(75.4)
+    // Asha: Robi -13 → 87, KPI 90, quotations 50, billing 100, self leads 100 (3 new leads) → 427 / 5 = 85.4.
+    expect(finalScoreOf(week.entries.filter((e) => e.coordinatorId === 'c1')).score).toBe(85.4)
   })
 })
 

@@ -54,6 +54,12 @@ describe('counting the OTIF customers', () => {
     expect(countOtifCustomers([row('2026-10-31', 'Old Ltd', 'Pragati')], match).counts).toEqual({ '2026-10': { p: 1 } })
     expect(unmatched).toEqual({ '2026-11': { 'Niki Patel': 1, '(blank)': 1 } })
   })
+
+  it('counts them by week too, Saturday to Friday', () => {
+    const { weeks } = countOtifCustomers([row('2026-11-06', 'Amul', 'Pragati'), row('2026-11-07', 'Amul', 'Pragati'), row('2026-11-08', 'Banas', 'Pragati'), row('2026-11-13', 'amul', 'Pragati')], match)
+    // Friday 6 Nov is the week of Saturday 31 Oct; 7 to 13 Nov is one week.
+    expect(weeks).toEqual({ '2026-10-31': { p: 1 }, '2026-11-07': { p: 2 } })
+  })
 })
 
 describe('the service score with OTIF customers', () => {

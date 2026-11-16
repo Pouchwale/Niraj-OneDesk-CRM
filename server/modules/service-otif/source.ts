@@ -54,7 +54,7 @@ export function createOtifCustomerSource(deps: Deps): OtifCustomerSource {
     get() {
       const status = deps.excel.status('otif')
       const base = { configured: status.configured && Boolean(deps.config), fileModifiedAt: status.modifiedAt }
-      if (!base.configured || !deps.config) return { ...base, error: null, readAt: null, counts: null, unmatched: null }
+      if (!base.configured || !deps.config) return { ...base, error: null, readAt: null, counts: null, weeks: null, unmatched: null }
       let error: string | null = null
       if (!status.exists || !status.modifiedAt) error = status.error ?? 'The OTIF file is not there.'
       else if (file?.modifiedAt !== status.modifiedAt) {
@@ -69,11 +69,11 @@ export function createOtifCustomerSource(deps: Deps): OtifCustomerSource {
           if (!file) error = message
         }
       }
-      if (!file) return { ...base, error: error ?? 'The OTIF file could not be read.', readAt: null, counts: null, unmatched: null }
+      if (!file) return { ...base, error: error ?? 'The OTIF file could not be read.', readAt: null, counts: null, weeks: null, unmatched: null }
       const people = deps.coordinators()
       const key = `${file.modifiedAt}|${people.map((p) => `${p.id}:${p.name}`).join(',')}`
       if (tally?.key !== key) tally = { key, value: countOtifCustomers(file.rows, coordinatorMatcher(people)) }
-      return { ...base, error: null, readAt: file.at, counts: tally.value.counts, unmatched: tally.value.unmatched }
+      return { ...base, error: null, readAt: file.at, counts: tally.value.counts, weeks: tally.value.weeks, unmatched: tally.value.unmatched }
     },
   }
 }

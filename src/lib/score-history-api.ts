@@ -1,6 +1,6 @@
 /** The score history from the server (see server/modules/score-history). */
 
-import { SCORE_HISTORY_ROUTE, type FinalRatio, type FinalWeights, type PeriodKind, type PeriodScores, type ScoreHistoryResponse } from './score-history'
+import { SCORE_HISTORY_ROUTE, type FinalRatio, type FinalWeights, type LeadTarget, type PeriodKind, type PeriodScores, type ScoreHistoryResponse } from './score-history'
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -29,3 +29,11 @@ export const deleteFinalRatio = (id: string) =>
   call<{ finalRatios: FinalRatio[] }>(`${SCORE_HISTORY_ROUTE}/ratios/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 export const recalculatePeriod = (id: string) => call<PeriodScores>(`${SCORE_HISTORY_ROUTE}/recalculate`, { method: 'POST', body: JSON.stringify({ id }) })
+
+/** The administrator adds a dated Self Leads target, or changes the one with `id`. */
+export const saveLeadTarget = (target: { from: string; to: string | null; full: number; partial: number }, id?: string) =>
+  call<{ target: LeadTarget; leadTargets: LeadTarget[] }>(`${SCORE_HISTORY_ROUTE}/lead-targets${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(target) })
+
+/** The administrator removes a dated Self Leads target. */
+export const deleteLeadTarget = (id: string) =>
+  call<{ leadTargets: LeadTarget[] }>(`${SCORE_HISTORY_ROUTE}/lead-targets/${encodeURIComponent(id)}`, { method: 'DELETE' })

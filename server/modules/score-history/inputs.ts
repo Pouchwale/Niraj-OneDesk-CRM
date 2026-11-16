@@ -18,8 +18,8 @@ export function scoreInputs(
   snapshots: SnapshotStore,
   roster: () => AuthUser[],
   now: () => Date = () => new Date(),
-  /** The Service score's Total Customers from the OTIF file (November 2026 on); null when it is not read. */
-  serviceOtif: () => OtifCustomerCounts | null = () => null
+  /** The Service score's Total Customers from the OTIF file, by month and by week; null when it is not read. */
+  serviceOtif: () => { months: OtifCustomerCounts; weeks: OtifCustomerCounts } | null = () => null
 ): ScoreInputs {
   const snap = data.snapshot()
   const coordinators = roster()
@@ -60,7 +60,10 @@ export function scoreInputs(
     billingIssues: snap.billingIssues ?? [],
     serviceRecords: snap.serviceRecords ?? [],
     serviceTargets: snap.serviceTargets ?? [],
-    serviceOtif: serviceOtif(),
+    ...(() => {
+      const otif = serviceOtif()
+      return { serviceOtif: otif?.months ?? null, serviceOtifWeeks: otif?.weeks ?? null }
+    })(),
     selfLeads: snap.selfLeads ?? [],
   }
 }
