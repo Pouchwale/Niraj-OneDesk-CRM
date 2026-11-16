@@ -18,7 +18,7 @@ import type {
   RfdRow,
   UserRole,
 } from '@/lib/types'
-import { carriedOverLine } from './daily-plan'
+import { carriedOverLine, owedTasks } from './daily-plan'
 import { formatCurrency } from '@/lib/utils'
 import type { OverdueCommitment } from '@/lib/followups-api'
 import type { ResolvedPlan } from './daily-plan'
@@ -194,7 +194,7 @@ function leaderNudges(input: NudgeInput): Nudge[] {
     const withPlans = team.filter((t) => t.plan.total > 0)
     if (withPlans.length === 0) return [...said, ...dayNudges(input)]
     const done = withPlans.reduce((sum, t) => sum + t.plan.done, 0)
-    const total = withPlans.reduce((sum, t) => sum + t.plan.total, 0)
+    const total = withPlans.reduce((sum, t) => sum + owedTasks(t.plan), 0)
     const idle = withPlans.filter((t) => t.plan.done === 0 && t.plan.skipped === 0).map((t) => t.name.split(' ')[0])
     said.push({
       key: `team-progress:${today}:${done}`,

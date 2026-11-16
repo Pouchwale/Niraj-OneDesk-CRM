@@ -26,7 +26,7 @@ import { useFocusedRecord, useScreen } from './screen-context'
 import { RobiBuddy, TypingDots, type RobiReaction, type RobotMood } from './RobiBuddy'
 import { RobiFestiveBadge } from '@/features/festivals/FestiveAccessory'
 import { robiCelebrate, robiFestivalReply, robiFestiveHello, robiSpeak } from '@/features/festivals/robi-festive'
-import { planProgressLine, type ResolvedPlan, type ResolvedPlanItem } from './daily-plan'
+import { owedTasks, planProgressLine, type ResolvedPlan, type ResolvedPlanItem } from './daily-plan'
 import type { TeamPlan } from './plan-store'
 import type { AssistantAction, AssistantMessage, AssistantTask } from './types'
 
@@ -494,7 +494,7 @@ export function AssistantWidget() {
     if (isLeader) {
       const withPlans = team.team.filter((t) => t.plan.total > 0)
       const done = withPlans.reduce((sum, t) => sum + t.plan.done, 0)
-      const total = withPlans.reduce((sum, t) => sum + t.plan.total, 0)
+      const total = withPlans.reduce((sum, t) => sum + owedTasks(t.plan), 0)
       return assistantSays(
         total > 0
           ? `${hello} The team has ${done} of ${total} planned follow-ups done today.`
@@ -1243,7 +1243,7 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
 function PlanSection({ plan, expanded, onToggle, onOpen, onSkip, onUnskip }: PlanSectionProps) {
   // As the score counts it: tasks closed (paid, set aside) or moved to someone else are not owed;
   // Later is still to do (16 Nov 2026).
-  const counted = plan.total - plan.closed - plan.moved
+  const counted = owedTasks(plan)
   const toGo = plan.open + plan.skipped
   const complete = plan.complete
   return (
@@ -1400,7 +1400,7 @@ function TeamSection({
 }) {
   const withPlans = team.filter((t) => t.plan.total > 0)
   const done = withPlans.reduce((sum, t) => sum + t.plan.done, 0)
-  const total = withPlans.reduce((sum, t) => sum + t.plan.total, 0)
+  const total = withPlans.reduce((sum, t) => sum + owedTasks(t.plan), 0)
   const rows = [...team].sort((a, b) => b.plan.open - a.plan.open || b.plan.total - a.plan.total)
 
   return (
@@ -1434,15 +1434,15 @@ function TeamSection({
               <li key={member.coordinatorId} className="group flex items-center gap-3 text-sm">
                 <span className="w-28 truncate">{member.name}</span>
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  {member.plan.total > 0 && (
+                  {owedTasks(member.plan) > 0 && (
                     <div
-                      className={cn('h-full rounded-full', member.plan.open === 0 ? 'bg-emerald-500' : 'bg-primary')}
-                      style={{ width: `${Math.round((member.plan.done / member.plan.total) * 100)}%` }}
+                      className={cn('h-full rounded-full', member.plan.complete ? 'bg-emerald-500' : 'bg-primary')}
+                      style={{ width: `${Math.round((member.plan.done / owedTasks(member.plan)) * 100)}%` }}
                     />
                   )}
                 </div>
                 <span className="w-14 text-right text-xs tabular-nums text-muted-foreground">
-                  {member.plan.total > 0 ? `${member.plan.done}/${member.plan.total}` : 'no plan'}
+                  {member.plan.total > 0 ? `${member.plan.done}/${owedTasks(member.plan)}` : 'no plan'}
                 </span>
                 {/* The message goes through the same sentence a leader would
                     type, so the panel and the chat cannot behave differently. */}

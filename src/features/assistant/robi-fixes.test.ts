@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { Company, Followup, OverduePayment } from '@/lib/types'
 import { demoCompanyStore } from '@/lib/demo-companies'
-import { balanceLookup, customerLookup, openAccountKeys, waitingCustomers, type PlanItem } from './daily-plan'
+import { balanceLookup, customerLookup, openAccountKeys, owedTasks, waitingCustomers, type PlanItem } from './daily-plan'
 import { ensurePlan, oncePerCustomer, resetPlansForTests } from './plan-store'
 import { buildAssistantTasks } from './rules'
 
@@ -78,5 +78,11 @@ describe('Robi fixes', () => {
     const call = { ...promise('a', ''), committed_date: null, next_reminder_date: null, created_at: '2026-11-15T20:00:00.000Z', followup_date: '2026-11-15T20:00:00.000Z' } as unknown as Followup
     const resting = waitingCustomers([call], '2026-11-20', undefined, true)
     expect(resting.has('company:a')).toBe(new Date('2026-11-15T20:00:00.000Z').getDate() === 16)
+  })
+
+  it('counts the tasks owed as the score does: closed and moved ones left out', () => {
+    // Devyani on 16 Nov: 8 given, 4 set aside, 1 moved to Krupa: 2 done of 3.
+    expect(owedTasks({ total: 8, closed: 4, moved: 1 })).toBe(3)
+    expect(owedTasks({ total: 9, closed: 0, moved: 0 })).toBe(9)
   })
 })

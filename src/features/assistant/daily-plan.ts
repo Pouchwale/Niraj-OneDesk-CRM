@@ -747,6 +747,16 @@ export function resolvePlan(
 }
 
 /**
+ * The tasks a plan really asks of the person, as the score counts them: tasks
+ * closed (paid, set aside) or moved to someone else during the day are left
+ * out. Every progress count uses this, so "2/3" reads the same everywhere
+ * (16 Nov 2026).
+ */
+export function owedTasks(plan: Pick<ResolvedPlan, 'total' | 'closed' | 'moved'>): number {
+  return Math.max(0, plan.total - (plan.closed ?? 0) - (plan.moved ?? 0))
+}
+
+/**
  * How long a carried item has been waiting, in plain words.
  *
  * "Since Monday" is worth more than a date on something that should have been
