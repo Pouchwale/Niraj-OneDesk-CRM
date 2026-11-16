@@ -153,6 +153,15 @@ export function ensurePlan(
     )
   }
 
+  // Below Robi's minimum now (Rs 1,000, as for new tasks): not worth a slot, carried or not (16 Nov 2026).
+  if (evidence?.balanceOf) {
+    carried = carried.filter((item) => {
+      const key = entityKeyOf(item)
+      const owed = key ? evidence.balanceOf!(key) : null
+      return item.special !== undefined || owed === null || owed >= PLAN_MIN_AMOUNT
+    })
+  }
+
   // A customer given a next follow-up date later than today waits for it, carried or not.
   if (evidence) {
     const waiting = waitingCustomers(evidence.followups, date, evidence.customerOf, true)
@@ -184,14 +193,26 @@ export function ensurePlan(
     tasks = tasks.filter((task) => other(entityKeyOf(task)))
     carried = carried.filter((item) => item.special !== 'note_pending' && other(entityKeyOf(item)))
   }
+  // An Overdue task carried from an earlier day keeps its customer: no fresh task takes them first,
+  // or the leftover would be dropped and its waiting days lost (16 Nov 2026).
+  const carriedOverdue = carried.filter((item) => item.entityType === 'overdue_payment' && !isExtraItem(item))
+  if (carriedOverdue.length) {
+    const held = new Set(carriedOverdue.map((item) => entityKeyOf(item)).filter((k): k is string => k !== null).map((k) => evidence?.customerOf?.(k) ?? k))
+    tasks = tasks.filter((task) => {
+      const key = entityKeyOf(task)
+      return !key || !held.has(evidence?.customerOf?.(key) ?? key)
+    })
+  }
   const active = makePlan(userId, date, tasks, carried, undefined, evidence?.customerOf, evidence?.balanceOf, evidence?.dueDateOf, evidence?.perHalf ?? PLAN_SIZE)
   active.items = [...notes, ...active.items]
   // Four Active Payments tasks, then four Overdue Payments tasks: eight a day.
-  if (evidence?.companies) active.items = [...active.items, ...activeFill(date, active.items, evidence)]
+  if (evidence?.companies) active.items = [...active.items, ...activeFill(date, [...active.items, ...carriedOverdue], evidence)]
   const plan = evidence?.overduePayments
     ? { ...active, items: [...active.items, ...overduePart(userId, date, active.items, carried, evidence)] }
     : active
-  if (evidence) plan.items = [...plan.items, ...topUp(userId, date, plan.items, evidence)]
+  // A customer once in a plan, whichever part put them there (16 Nov 2026), then topped up to the eight.
+  plan.items = oncePerCustomer(plan.items, evidence?.customerOf)
+  if (evidence) plan.items = oncePerCustomer([...plan.items, ...topUp(userId, date, plan.items, evidence)], evidence.customerOf)
   // Nothing to plan, and nothing was planned: already on record, say nothing
   // more. Writing it again would announce a change on every redraw.
   if (existing && plan.items.length === 0) return existing
@@ -506,6 +527,19 @@ export function judgedOnAttendance(stored: DailyPlan, resolve: (plan: DailyPlan)
   if (!status) return first
   const done = new Set(first.items.filter((i) => i.status === 'done').map((i) => i.taskId))
   return resolve(planForAttendance(stored, status, (id) => done.has(id)))
+}
+
+/** The items with each customer kept once (the first: credit-note tasks, then carried work, lead). */
+export function oncePerCustomer(items: PlanItem[], customerOf?: (key: string) => string | null | undefined): PlanItem[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const key = entityKeyOf(item)
+    if (!key) return true
+    const customer = customerOf?.(key) ?? key
+    if (seen.has(customer)) return false
+    seen.add(customer)
+    return true
+  })
 }
 
 /** Test hook: forget every plan. */

@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies';
 import type { Company, Followup, OverduePayment } from '@/lib/types';
-import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils';
+import { cn, formatCurrency, formatDate, toLocalISODate, todayISO } from '@/lib/utils';
 import { customerLookup, isExtraItem, openAccountKeys } from './daily-plan';
 import { planHistory, RESULT_LABEL, summariseHistory, type HistoryResult, type HistoryRow } from './plan-history';
 
@@ -182,7 +182,7 @@ export function PlanHistoryView({ coordinators, companies, overduePayments, foll
           r.followup ? MODE_LABEL[r.followup.mode] ?? r.followup.mode : '',
           r.followup?.notes ?? '',
           r.carriedTo ?? '',
-          r.doneLater ? r.doneLater.created_at.slice(0, 10) : '',
+          r.doneLater ? toLocalISODate(new Date(r.doneLater.created_at)) : '',
         ]),
       ];
       const totals = [

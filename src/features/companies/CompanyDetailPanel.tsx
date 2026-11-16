@@ -16,7 +16,8 @@ import { cn } from '@/lib/utils'
 import type { Company } from '@/lib/types'
 import { differenceInDays, parseISO } from 'date-fns'
 import { clearFocusedRecord, setFocusedRecord } from '@/features/assistant/screen-context'
-import { Send } from 'lucide-react'
+import { Send, Sparkles } from 'lucide-react'
+import { askRobi } from '@/features/assistant/email-draft'
 import { SendReminderDialog } from '@/features/messaging/SendReminderDialog'
 import { AccountDecisions } from '@/components/shared/AccountDecisions'
 import { isBankrupt, isNoFollowup, isSetAside } from '@/lib/no-followup'
@@ -134,6 +135,7 @@ export function CompanyDetailPanel({
               </div>
             </div>
 
+            <div className="flex shrink-0 flex-col gap-2">
             {/* Nobody is chasing a customer set aside, so there is nobody to remind. */}
             {currentUserId && company.status !== 'paid' && !isSetAside(company) && (
               <Button
@@ -145,6 +147,21 @@ export function CompanyDetailPanel({
                 Send reminder
               </Button>
             )}
+            {/* Robi writes a customer email from this customer's details (16 Nov 2026). */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              data-testid="draft-email-robi"
+              onClick={() => {
+                onClose()
+                askRobi(`Write a sweet, professional payment reminder email to ${company.name}${company.sap_bp_code ? ` (BP code ${company.sap_bp_code})` : ''}.`)
+              }}
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              Draft email with Robi
+            </Button>
+            </div>
           </div>
         </SheetHeader>
 

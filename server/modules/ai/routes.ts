@@ -17,8 +17,15 @@ import { NO_KEY_MESSAGE, type AiService } from './service'
  * The caps are not arbitrary: a prompt is billed by the token, so an unbounded
  * body is an unbounded bill as well as a slow request.
  */
+/**
+ * The longest system prompt accepted: Robi's persona plus the whole CRM guide. It was 20,000, and the
+ * guide outgrew it, so every AI question was refused and Robi fell back to the rules (found 16 Nov 2026).
+ * ai-prompt.test.ts checks the real prompt stays under it.
+ */
+export const MAX_SYSTEM_CHARS = 80_000
+
 export const chatBodySchema = z.object({
-  system: z.string().trim().min(1, 'A system prompt is required.').max(20_000),
+  system: z.string().trim().min(1, 'A system prompt is required.').max(MAX_SYSTEM_CHARS),
   context: z.string().max(120_000).default(''),
   messages: z
     .array(

@@ -171,12 +171,13 @@ export function waitingCustomers(
   const waiting = new Set<string>()
   const restUntil = addDays(today, -REST_DAYS)
   for (const [key, f] of latest) {
-    const next = [f.next_reminder_date, f.committed_date].filter(Boolean).map((d) => String(d).slice(0, 10))
+    const next = [f.next_reminder_date, f.committed_date].filter(Boolean).map((d) => (String(d).length > 10 ? localDay(String(d)) : String(d)))
     if (next.some((d) => d > today)) waiting.add(key)
     // No date given: the customer rests five days after the last contact, so
     // Robi does not hand out the same call day after day (since 10 Oct 2026).
     else if (rest && next.length === 0) {
-      const contacted = [f.followup_date, f.created_at].filter(Boolean).map((d) => String(d).slice(0, 10)).sort().at(-1) ?? ''
+      // Local days: a call at 1 am IST is that day's, not the previous day's (UTC) (16 Nov 2026).
+      const contacted = [f.followup_date, f.created_at].filter(Boolean).map((d) => localDay(String(d))).sort().at(-1) ?? ''
       if (contacted > restUntil) waiting.add(key)
     }
   }
@@ -740,7 +741,8 @@ export function resolvePlan(
     moved,
     closed,
     total: items.length,
-    complete: items.length > 0 && stillOpen === 0,
+    // Later is not done: the score counts it as not done, so Robi does not call the day finished (16 Nov 2026).
+    complete: items.length > 0 && stillOpen === 0 && set === 0,
   }
 }
 

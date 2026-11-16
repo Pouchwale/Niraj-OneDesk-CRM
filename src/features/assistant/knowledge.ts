@@ -1142,6 +1142,11 @@ export interface AiContext {
       nextReminder: string | null
     }[]
     openPromise: string | null
+    /** For a customer email (16 Nov 2026): who to write to, and what is open. */
+    contactPerson?: string | null
+    email?: string | null
+    openInvoices?: { invoiceNo: string | null; amount: string; invoiceDate: string | null; dueDate: string | null; daysPastDue: number | null }[]
+    ageing?: { '0-30': string; '31-60': string; '61-90': string; '91-120': string; '121+': string } | null
   }
   customers: { name: string; bpCode: string | null; owner: string; status: string; outstanding: string; note: string }[]
   team?: { coordinator: string; outstanding: string; planDone: number; planTotal: number }[]
@@ -1278,6 +1283,9 @@ function unknownNames(scope: Scope): NonNullable<AiContext['unknownCoordinatorNa
     .map((e) => ({ name: e.name, accounts: e.accounts.size, amount: formatCurrency(e.amount) }))
 }
 
+/** Open invoices sent with a named customer, for an email (16 Nov 2026). */
+const CONTEXT_INVOICES = 15
+
 export function buildAiContext(question: string, snapshot: SystemSnapshot): AiContext {
   const today = snapshot.today ?? todayISO()
   const scope = scopeFor(snapshot)
@@ -1356,6 +1364,32 @@ export function buildAiContext(question: string, snapshot: SystemSnapshot): AiCo
           }`
         : null,
     }
+    // Who to write to and what is open, for an email: their open invoices (biggest first) and the ageing split.
+    const invoices = scope.companies
+      .filter((c) => c.status !== 'paid' && (c.id === customer.company?.id || (customer.bpCode !== null && sameBpCode(c.sap_bp_code, customer.bpCode))))
+      .sort((a, b) => (b.total_amount ?? 0) - (a.total_amount ?? 0))
+    const contact = invoices.find((c) => c.contact_person)?.contact_person ?? customer.company?.contact_person ?? null
+    const email = invoices.find((c) => c.email)?.email ?? customer.company?.email ?? null
+    const row = customer.overdue[0]
+    const days = (due: string | null | undefined) => (due ? Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due.slice(0, 10)}T00:00:00Z`)) / 86_400_000) : null)
+    context.customer.contactPerson = contact
+    context.customer.email = email
+    context.customer.openInvoices = invoices.slice(0, CONTEXT_INVOICES).map((c) => ({
+      invoiceNo: c.invoice_no ?? null,
+      amount: formatCurrency(c.total_amount ?? 0),
+      invoiceDate: c.invoice_date ? formatDate(c.invoice_date.slice(0, 10)) : null,
+      dueDate: c.due_date ? formatDate(c.due_date.slice(0, 10)) : null,
+      daysPastDue: days(c.due_date),
+    }))
+    context.customer.ageing = row
+      ? {
+          '0-30': formatCurrency(row.due_0_30 ?? 0),
+          '31-60': formatCurrency(row.due_31_60 ?? 0),
+          '61-90': formatCurrency(row.due_61_90 ?? 0),
+          '91-120': formatCurrency(row.due_91_120 ?? 0),
+          '121+': formatCurrency(row.due_121_plus ?? 0),
+        }
+      : null
   }
 
   // Why a customer the question names is not in the lists.

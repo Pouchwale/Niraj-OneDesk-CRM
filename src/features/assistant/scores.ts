@@ -16,7 +16,7 @@
  */
 
 import type { Company, Followup, OverduePayment } from '../../lib/types'
-import { addDaysISO } from '../../lib/utils'
+import { addDaysISO, toLocalISODate } from '../../lib/utils'
 import type { AttendanceStatus } from './attendance'
 import { customerLookup, entityKeyOf, openAccountKeys, type CustomerOf, type DailyPlan } from './daily-plan'
 import { planHistory, summariseHistory, type HistoryRow } from './plan-history'
@@ -48,7 +48,9 @@ export function extraWork(plans: DailyPlan[], followups: Followup[], customerOf?
   const extra = new Map<string, Followup[]>()
   const seen = new Set<string>()
   for (const f of [...followups].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
-    const day = String(f.followup_date || f.created_at).slice(0, 10)
+    // The local day of the call (the stored time is UTC; a call at 1 am IST is that day's) (16 Nov 2026).
+    const at = new Date(String(f.followup_date || f.created_at))
+    const day = Number.isNaN(at.getTime()) ? String(f.followup_date || f.created_at).slice(0, 10) : toLocalISODate(at)
     const key = `${f.coordinator_id}|${day}`
     const who = customer(`${f.entity_type}:${f.entity_id}`)
     if (planned.get(key)?.has(who) || seen.has(`${key}|${who}`)) continue

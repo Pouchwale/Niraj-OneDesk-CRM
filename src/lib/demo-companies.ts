@@ -1644,6 +1644,12 @@ class DemoCompanyStore {
   getAttendance(userId: string, date: string): AttendanceEntry | null {
     const off = this.getRobiOffDay(date)
     if (off) return { userId, date, status: 'leave', by: off.by, at: off.at, robiOff: true }
+    // Robi tasks switched off for this coordinator (Admin Panel): the same as a Robi day off, for them only,
+    // so a plan already made is set aside and no proof check is asked (16 Nov 2026).
+    if (this.isModuleOff(userId, 'robi_tasks')) {
+      const set = this.moduleAccess.find((a) => a.coordinatorId === userId)
+      return { userId, date, status: 'leave', by: set?.by ?? 'admin', at: set?.at ?? '', robiOff: true }
+    }
     return this.attendance.find((a) => a.userId === userId && a.date === date) ?? null
   }
 

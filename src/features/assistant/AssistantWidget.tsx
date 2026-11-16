@@ -18,6 +18,7 @@ import { seesAllAccounts } from '@/lib/users/roles'
 import { useAssistant } from './useAssistant'
 import { useKnowledge } from './useKnowledge'
 import { splitSuggestions } from './ai-prompt'
+import { AssistantText, ROBI_ASK_EVENT } from './email-draft'
 import { useTeamPlans } from './useTeamPlans'
 import { greetedToday, markGreeted } from './assistant-state'
 import { composeNudges, type Nudge, type NudgeAction } from './proactive'
@@ -458,6 +459,9 @@ export function AssistantWidget() {
     if (isCoordinator) {
       const awayEntry = demoCompanyStore.getAttendance(user.id, todayISO())
       const away = awayEntry?.status
+      if (demoCompanyStore.isModuleOff(user.id, 'robi_tasks')) {
+        return assistantSays(`${hello} Robi's daily tasks are switched off for you, so there's no plan.`, 'The administrator decides which modules you use.')
+      }
       if (awayEntry?.robiOff) {
         return assistantSays(
           `${hello} ${isSundayISO(todayISO()) ? "It's Sunday, so Robi is off" : 'Robi is off today for everyone'}, so there's no plan and no score.`,
@@ -466,9 +470,6 @@ export function AssistantWidget() {
       }
       if (away === 'leave') {
         return assistantSays(`${hello} You're marked on leave today, so there's no plan.`, 'Anything still open comes back on your next working day.')
-      }
-      if (demoCompanyStore.isModuleOff(user.id, 'robi_tasks')) {
-        return assistantSays(`${hello} Robi's daily tasks are switched off for you, so there's no plan.`, 'The administrator decides which modules you use.')
       }
       if (plan && plan.total > 0) {
         return assistantSays(
@@ -584,6 +585,8 @@ export function AssistantWidget() {
       case 'snooze_task': {
         const task = tasks.find((t) => t.id === action.taskId) ?? allTasks.find((t) => t.id === action.taskId)
         if (task) answer(task, 'snooze')
+        // A plan task with no nudge behind it (Active, Overdue, credit-note tasks): Later on the plan itself.
+        else if (plan?.items.some((i) => i.taskId === action.taskId)) skipItem(action.taskId)
         return
       }
       case 'open_plan':
@@ -617,6 +620,28 @@ export function AssistantWidget() {
    * Answers a typed question without disturbing the nudge in progress: the
    * conversation carries both, and the active task stays put underneath.
    */
+  // "Draft email with Robi" on a customer (or anything else) asks here: the chat opens and the question goes in.
+  const askRef = useRef<(question: string) => void>(() => undefined)
+  askRef.current = (q: string) => {
+    // Start the day's conversation first, or the greeting that follows the opening would wipe this question out.
+    if (!startedRef.current && user) {
+      startedRef.current = true
+      setMessages([greeting()])
+      markGreeted(user.id)
+    }
+    void handleAsk(q)
+  }
+  useEffect(() => {
+    const onAsk = (event: Event) => {
+      const q = (event as CustomEvent<{ question?: string }>).detail?.question
+      if (!q) return
+      setOpen(true)
+      askRef.current(q)
+    }
+    window.addEventListener(ROBI_ASK_EVENT, onAsk)
+    return () => window.removeEventListener(ROBI_ASK_EVENT, onAsk)
+  }, [])
+
   const handleAsk = async (typed?: string) => {
     const asked = (typed ?? question).trim()
     if (!asked || isThinking) return
@@ -999,9 +1024,9 @@ export function AssistantWidget() {
                           : 'rounded-bl-md bg-background text-foreground ring-1 ring-border/70'
                       )}
                     >
-                      <p className="whitespace-pre-wrap leading-relaxed">
-                        {message.from === 'assistant' ? splitSuggestions(message.text).text : message.text}
-                      </p>
+                      <div className="whitespace-pre-wrap leading-relaxed">
+                        {message.from === 'assistant' ? <AssistantText text={splitSuggestions(message.text).text} /> : message.text}
+                      </div>
                       {message.detail && (
                         <p className="mt-1.5 text-xs leading-relaxed opacity-75">{message.detail}</p>
                       )}
@@ -1216,7 +1241,11 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
 }
 
 function PlanSection({ plan, expanded, onToggle, onOpen, onSkip, onUnskip }: PlanSectionProps) {
-  const complete = plan.done === plan.total
+  // As the score counts it: tasks closed (paid, set aside) or moved to someone else are not owed;
+  // Later is still to do (16 Nov 2026).
+  const counted = plan.total - plan.closed - plan.moved
+  const toGo = plan.open + plan.skipped
+  const complete = plan.complete
   return (
     <div className="border-b border-border/70 bg-background" data-testid="robi-plan">
       <button
@@ -1226,9 +1255,9 @@ function PlanSection({ plan, expanded, onToggle, onOpen, onSkip, onUnskip }: Pla
         aria-expanded={expanded}
       >
         <div className="relative">
-          <ProgressRing done={plan.done} total={plan.total} />
+          <ProgressRing done={plan.done} total={counted} />
           <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums">
-            {plan.total > 0 ? Math.round((plan.done / plan.total) * 100) : 0}%
+            {counted > 0 ? Math.round((plan.done / counted) * 100) : 0}%
           </span>
         </div>
         <div className="min-w-0 flex-1">
@@ -1240,7 +1269,7 @@ function PlanSection({ plan, expanded, onToggle, onOpen, onSkip, onUnskip }: Pla
               complete ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'
             )}
           >
-            {plan.done}/{plan.total} done{complete ? ' · all done' : ` · ${plan.open} to go`}
+            {plan.done}/{counted} done{complete ? ' · all done' : ` · ${toGo} to go`}
           </p>
         </div>
         {expanded ? (

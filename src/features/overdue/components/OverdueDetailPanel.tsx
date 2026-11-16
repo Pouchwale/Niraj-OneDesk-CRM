@@ -6,7 +6,8 @@ import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { IndianRupee, User, Building2, Layers, CreditCard, ChevronDown, ChevronUp, Send } from 'lucide-react'
+import { IndianRupee, User, Building2, Layers, CreditCard, ChevronDown, ChevronUp, Send, Sparkles } from 'lucide-react'
+import { askRobi } from '@/features/assistant/email-draft'
 import { FollowUpTimeline } from '@/features/companies/FollowUpTimeline'
 import { getAllCoordinators, getCoordinatorDisplayName, rowOwner } from '@/features/auth/AuthContext'
 import { OwnerName, ownerNameProps } from '@/components/shared/OwnerFilter'
@@ -226,6 +227,20 @@ export function OverdueDetailPanel({
                     Send reminder
                   </Button>
                 )}
+                {/* Robi writes a customer email from this customer's details (16 Nov 2026). */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={cn(!(currentUserId && payment.status !== 'settled' && !isSetAside(payment)) && 'ml-auto')}
+                  data-testid="draft-email-robi"
+                  onClick={() => {
+                    onClose()
+                    askRobi(`Write a sweet, professional payment reminder email to ${(payment.customer_name || payment.bp_code)}${payment.bp_code ? ` (BP code ${payment.bp_code})` : ''}.`)
+                  }}
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Draft email with Robi
+                </Button>
               </div>
             </SheetHeader>
 

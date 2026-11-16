@@ -86,6 +86,15 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
         'a customer'
 
   /**
+   * Whether the record a follow-up was logged on is still this coordinator's.
+   * A promise or reminder logged on a customer since handed to someone else is
+   * theirs to chase now: without this Robi kept giving the old owner a task on
+   * a customer they can no longer open, named only "a company" (16 Nov 2026).
+   */
+  const isMine = (followup: Followup): boolean =>
+    followup.entity_type === 'company' ? companyById.has(followup.entity_id) : overdueById.has(followup.entity_id)
+
+  /**
    * Whether the account a follow-up points at has been closed or set aside
    * (no follow-up or bankrupt) since. A promise or reminder on it is moot, and
    * every other surface skips these too.
@@ -151,7 +160,7 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
   /* ---------- 2. Commitments landing today ---------- */
 
   for (const followup of context.followups) {
-    if (followup.status === 'paid' || isSettled(followup)) continue
+    if (followup.status === 'paid' || isSettled(followup) || !isMine(followup)) continue
     if (followup.committed_date !== today) continue
 
     const name = nameOf(followup)
@@ -174,7 +183,7 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
   /* ---------- 3. Commitments already broken ---------- */
 
   for (const followup of context.followups) {
-    if (followup.status === 'paid' || isSettled(followup)) continue
+    if (followup.status === 'paid' || isSettled(followup) || !isMine(followup)) continue
     if (!followup.committed_date || followup.committed_date >= today) continue
 
     const name = nameOf(followup)
@@ -201,7 +210,7 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
   /* ---------- 4. Settled payments with no evidence on file ---------- */
 
   for (const followup of context.followups) {
-    if (followup.status !== 'paid') continue
+    if (followup.status !== 'paid' || !isMine(followup)) continue
     if (followup.proof_attachment_url) continue
     if ((followup.committed_amount ?? 0) < PROOF_THRESHOLD) continue
 
@@ -224,7 +233,7 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
   /* ---------- 5. Reminders the coordinator set for themselves ---------- */
 
   for (const followup of context.followups) {
-    if (followup.status === 'paid' || isSettled(followup)) continue
+    if (followup.status === 'paid' || isSettled(followup) || !isMine(followup)) continue
     if (!followup.next_reminder_date || followup.next_reminder_date > today) continue
     // A commitment rule already covers this record; don't nag twice.
     if (followup.committed_date) continue
@@ -367,7 +376,7 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
 
   // One card per customer, pointing at the record the last call was logged on.
   for (const [customer, followup] of latestByCustomer) {
-    if (followup.status === 'paid') continue
+    if (followup.status === 'paid' || !isMine(followup)) continue
     // Already raised, more urgently, by the ageing rule above.
     if (ageingNudged.has(customer)) continue
 

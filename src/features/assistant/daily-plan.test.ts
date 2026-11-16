@@ -380,7 +380,7 @@ describe('resolvePlan', () => {
     expect(resolved.complete).toBe(false)
   })
 
-  it('is complete once nothing is left open', () => {
+  it('is complete only once nothing is left open or set to Later (16 Nov 2026: Later is not done)', () => {
     const resolved = resolvePlan(
       { ...plan, skipped: ['untouched-3'] },
       [],
@@ -388,7 +388,8 @@ describe('resolvePlan', () => {
       'coord-1',
       OWED
     )
-    expect(resolved.complete).toBe(true)
+    expect(resolved.complete).toBe(false)
+    expect(resolved.skipped).toBe(1)
     expect(planProgressLine(resolved)).toBe('2 of 3 done')
   })
 })

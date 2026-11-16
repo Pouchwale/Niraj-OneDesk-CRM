@@ -38,7 +38,7 @@ import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { OverviewMobileNav, OverviewSideNav } from './OverviewNav';
 import { cn } from '@/lib/utils';
 import type { Company, Followup, OverduePayment } from '@/lib/types';
-import { demoCompanyStore } from '@/lib/demo-companies';
+import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies';
 
 /** Under an account count: how many are overdue, and how many of those are critical. */
 function AccountSplit({ overdue, critical }: { overdue: number; critical: number }) {
@@ -98,8 +98,9 @@ export function AdminOverviewPage() {
     return { plain: plain.size, disputed: disputed.size, exported: exported.size };
   }, [companies, overduePayments]);
 
-  const loadData = useCallback(async () => {
-      setIsLoading(true);
+  // quiet: a refresh after somebody's change, without the loading screen (16 Nov 2026).
+  const loadData = useCallback(async (quiet = false) => {
+      if (!quiet) setIsLoading(true);
       try {
         const allCompanies = await getCompanies();
         setCompanies(allCompanies);
@@ -116,12 +117,26 @@ export function AdminOverviewPage() {
       } catch (error) {
         console.error('Failed to load admin overview data:', error);
       } finally {
-        setIsLoading(false);
+        if (!quiet) setIsLoading(false);
       }
   }, []);
 
   useEffect(() => {
     loadData();
+  }, [loadData]);
+
+  // Live: a call logged, a plan made or an account moved anywhere updates this page, as it does Robi's own
+  // view; it used to read the records once and then stand still (16 Nov 2026).
+  useEffect(() => {
+    let queued = false;
+    return subscribeToDemoStore(() => {
+      if (queued) return;
+      queued = true;
+      setTimeout(() => {
+        queued = false;
+        void loadData(true);
+      }, 500);
+    });
   }, [loadData]);
 
   // One customer, one line: the shared book the dashboard and the assistant

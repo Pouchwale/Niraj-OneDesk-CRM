@@ -60,7 +60,13 @@ const PROOF: Record<ProofRequest['status'], string> = {
   pending: 'Waiting', submitted: 'To review', missed: 'Missed', approved: 'Approved', rejected: 'Rejected',
 }
 
-const day = (iso: string | null | undefined) => String(iso ?? '').slice(0, 10)
+/** The local calendar day of a date or timestamp (a timestamp is UTC; the business is in IST). */
+const day = (iso: string | null | undefined) => {
+  const text = String(iso ?? '')
+  if (text.length <= 10) return text
+  const d = new Date(text)
+  return Number.isNaN(d.getTime()) ? text.slice(0, 10) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 const inPeriod = (date: string, from: string, to: string) => date >= from && date <= to
 const pretty = (date: string | null | undefined) => {
   if (!date) return ''
@@ -77,7 +83,9 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
   const { from, to, nameOf } = input
   const coordinatorIds = new Set(input.coordinators.map((c) => c.id))
   const leave = new Map(input.attendance.map((a) => [`${a.userId}|${a.date}`, a.status]))
-  const robiOff = new Set(input.robiOffDays ?? [])
+  const robiOffSet = new Set(input.robiOffDays ?? [])
+  // Sundays are Robi days off too (since 16 Nov 2026), plans already made on them included.
+  const robiOff = { has: (d: string) => robiOffSet.has(d) || new Date(`${d}T00:00:00`).getDay() === 0 }
 
   /* ----- who the records belong to ----- */
   const companyById = new Map(input.companies.map((c) => [c.id, c]))
@@ -198,7 +206,7 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
   for (const c of input.coordinators) {
     const days = [...new Set([...scores.keys(), ...extra.keys()].filter((k) => k.startsWith(`${c.id}|`)).map((k) => k.split('|')[1]))]
     const leaveDays = attendance.filter((a) => a.userId === c.id && a.status === 'leave').map((a) => a.date)
-    const offDays = [...robiOff].filter((d) => inPeriod(d, from, to))
+    const offDays = [...robiOffSet].filter((d) => inPeriod(d, from, to))
     for (const d of [...new Set([...days, ...leaveDays, ...offDays])].sort()) {
       const s: DayScore | undefined = scores.get(`${c.id}|${d}`)
       const status = leave.get(`${c.id}|${d}`)
