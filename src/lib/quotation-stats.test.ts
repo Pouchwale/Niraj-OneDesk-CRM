@@ -210,3 +210,28 @@ describe('conversionsOf', () => {
     ])
   })
 })
+
+describe('Performance counted like the cards (16 Nov 2026)', () => {
+  // All time, 1-7 Nov: two quoted in the dates (one won in them), one quoted earlier and won in them, one quoted earlier and still open.
+  const list = [
+    quote({ id: 'a', quotation_date: '2026-11-02', status: 'closed', closing_date: '2026-11-05', customer_type: 'new', amount: 100, customer_name: 'A' }),
+    quote({ id: 'b', quotation_date: '2026-11-03', status: 'open', customer_name: 'B' }),
+    quote({ id: 'c', inquiry_date: '2026-11-01', quotation_date: '2026-10-20', status: 'closed', closing_date: '2026-11-06', amount: 50, customer_name: 'C' }),
+    quote({ id: 'd', inquiry_date: '2026-11-01', quotation_date: '2026-10-25', status: 'open', customer_name: 'D' }),
+  ]
+  const scope = cardScope(list, { ...NO_QUOTATION_FILTER, anyDate: true, from: '2026-11-01', to: '2026-11-07' })
+
+  it('totals only what was quoted in the dates, conversions every closing in them', () => {
+    const c = conversionsOf(list, scope)
+    expect(c).toMatchObject({ quotations: 2, newQuotations: 1, conversions: 2, newConversions: 1, existingConversions: 1, amount: 150, score: 150, customers: 2 })
+    const p = performanceOf(list, scope)
+    expect(p).toMatchObject({ quotations: 2, open: 2, closed: 2, lost: 0, valueWon: 150 })
+    expect(conversionsByPerson(list, [], scope)[0].summary.quotations).toBe(2)
+    expect(performanceByPerson(list, scope)[0].performance.closed).toBe(2)
+  })
+
+  it('is unchanged without the scope', () => {
+    expect(conversionsOf(list)).toMatchObject({ quotations: 4, conversions: 2 })
+    expect(performanceOf(list).quotations).toBe(4)
+  })
+})

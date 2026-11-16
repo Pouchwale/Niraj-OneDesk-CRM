@@ -15,7 +15,7 @@ import { useMemo } from 'react'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { GlassCard } from '@/components/shared/GlassCard'
 import { minusFixed } from '@/lib/minus-score'
-import { conversionsByPerson, conversionsOf, QUOTATION_SCORE, type ConversionSummary } from '@/lib/quotation-stats'
+import { conversionsByPerson, conversionsOf, QUOTATION_SCORE, type ConversionSummary, type CountScope } from '@/lib/quotation-stats'
 import type { Quotation } from '@/lib/types'
 import { cn, formatCurrency } from '@/lib/utils'
 
@@ -82,11 +82,13 @@ interface QuotationConversionsProps {
   /** Coordinators who get a line even with nothing in the period. */
   people: string[]
   onPickPerson?: (personId: string) => void
+  /** Count like the cards: totals from the quotations made in the dates, conversions from those closed in them. */
+  scope?: CountScope
 }
 
-export function QuotationConversions({ list, period, showPeople, people, onPickPerson }: QuotationConversionsProps) {
-  const team = useMemo(() => conversionsOf(list), [list])
-  const rows = useMemo(() => conversionsByPerson(list, people), [list, people])
+export function QuotationConversions({ list, period, showPeople, people, onPickPerson, scope }: QuotationConversionsProps) {
+  const team = useMemo(() => conversionsOf(list, scope), [list, scope])
+  const rows = useMemo(() => conversionsByPerson(list, people, scope), [list, people, scope])
 
   return (
     <GlassCard className="space-y-4 p-4 sm:p-6" data-testid="quotation-conversions">

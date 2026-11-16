@@ -16,6 +16,7 @@ import {
   monthlyPerformance,
   performanceByPerson,
   performanceOf,
+  type CountScope,
   type DateBasis,
   type QuotationPerformance as Perf,
 } from '@/lib/quotation-stats'
@@ -149,19 +150,22 @@ interface QuotationPerformanceProps {
   showPeople: boolean
   /** Open one person's performance (sets the Coordinator filter). */
   onPickPerson?: (personId: string) => void
+  /** Count like the cards: totals from the quotations made in the dates, closed / lost / won from those decided in them. */
+  scope?: CountScope
 }
 
-export function QuotationPerformance({ list, basis, showPeople, onPickPerson }: QuotationPerformanceProps) {
-  const team = useMemo(() => performanceOf(list), [list])
-  const people = useMemo(() => performanceByPerson(list), [list])
-  const months = useMemo(() => monthlyPerformance(list, basis).map((m) => ({ ...m, name: monthName(m.month) })), [list, basis])
+export function QuotationPerformance({ list, basis, showPeople, onPickPerson, scope }: QuotationPerformanceProps) {
+  const team = useMemo(() => performanceOf(list, scope), [list, scope])
+  const people = useMemo(() => performanceByPerson(list, scope), [list, scope])
+  const months = useMemo(() => monthlyPerformance(list, basis, scope).map((m) => ({ ...m, name: monthName(m.month) })), [list, basis, scope])
+  const decidedHere = useMemo(() => (scope ? new Set(scope.counted) : null), [scope])
   const [sort, setSort] = useState<{ key: SortKey; dir: 'desc' | 'asc' }>({ key: 'valueWon', dir: 'desc' })
   const [valueBy, setValueBy] = useState<'month' | 'person'>(showPeople ? 'person' : 'month')
   // The coordinator whose won deals are open under their row ('' is "not assigned"); null: none open.
   const [openPerson, setOpenPerson] = useState<string | null>(null)
   const wonBy = (personId: string) =>
     list
-      .filter((q) => q.status === 'closed' && (q.coordinator_id ?? '') === personId)
+      .filter((q) => q.status === 'closed' && (q.coordinator_id ?? '') === personId && (!decidedHere || decidedHere.has(q)))
       .sort((a, b) => (b.closing_date ?? '').localeCompare(a.closing_date ?? '') || (b.amount ?? 0) - (a.amount ?? 0))
 
   const sortedPeople = useMemo(() => {

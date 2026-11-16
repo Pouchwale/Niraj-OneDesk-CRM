@@ -199,6 +199,7 @@ export function QuotationsPage() {
           showPeople={canManageTeam && owner === 'all'}
           people={quotingPeople}
           onPickPerson={canManageTeam ? (id) => setFilters({ ...filters, owner: id }) : undefined}
+          scope={cards}
         />
       )}
 
@@ -208,6 +209,7 @@ export function QuotationsPage() {
           basis={filters.basis}
           showPeople={canManageTeam && owner === 'all'}
           onPickPerson={canManageTeam ? (id) => setFilters({ ...filters, owner: id }) : undefined}
+          scope={cards}
         />
       )}
 

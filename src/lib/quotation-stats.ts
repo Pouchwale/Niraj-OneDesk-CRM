@@ -70,6 +70,23 @@ export function cardScope(list: readonly Quotation[], f: QuotationFilter): {
   }
 }
 
+/**
+ * What a figure counts, as the cards do (cardScope): the quotations "made" (the
+ * totals: quotations, new/existing, customers) and those "decided" (closed or
+ * lost: conversions, points, value won). Without one, the whole list is both.
+ */
+export interface CountScope {
+  made: readonly Quotation[]
+  counted: readonly Quotation[]
+}
+
+function scopeOf(list: readonly Quotation[], scope?: CountScope) {
+  if (!scope) return { made: [...list], decided: list.filter((q) => q.status !== 'open') }
+  const made = new Set(scope.made)
+  const decided = new Set(scope.counted.filter((q) => q.status !== 'open'))
+  return { made: list.filter((q) => made.has(q)), decided: list.filter((q) => decided.has(q)) }
+}
+
 /** Whether a quotation passes the date and value filter. */
 export function matchesQuotationFilter(q: Quotation, f: QuotationFilter): boolean {
   if (f.from || f.to) {
@@ -110,41 +127,42 @@ export interface QuotationPerformance {
 
 const days = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000)
 
-/** How a set of quotations performed. */
-export function performanceOf(list: readonly Quotation[]): QuotationPerformance {
-  const count = (s: QuotationStatus) => list.filter((q) => q.status === s).length
-  const closed = list.filter((q) => q.status === 'closed')
+/** How a set of quotations performed (counted like the cards when a scope is given). */
+export function performanceOf(list: readonly Quotation[], scope?: CountScope): QuotationPerformance {
+  const { made, decided } = scopeOf(list, scope)
+  const count = (s: QuotationStatus) => (s === 'open' ? list : decided).filter((q) => q.status === s).length
+  const closed = decided.filter((q) => q.status === 'closed')
   const valued = closed.filter((q) => (q.amount ?? 0) > 0)
   const valueWon = Math.round(valued.reduce((sum, q) => sum + (q.amount ?? 0), 0) * 100) / 100
   const timed = closed
     .filter((q) => q.quotation_date && q.closing_date)
     .map((q) => days(q.quotation_date!, q.closing_date!))
     .filter((d) => d >= 0)
-  const decided = closed.length + count('lost')
+  const decidedCount = closed.length + count('lost')
   return {
-    quotations: list.length,
+    quotations: made.length,
     open: count('open'),
     closed: closed.length,
     lost: count('lost'),
-    winRate: decided ? Math.round((closed.length / decided) * 100) : null,
+    winRate: decidedCount ? Math.round((closed.length / decidedCount) * 100) : null,
     valueWon,
     valued: valued.length,
     averageOrder: valued.length ? Math.round(valueWon / valued.length) : null,
-    averageFollowups: list.length ? Math.round((list.reduce((s, q) => s + followupCount(q), 0) / list.length) * 10) / 10 : null,
+    averageFollowups: made.length ? Math.round((made.reduce((s, q) => s + followupCount(q), 0) / made.length) * 10) / 10 : null,
     averageDaysToClose: timed.length ? Math.round(timed.reduce((s, d) => s + d, 0) / timed.length) : null,
-    newCustomers: list.filter((q) => q.customer_type === 'new').length,
+    newCustomers: made.filter((q) => q.customer_type === 'new').length,
   }
 }
 
 /** Performance per person ('' = not assigned to anyone in the CRM), biggest value won first. */
-export function performanceByPerson(list: readonly Quotation[]): { personId: string; performance: QuotationPerformance }[] {
+export function performanceByPerson(list: readonly Quotation[], scope?: CountScope): { personId: string; performance: QuotationPerformance }[] {
   const groups = new Map<string, Quotation[]>()
   for (const q of list) {
     const key = q.coordinator_id ?? ''
     groups.set(key, [...(groups.get(key) ?? []), q])
   }
   return [...groups.entries()]
-    .map(([personId, rows]) => ({ personId, performance: performanceOf(rows) }))
+    .map(([personId, rows]) => ({ personId, performance: performanceOf(rows, scope) }))
     .sort((a, b) => b.performance.valueWon - a.performance.valueWon || b.performance.quotations - a.performance.quotations)
 }
 
@@ -186,18 +204,20 @@ export interface ConversionSummary {
 
 const customerKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
 
-export function conversionsOf(list: readonly Quotation[]): ConversionSummary {
-  const closed = list.filter((q) => q.status === 'closed')
-  const score = list.reduce((sum, q) => sum + quotationScore(q), 0)
-  const customers = new Set(list.map((q) => customerKey(q.customer_name))).size
+export function conversionsOf(list: readonly Quotation[], scope?: CountScope): ConversionSummary {
+  const { made, decided } = scopeOf(list, scope)
+  const closed = decided.filter((q) => q.status === 'closed')
+  // Only a closed quotation earns points, so the points are the conversions'.
+  const score = closed.reduce((sum, q) => sum + quotationScore(q), 0)
+  const customers = new Set(made.map((q) => customerKey(q.customer_name))).size
   return {
-    quotations: list.length,
-    newQuotations: list.filter((q) => q.customer_type === 'new').length,
-    existingQuotations: list.filter((q) => q.customer_type === 'existing').length,
+    quotations: made.length,
+    newQuotations: made.filter((q) => q.customer_type === 'new').length,
+    existingQuotations: made.filter((q) => q.customer_type === 'existing').length,
     conversions: closed.length,
     newConversions: closed.filter((q) => q.customer_type === 'new').length,
     existingConversions: closed.filter((q) => q.customer_type === 'existing').length,
-    conversionRate: list.length ? Math.round((closed.length / list.length) * 100) : null,
+    conversionRate: made.length ? Math.round((closed.length / made.length) * 100) : null,
     amount: Math.round(closed.reduce((sum, q) => sum + (q.amount ?? 0), 0) * 100) / 100,
     score,
     customers,
@@ -212,7 +232,8 @@ export function conversionsOf(list: readonly Quotation[]): ConversionSummary {
  */
 export function conversionsByPerson(
   list: readonly Quotation[],
-  people: readonly string[] = []
+  people: readonly string[] = [],
+  scope?: CountScope
 ): { personId: string; summary: ConversionSummary }[] {
   const groups = new Map<string, Quotation[]>(people.map((id) => [id, []]))
   for (const q of list) {
@@ -220,7 +241,7 @@ export function conversionsByPerson(
     groups.set(key, [...(groups.get(key) ?? []), q])
   }
   return [...groups.entries()]
-    .map(([personId, rows]) => ({ personId, summary: conversionsOf(rows) }))
+    .map(([personId, rows]) => ({ personId, summary: conversionsOf(rows, scope) }))
     .sort(
       (a, b) =>
         (b.summary.averageScore ?? -1) - (a.summary.averageScore ?? -1) ||
@@ -232,11 +253,15 @@ export function conversionsByPerson(
 /** Counts by status and value won, month by month (yyyy-mm), oldest first, on the chosen date basis. */
 export function monthlyPerformance(
   list: readonly Quotation[],
-  basis: DateBasis
+  basis: DateBasis,
+  scope?: CountScope
 ): { month: string; open: number; closed: number; lost: number; valueWon: number }[] {
   const months = new Map<string, { month: string; open: number; closed: number; lost: number; valueWon: number }>()
+  // Counted like the cards: open ones by quotation date, closed and lost ones in the dates by closing date.
+  const decided = scope ? new Set(scope.counted.filter((q) => q.status !== 'open')) : null
   for (const q of list) {
-    const day = dayFor(q, basis)
+    if (decided && q.status !== 'open' && !decided.has(q)) continue
+    const day = decided ? (q.status === 'open' ? quotationDay(q) : q.closing_date ?? null) : dayFor(q, basis)
     if (!day) continue
     const month = day.slice(0, 7)
     const m = months.get(month) ?? { month, open: 0, closed: 0, lost: 0, valueWon: 0 }
