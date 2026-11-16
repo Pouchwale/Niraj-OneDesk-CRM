@@ -33,6 +33,7 @@ import { otifReportRoutes } from './modules/otif-reports/routes'
 import { presalesRoutes } from './modules/presales/routes'
 import { createOtifCustomerSource } from './modules/service-otif/source'
 import { serviceOtifRoutes } from './modules/service-otif/routes'
+import { servicePoRoutes } from './modules/service-po/lookup'
 import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
@@ -206,6 +207,8 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   router.use('/excel', requireSession(accounts, sessions), excelRoutes(excel, logger))
   router.use('/score-history', requireSession(accounts, sessions), scoreHistoryRoutes(scoreHistory, logger))
   router.use('/service-otif', requireSession(accounts, sessions), serviceOtifRoutes(otifCustomers))
+  // Service form: one PO's details from Service-AutoPO (the sheet itself is never sent).
+  router.use('/service-po', requireSession(accounts, sessions), servicePoRoutes(config.servicePoPath, logger))
   // Pre Sales Analysis (14 Nov 2026): the server reads the workbook and sends each coordinator only their customers,
   // matched by customer code to the CRM's Active and Overdue Payments accounts.
   router.use(

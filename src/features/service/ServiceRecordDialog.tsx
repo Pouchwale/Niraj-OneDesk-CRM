@@ -2,10 +2,12 @@
  * Add or edit a service record (a dispatch mail): the SERVICE sheet's columns,
  * one form. Date Diff is worked out from the two dates. A coordinator keeps
  * their own rows; the team leader and administrator can enter for anyone and
- * delete.
+ * delete. Since 16 Nov 2026 entering a PO no. fills Customer name, Sales order
+ * no, FG code and Original SO dispatch date from Service-AutoPO (looked up on
+ * the server; still editable; the Coordinator stays as chosen).
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -21,6 +23,8 @@ import { DISPATCH_STATUSES, serviceDateDiff, serviceRowScore } from '@/lib/servi
 import { whenSaved } from '@/lib/shared-data'
 import type { DispatchStatus, ServiceRecord } from '@/lib/types'
 import { todayISO } from '@/lib/utils'
+import { lookupServicePo } from './service-po-api'
+import { poKey } from '../../../shared/service-po'
 
 const newId = () => `service-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 const selectClass = 'h-9 w-full rounded-md border border-border bg-background px-2 text-sm'
@@ -63,6 +67,45 @@ export function ServiceRecordDialog({
     remark: record?.remark ?? '',
   }))
   const [busy, setBusy] = useState(false)
+  // The PO lookup: what it said about the PO no. last looked up.
+  const [poNote, setPoNote] = useState<{ tone: 'ok' | 'warn' | 'busy'; text: string } | null>(null)
+  const lookedUp = useRef(poKey(record?.po_no ?? ''))
+  // What the last lookup filled in, so a PO the sheet does not have clears it again (unless it was changed by hand).
+  const filled = useRef<Partial<Record<FormKey, string>>>({})
+  const lookUpPo = async () => {
+    const key = poKey(form.po_no)
+    if (!key || key === lookedUp.current) return
+    lookedUp.current = key
+    setPoNote({ tone: 'busy', text: 'Looking up the PO in Service-AutoPO…' })
+    try {
+      const res = await lookupServicePo(key)
+      // Another PO was typed and looked up meanwhile: that answer wins.
+      if (lookedUp.current !== key) return
+      if (!res.configured) return setPoNote(null)
+      if (res.error) return setPoNote({ tone: 'warn', text: `Service-AutoPO could not be read (${res.error}); fill the fields yourself.` })
+      const m = res.match
+      if (!m) {
+        const before = filled.current
+        filled.current = {}
+        setForm((f) => {
+          const next = { ...f }
+          for (const [k, v] of Object.entries(before) as [FormKey, string][]) if (next[k] === v) next[k] = ''
+          return next
+        })
+        return setPoNote({ tone: 'warn', text: 'PO not found in Service-AutoPO; fill the fields yourself.' })
+      }
+      const fill: Partial<Record<FormKey, string>> = {}
+      if (m.customerName) fill.customer_name = m.customerName
+      if (m.salesOrderNo) fill.sales_order_no = m.salesOrderNo
+      if (m.fgCode) fill.fg_code = m.fgCode
+      if (m.dueDate) fill.original_dispatch_date = m.dueDate
+      filled.current = fill
+      setForm((f) => ({ ...f, ...fill }))
+      setPoNote({ tone: 'ok', text: 'Filled from Service-AutoPO: customer, sales order, FG code and original dispatch date. You can still change them.' })
+    } catch (err) {
+      setPoNote({ tone: 'warn', text: err instanceof Error ? err.message : 'The PO could not be looked up; fill the fields yourself.' })
+    }
+  }
   const canEdit = canManageTeam || !record || record.coordinator_id === currentUserId
   const set = (key: FormKey, value: string) => setForm((f) => ({ ...f, [key]: value }))
   const text = (key: FormKey) => form[key].trim() || null
@@ -168,7 +211,27 @@ export function ServiceRecordDialog({
           )}
           {field('Customer name', 'customer_name', { list: 'service-customers', placeholder: 'Company name' })}
           {field('Sales order no', 'sales_order_no')}
-          {field('PO no.', 'po_no')}
+          <div className="space-y-1">
+            <Label htmlFor="s-po_no">PO no.</Label>
+            <Input
+              id="s-po_no"
+              value={form.po_no}
+              onChange={(e) => set('po_no', e.target.value)}
+              onBlur={() => void lookUpPo()}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void lookUpPo())}
+              disabled={!canEdit}
+              placeholder="Type the PO no. to fill the rest"
+              data-testid="service-po"
+            />
+            {poNote && (
+              <p
+                className={poNote.tone === 'ok' ? 'text-xs text-emerald-700 dark:text-emerald-400' : poNote.tone === 'warn' ? 'text-xs text-amber-600 dark:text-amber-400' : 'text-xs text-muted-foreground'}
+                data-testid="service-po-note"
+              >
+                {poNote.text}
+              </p>
+            )}
+          </div>
           {field('FG code', 'fg_code')}
           <div className="space-y-1">
             <Label htmlFor="s-status">Dispatch status</Label>

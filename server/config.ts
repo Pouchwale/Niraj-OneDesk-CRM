@@ -115,6 +115,8 @@ export interface ServerConfig {
   databaseUrl: string | undefined
   /** Settings that look like ours but are read by nobody: almost always typos. */
   unknownExcelKeys: string[]
+  /** The Service-AutoPO workbook the Service form looks PO numbers up in (16 Nov 2026); off when not set. */
+  servicePoPath: string | undefined
 }
 
 function trimmed(value: string | undefined): string | undefined {
@@ -240,5 +242,6 @@ export function loadConfig(env: RawEnv = process.env): ServerConfig {
     sessionHours: value.SESSION_HOURS,
     databaseUrl: trimmed(value.DATABASE_URL),
     unknownExcelKeys: unknownExcelKeys(env),
+    servicePoPath: trimmed(env.SERVICE_PO_PATH) ? resolve(trimmed(env.SERVICE_PO_PATH)!) : undefined,
   }
 }
