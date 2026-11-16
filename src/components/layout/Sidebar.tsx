@@ -5,6 +5,7 @@ import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft
 import { useAuth } from '@/features/auth/AuthContext';
 import { cn } from '@/lib/utils';
 import { isRfdOnly } from '@/lib/users/rfd-only';
+import { useModuleOn } from '@/features/auth/module-access';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -17,17 +18,19 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
   const { user, isAdmin, canManageTeam } = useAuth();
   // Avani works only on Ready for Dispatch: no payments screens in her menu.
   const rfdOnly = isRfdOnly(user);
+  // Modules the administrator switched off for this coordinator are not in their menu.
+  const on = useModuleOn();
 
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', show: !rfdOnly },
-    { to: '/companies', icon: Building2, label: 'Active Payments', show: !rfdOnly },
-    { to: '/overdue', icon: AlertTriangle, label: 'Overdue Payments', show: !rfdOnly },
-    { to: '/rfd', icon: PackageCheck, label: 'Ready for Dispatch', show: true },
-    { to: '/quotations', icon: FileText, label: 'Quotations', show: !rfdOnly },
-    { to: '/pre-sales', icon: ShoppingCart, label: 'Pre Sales Analysis', show: !rfdOnly },
-    { to: '/billing-issues', icon: ReceiptText, label: 'Billing Issues', show: true },
-    { to: '/service', icon: Mail, label: 'Service', show: !rfdOnly },
-    { to: '/self-leads', icon: UserPlus, label: 'Self Leads', show: !rfdOnly },
+    { to: '/companies', icon: Building2, label: 'Active Payments', show: !rfdOnly && on('active_payments') },
+    { to: '/overdue', icon: AlertTriangle, label: 'Overdue Payments', show: !rfdOnly && on('overdue_payments') },
+    { to: '/rfd', icon: PackageCheck, label: 'Ready for Dispatch', show: on('rfd') },
+    { to: '/quotations', icon: FileText, label: 'Quotations', show: !rfdOnly && on('quotations') },
+    { to: '/pre-sales', icon: ShoppingCart, label: 'Pre Sales Analysis', show: !rfdOnly && on('pre_sales') },
+    { to: '/billing-issues', icon: ReceiptText, label: 'Billing Issues', show: on('billing_issues') },
+    { to: '/service', icon: Mail, label: 'Service', show: !rfdOnly && on('service') },
+    { to: '/self-leads', icon: UserPlus, label: 'Self Leads', show: !rfdOnly && on('self_leads') },
     { to: '/festivals', icon: PartyPopper, label: 'Festivals', show: isAdmin },
     { to: '/admin/overview', icon: Users, label: 'Overview', show: canManageTeam },
     { to: '/otif', icon: BarChart3, label: 'OTIF Analytics', show: canManageTeam },

@@ -14,7 +14,7 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
-import { accountRefusal, billingIssueRefusal, festivalConfigRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string) {
@@ -48,6 +48,8 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     serviceRecords: (snapshot.serviceRecords ?? []).filter((r) => r.coordinator_id === userId),
     serviceTargets: [],
     selfLeads: (snapshot.selfLeads ?? []).filter((l) => l.coordinator_id === userId),
+    // Only their own module switches.
+    moduleAccess: (snapshot.moduleAccess ?? []).filter((a) => a.coordinatorId === userId),
     // Numbers only, so a new quotation never reuses one another coordinator took.
     quotationNos: (snapshot.quotations ?? []).map((q) => q.quotation_no).filter((n): n is string => !!n),
     // The import's own paperwork is the leader's business, not theirs.
@@ -150,6 +152,12 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (robiOff) {
         logger.warn('data: Robi day off refused', { method, user: user.id, refusal: robiOff })
         next(ApiError.forbidden(robiOff))
+        return
+      }
+      const access = moduleAccessRefusal(user.role, method)
+      if (access) {
+        logger.warn('data: module access change refused', { method, user: user.id, refusal: access })
+        next(ApiError.forbidden(access))
         return
       }
       const festive = festivalConfigRefusal(user.role, method)

@@ -7,6 +7,7 @@ import { AssistantWidget } from '@/features/assistant/AssistantWidget';
 import { ProofGate } from '@/features/assistant/ProofGate';
 import { FestivalOverlay } from '@/features/festivals/FestivalOverlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { ModuleGate } from '@/features/auth/module-access';
 
 export const AppShell = () => {
   const { pathname } = useLocation();
@@ -35,7 +36,10 @@ export const AppShell = () => {
         <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
           {/* The Overview is a console of wide tables: it gets the whole width. */}
           <div className={cn('mx-auto', pathname.startsWith('/admin/overview') ? 'max-w-[1800px]' : 'max-w-7xl')}>
-            <Outlet />
+            {/* A module the administrator switched off for this coordinator shows a notice instead. */}
+            <ModuleGate pathname={pathname}>
+              <Outlet />
+            </ModuleGate>
           </div>
         </main>
       </div>

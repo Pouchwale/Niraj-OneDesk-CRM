@@ -52,7 +52,7 @@ const dayOff = (date: string) => demoCompanyStore.setRobiOffDay({ date, by: 'adm
 
 beforeEach(() => {
   resetPlansForTests()
-  demoCompanyStore.replaceAll({ ...demoCompanyStore.getSnapshot(), attendance: [], robiOffDays: [] })
+  demoCompanyStore.replaceAll({ ...demoCompanyStore.getSnapshot(), attendance: [], robiOffDays: [], moduleAccess: [] })
 })
 
 describe('Robi days off', () => {
@@ -119,6 +119,15 @@ describe('Robi days off', () => {
     const monday = planFor(MON).items
     expect(monday.filter((i) => i.carriedFrom === SAT)).toHaveLength(8)
     expect(monday.filter((i) => i.carriedFrom === SUN)).toHaveLength(0)
+  })
+
+  it('gives a coordinator with Robi tasks switched off no list, and a list again once it is back on', () => {
+    demoCompanyStore.setModuleAccess(ME, ['robi_tasks'], 'admin-0', '2026-10-12T03:00:00.000Z')
+    expect(planFor(DAY1).items).toHaveLength(0)
+    expect(demoCompanyStore.getDailyPlan(ME, DAY1)).toBeNull()
+    expect(planFor(DAY1, HER).items).toHaveLength(8)
+    demoCompanyStore.setModuleAccess(ME, [], 'admin-0', '2026-10-12T03:01:00.000Z')
+    expect(planFor(DAY1).items).toHaveLength(8)
   })
 
   it('lets only the administrator switch a day off or back on', () => {

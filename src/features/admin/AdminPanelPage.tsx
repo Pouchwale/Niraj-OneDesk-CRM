@@ -28,6 +28,7 @@ import { getCompanies } from '@/lib/companies-api'
 import { getOverduePayments } from '@/lib/overdue-api'
 import { ROLE_LABEL } from '@/lib/users/roles'
 import { RobiOffDaysCard } from './RobiOffDaysCard'
+import { ModuleAccessCard } from './ModuleAccessCard'
 import { FestivalAdminCard } from '@/features/festivals/FestivalAdminCard'
 import {
   blockedFromRemoval,
@@ -170,6 +171,8 @@ export function AdminPanelPage() {
           </GlassCard>
         ))}
       </div>
+
+      <ModuleAccessCard userId={signedIn?.id ?? 'admin-0'} />
 
       <RobiOffDaysCard userId={signedIn?.id ?? 'admin-0'} />
 

@@ -55,6 +55,9 @@ import {
   type ScoreModule,
 } from '@/lib/score-history'
 import { deleteFinalRatio, getScoreHistory, recalculatePeriod, saveFinalRatio } from '@/lib/score-history-api'
+import { markSwitchedOff } from '@/lib/score-history'
+import { useModuleAccess } from '@/features/auth/module-access'
+import { scoreModulesOff } from '../../../shared/module-access'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { formatFinal, formatPart, formatScore } from './format'
 
@@ -120,9 +123,10 @@ function detailText(e: ScoreEntry, kind: PeriodKind): string {
   }
 }
 
-/** What a cell shows: the score, or for Service weeks the mails (the score itself is monthly). */
+/** What a cell shows: the score, or for Service weeks the mails (the score itself is monthly); N/A when switched off. */
 function cellText(e: ScoreEntry | undefined, kind: PeriodKind): string {
   if (!e) return '—'
+  if (e.na) return 'N/A'
   if (e.module === 'service' && kind === 'week') return plural(e.detail.mails, 'mail')
   return formatScore(e.module, e.score)
 }
@@ -135,14 +139,15 @@ const averageOf = (scores: (number | null | undefined)[]) => {
 /** "Average of 4 modules: Robi tasks -25, Regular Overdue -40, …", or with the ratio "Robi tasks -25 × 30%, …" */
 function finalDetail(final: ReturnType<typeof finalScoreOf>): string {
   if (final.score === null) return 'No module has a score in this period'
+  const left = final.na?.length ? ` · N/A, left out: ${final.na.map(moduleLabel).join(', ')}` : ''
   if (final.weights) {
-    const shares = SCORE_MODULES.filter((m) => (final.weights![m.id] ?? 0) > 0).map((m) => {
+    const shares = SCORE_MODULES.filter((m) => (final.weights![m.id] ?? 0) > 0 && !final.na?.includes(m.id)).map((m) => {
       const part = final.parts.find((p) => p.module === m.id)
       return `${m.label} ${part ? formatPart(part.value) : 'no score (-100)'} × ${final.weights![m.id]}%`
     })
-    return `By the ratio: ${shares.join(', ')}`
+    return `By the ratio: ${shares.join(', ')}${left ? `${left} (the other shares scaled up to 100%)` : ''}`
   }
-  return `Average of ${plural(final.parts.length, 'module')}: ${final.parts.map((p) => `${moduleLabel(p.module)} ${formatPart(p.value)}`).join(', ')}`
+  return `Average of ${plural(final.parts.length, 'module')}: ${final.parts.map((p) => `${moduleLabel(p.module)} ${formatPart(p.value)}`).join(', ')}${left}`
 }
 
 function PeriodStatus({ period }: { period: PeriodScores }) {
@@ -201,7 +206,13 @@ export function ScoreHistoryPage() {
     void load(kind)
   }, [kind, load])
 
-  const periods = data?.periods ?? []
+  // Modules the administrator switched off for a coordinator: N/A and left out of the final, in every period.
+  const access = useModuleAccess()
+  const periods = useMemo(() => {
+    const raw = data?.periods ?? []
+    const ids = new Set<string>(access.map((a) => a.coordinatorId))
+    return markSwitchedOff(raw, (id) => scoreModulesOff(access, id), [...ids])
+  }, [data, access])
   // As many periods as fit beside the names: no desktop screen scrolls sideways. Averages and Excel use them all.
   const xxl = useMediaQuery('(min-width: 1600px)')
   const wide = useMediaQuery('(min-width: 1440px)')

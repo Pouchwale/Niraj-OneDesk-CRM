@@ -1,4 +1,5 @@
 import { cleanFestivalConfig } from './festival-config'
+import { cleanModulesOff, type AppModuleId, type ModuleAccess } from '../../shared/module-access'
 import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { isSundayISO, todayISO, toLocalISODate } from './utils'
 import { sameBpCode } from './bp-code'
@@ -460,6 +461,8 @@ export interface PersistedStore {
   selfLeads?: SelfLead[]
   /** Days Robi gives nobody tasks (set by the administrator). Optional for older files. */
   robiOffDays?: RobiOffDay[]
+  /** Modules switched off per coordinator (Admin Panel, since 16 Nov 2026). Optional for older files. */
+  moduleAccess?: ModuleAccess[]
   /** How Robi celebrates festivals (set by the administrator); null = the defaults. */
   festivalConfig?: FestivalConfig | null
   /**
@@ -560,6 +563,7 @@ class DemoCompanyStore {
   serviceTargets: ServiceCustomerTarget[] = restored?.serviceTargets ?? []
   selfLeads: SelfLead[] = restored?.selfLeads ?? []
   robiOffDays: RobiOffDay[] = restored?.robiOffDays ?? []
+  moduleAccess: ModuleAccess[] = restored?.moduleAccess ?? []
   festivalConfig: FestivalConfig | null = restored?.festivalConfig ? cleanFestivalConfig(restored.festivalConfig) : null
   quotationNos: string[] = []
   /** True once a save has been refused, so it is reported once, not every tick. */
@@ -1436,6 +1440,7 @@ class DemoCompanyStore {
       serviceTargets: this.serviceTargets,
       selfLeads: this.selfLeads,
       robiOffDays: this.robiOffDays,
+      moduleAccess: this.moduleAccess,
       festivalConfig: this.festivalConfig,
     }
   }
@@ -1669,6 +1674,26 @@ class DemoCompanyStore {
     this.robiOffDays = this.robiOffDays.filter((d) => d.date !== date)
   }
 
+  /* ===== Which modules each coordinator uses (Admin Panel, the administrator only) ===== */
+
+  /** The modules switched off for a coordinator (empty: everything on). */
+  getModulesOff(coordinatorId: string): AppModuleId[] {
+    return this.moduleAccess.find((a) => a.coordinatorId === coordinatorId)?.off ?? []
+  }
+
+  /** Whether a module is switched off for this coordinator. */
+  isModuleOff(coordinatorId: string, module: AppModuleId): boolean {
+    return this.getModulesOff(coordinatorId).includes(module)
+  }
+
+  /** Replaces a coordinator's switched-off modules; an empty list switches everything back on. */
+  setModuleAccess(coordinatorId: string, off: AppModuleId[], by: string, at: string): void {
+    if (!coordinatorId) return
+    const clean = cleanModulesOff(off)
+    const rest = this.moduleAccess.filter((a) => a.coordinatorId !== coordinatorId)
+    this.moduleAccess = clean.length ? [...rest, { coordinatorId, off: clean, by, at }] : rest
+  }
+
   /* ===== Festivals (Robi's celebrations, set by the administrator) ===== */
 
   /** The administrator's festival settings; null until they first save (the defaults apply). */
@@ -1835,6 +1860,7 @@ class DemoCompanyStore {
     this.serviceTargets = snapshot.serviceTargets ?? []
     this.selfLeads = snapshot.selfLeads ?? []
     this.robiOffDays = snapshot.robiOffDays ?? []
+    this.moduleAccess = snapshot.moduleAccess ?? []
     this.festivalConfig = snapshot.festivalConfig ? cleanFestivalConfig(snapshot.festivalConfig) : null
     this.quotationNos = snapshot.quotationNos ?? []
     this.refreshStatuses()

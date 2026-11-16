@@ -32,7 +32,7 @@ describe('counting the OTIF customers', () => {
   ])
   const row = (closed: string | null, customer: string | null, rm: string | null) => ({ poClosedDate: closed, customerName: customer, relationManager: rm })
 
-  it('counts different customers per coordinator and month by PO Closed Date, from November 2026', () => {
+  it('counts different customers per coordinator and month by PO Closed Date, from the month given', () => {
     const { counts, unmatched } = countOtifCustomers(
       [
         row('2026-11-02', 'Amul Dairy', 'Pragati'),
@@ -46,9 +46,12 @@ describe('counting the OTIF customers', () => {
         row('2026-11-12', 'Someone Ltd', 'Niki Patel'),
         row('2026-11-13', 'Nobody Ltd', null),
       ],
-      match
+      match,
+      '2026-11'
     )
     expect(counts).toEqual({ '2026-11': { p: 2, k: 1 }, '2026-12': { p: 1 } })
+    // Every month by default (16 Nov 2026: OTIF for the past months too).
+    expect(countOtifCustomers([row('2026-10-31', 'Old Ltd', 'Pragati')], match).counts).toEqual({ '2026-10': { p: 1 } })
     expect(unmatched).toEqual({ '2026-11': { 'Niki Patel': 1, '(blank)': 1 } })
   })
 })
@@ -59,18 +62,18 @@ describe('the service score with OTIF customers', () => {
   const records = [rec('1', '2026-10-05', true), rec('2', '2026-11-05', true), rec('3', '2026-11-06', false)]
   const typed = [
     { coordinatorId: 'p', month: '2026-10', customers: 4, updatedAt: '', updatedBy: null },
-    // A number typed for November is no longer used: November comes from OTIF.
+    // Typed numbers are no longer used: every month comes from OTIF.
     { coordinatorId: 'p', month: '2026-11', customers: 99, updatedAt: '', updatedBy: null },
   ]
-  const otif = { '2026-11': { p: 2 } }
+  const otif = { '2026-10': { p: 1 }, '2026-11': { p: 2 } }
 
-  it('takes November from OTIF, all of the mails, and October as typed', () => {
+  it('takes every month from OTIF, typed numbers aside, with all of the mails', () => {
     const [nov] = serviceScores(records, typed, ['p'], '2026-11-01', '2026-11-30', otif)
     expect(nov).toMatchObject({ totalCustomers: 2, mails: 2, sumOfScore: 10, mailRatio: 1, finalScore: 50, missingMonths: [] })
     const [oct] = serviceScores(records, typed, ['p'], '2026-10-01', '2026-10-31', otif)
-    expect(oct).toMatchObject({ totalCustomers: 4, mails: 1, finalScore: 25 })
+    expect(oct).toMatchObject({ totalCustomers: 1, mails: 1, finalScore: 100 })
     const [both] = serviceScores(records, typed, ['p'], '2026-10-01', '2026-11-30', otif)
-    expect(both).toMatchObject({ totalCustomers: 6, mails: 3 })
+    expect(both).toMatchObject({ totalCustomers: 3, mails: 3 })
   })
 
   it('gives a coordinator with no OTIF customers 0 (shown —), and no number at all when the file was not read', () => {

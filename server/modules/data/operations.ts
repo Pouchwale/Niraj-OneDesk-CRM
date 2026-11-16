@@ -96,6 +96,9 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   setRobiOffDay: 'team',
   clearRobiOffDay: 'team',
 
+  // Which modules each coordinator uses: the administrator only (see moduleAccessRefusal).
+  setModuleAccess: 'team',
+
   // Festival celebrations: the administrator only (see festivalConfigRefusal).
   saveFestivalConfig: 'team',
   /*
@@ -264,6 +267,12 @@ export function selfLeadRefusal(
 export function robiOffDayRefusal(role: AuthRole | undefined, method: string): string | null {
   if (method !== 'setRobiOffDay' && method !== 'clearRobiOffDay') return null
   return role === 'admin' ? null : 'Only the administrator can switch Robi off for a day.'
+}
+
+/** Only the administrator switches a coordinator's modules on or off. */
+export function moduleAccessRefusal(role: AuthRole | undefined, method: string): string | null {
+  if (method !== 'setModuleAccess') return null
+  return role === 'admin' ? null : 'Only the administrator can switch modules on or off.'
 }
 
 /** Only the administrator changes how Robi celebrates festivals. */

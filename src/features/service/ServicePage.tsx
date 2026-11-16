@@ -4,9 +4,9 @@
  * own; the team leader and the administrator see everyone's and the Scores:
  * mails, mail ratio, sum of points and final score per coordinator for the
  * period, against a Total Customers they type in (src/lib/service-records.ts).
- * From November 2026 Total Customers is not typed: it is each coordinator's
- * different customers in the OTIF file with a PO closed that month, counted
- * on the server (shared/service-otif.ts, 16 Nov 2026).
+ * Since 16 Nov 2026 Total Customers is not typed, for any month: it is each
+ * coordinator's different customers in the OTIF file with a PO closed that
+ * month, counted on the server (shared/service-otif.ts).
  * Since 7 Nov 2026 the final score is written in minus scoring, as its gap
  * from 100 (src/lib/minus-score.ts); each record's 10 or 0 is named points,
  * as the formula adds them up.
@@ -404,8 +404,8 @@ export function ServicePage() {
           <p className="text-xs text-muted-foreground">
             Each record earns 10 points when it has an Information Date, otherwise 0. Customer mail ratio = mails ÷ total customers. Final score =
             (sum of points ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}, in minus scoring: the gap from 100, so 0 is full marks and 85 shows
-            as -15. From Nov 2026 total customers comes from the OTIF file: the coordinator's different customers (as Relation Manager) with a PO
-            closed in the month. Before that it was typed per month. A coordinator with no customers for the period shows —.
+            as -15. Total customers comes from the OTIF file: the coordinator's different customers (as Relation Manager) with a PO closed in
+            the month, added up over the months of the period. A coordinator with no customers for the period shows —.
           </p>
         </GlassCard>
       ) : (

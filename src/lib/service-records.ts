@@ -13,8 +13,9 @@
  * Total Customers is typed per coordinator per month by the team leader or
  * administrator (since 5 Nov 2026, user's choice: one number for every month
  * sent ratios to 450%). A period longer than a month adds up its months.
- * From November 2026 it is no longer typed: it is the coordinator's different
- * customers in the OTIF file with a PO closed that month (shared/service-otif.ts).
+ * Since 16 Nov 2026 it is no longer typed, for any month: it is the
+ * coordinator's different customers in the OTIF file with a PO closed that
+ * month (shared/service-otif.ts).
  */
 
 import { daysBetween, datesByNeighbours, pickDate, sheetDateCandidates } from './sheet-dates'
@@ -52,13 +53,13 @@ export function customersFor(targets: readonly ServiceCustomerTarget[], coordina
   return targets.find((t) => t.coordinatorId === coordinatorId && targetMonth(t) === month)?.customers ?? null
 }
 
-/** Whether a month's Total Customers comes from OTIF (November 2026 on) rather than being typed. */
+/** Whether a month's Total Customers comes from OTIF rather than being typed: every month since 16 Nov 2026. */
 export const customersFromOtif = (month: string) => month >= OTIF_CUSTOMERS_FROM
 
 /**
- * A coordinator's Total Customers for one month: from OTIF from November 2026
- * (0 when the file has none of theirs; null when the file could not be read),
- * typed before that.
+ * A coordinator's Total Customers for one month: from OTIF (0 when the file
+ * has none of theirs; null when the file could not be read). With no OTIF
+ * source given at all (undefined), the typed numbers, as before 16 Nov 2026.
  */
 export function monthCustomers(
   targets: readonly ServiceCustomerTarget[],
@@ -66,7 +67,7 @@ export function monthCustomers(
   coordinatorId: string,
   month: string
 ): number | null {
-  if (customersFromOtif(month)) return otif ? (otif[month]?.[coordinatorId] ?? 0) : null
+  if (otif !== undefined && customersFromOtif(month)) return otif ? (otif[month]?.[coordinatorId] ?? 0) : null
   return customersFor(targets, coordinatorId, month)
 }
 
@@ -114,7 +115,7 @@ export function serviceScores(
   coordinatorIds: readonly string[],
   from: string | null,
   to: string | null,
-  /** Total Customers from OTIF for November 2026 on (null or left out: those months have none). */
+  /** Total Customers from OTIF (null: the file was not read, so no number; left out: the typed numbers). */
   otif?: OtifCustomerCounts | null
 ): ServiceScore[] {
   const months = monthsInPeriod(from, to, records)

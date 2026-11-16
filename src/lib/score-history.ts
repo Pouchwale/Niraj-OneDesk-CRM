@@ -151,23 +151,51 @@ export function finalPart(e: Pick<ScoreEntry, 'module' | 'score'>): number | nul
  * final score.
  */
 export function finalScoreOf(
-  entries: readonly Pick<ScoreEntry, 'module' | 'score'>[],
+  entries: readonly Pick<ScoreEntry, 'module' | 'score' | 'na'>[],
   weights?: FinalWeights | null
-): { score: number | null; parts: { module: ScoreModule; value: number }[]; weights?: FinalWeights } {
+): { score: number | null; parts: { module: ScoreModule; value: number }[]; weights?: FinalWeights; na?: ScoreModule[] } {
+  // Switched off for this coordinator: N/A, not counted at all (the other modules' shares fill 100%).
+  const na = [...new Set(entries.filter((e) => e.na).map((e) => e.module))]
   const parts = entries
+    .filter((e) => !e.na)
     .map((e) => ({ module: e.module, value: finalPart(e) }))
     .filter((p): p is { module: ScoreModule; value: number } => p.value !== null)
-  if (!parts.length) return { score: null, parts }
+  if (!parts.length) return { score: null, parts, ...(na.length ? { na } : {}) }
   if (weights) {
     let sum = 0
+    let total = 0
     for (const m of SCORE_MODULES) {
       const share = weights[m.id] ?? 0
-      if (share <= 0) continue
+      if (share <= 0 || na.includes(m.id)) continue
+      total += share
       sum += (share * (parts.find((p) => p.module === m.id)?.value ?? 0)) / 100
     }
-    return { score: Math.round(sum * 10) / 10, parts, weights }
+    if (total <= 0) return { score: null, parts, weights, na }
+    return { score: Math.round(((sum * 100) / total) * 10) / 10, parts, weights, ...(na.length ? { na } : {}) }
   }
   return { score: Math.round((parts.reduce((a, p) => a + p.value, 0) / parts.length) * 10) / 10, parts }
+}
+
+/**
+ * The periods as a viewer sees them with the module switches applied: every
+ * score of a module switched off for that coordinator is marked N/A (an entry
+ * is added where the module had none), so it shows N/A and is left out of the
+ * final score, in every period, locked ones included.
+ */
+export function markSwitchedOff(periods: readonly PeriodScores[], offOf: (coordinatorId: string) => ReadonlySet<string>, people: readonly string[]): PeriodScores[] {
+  const off = new Map(people.map((id) => [id, offOf(id)]))
+  if (![...off.values()].some((s) => s.size)) return periods as PeriodScores[]
+  return periods.map((p) => {
+    const entries: ScoreEntry[] = p.entries.map((e) => (off.get(e.coordinatorId)?.has(e.module) ? { ...e, score: null, na: true } : e))
+    for (const [id, set] of off) {
+      for (const module of set) {
+        if (!entries.some((e) => e.coordinatorId === id && e.module === module)) {
+          entries.push({ coordinatorId: id, name: id, module: module as ScoreModule, score: null, detail: {}, na: true })
+        }
+      }
+    }
+    return { ...p, entries }
+  })
 }
 
 /** Days after a month or year ends before it is locked, so entries made late for its last days still count. */
@@ -192,6 +220,12 @@ export interface ScoreEntry {
   score: number | null
   /** The figures behind it, for the tooltip and the Excel sheet. */
   detail: Record<string, number | null>
+  /**
+   * The module is switched off for this coordinator (Admin Panel, 16 Nov 2026):
+   * shown N/A and left out of their final score. Set when the scores are shown
+   * (markSwitchedOff), never stored, so it follows the switches in every period.
+   */
+  na?: boolean
 }
 
 export interface PeriodScores {

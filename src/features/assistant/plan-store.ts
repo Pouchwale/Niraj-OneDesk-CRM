@@ -111,6 +111,9 @@ export function ensurePlan(
   const existing = demoCompanyStore.getDailyPlan(userId, date)
   if (existing && existing.items.length > 0) return existing
 
+  // Robi tasks switched off for this coordinator (Admin Panel): no list at all.
+  if (demoCompanyStore.isModuleOff(userId, 'robi_tasks')) return existing ?? { userId, date, items: [], skipped: [], createdAt: new Date().toISOString() }
+
   // On leave: no plan. Nothing is recorded, so the next working day's plan
   // brings forward whatever was still open before the leave.
   const attendance = demoCompanyStore.getAttendance(userId, date)?.status ?? null

@@ -1,19 +1,20 @@
 /**
  * The Service score's Total Customers, from OTIF (16 Nov 2026, the user's
- * rules): from November 2026 on, a coordinator's Total Customers for a month
- * is the number of different customers in the OTIF-SCORE file whose
- * production order closed that month (PO Closed Date) under that coordinator
- * as Relation Manager. Nobody types it any more; months before November 2026
- * keep the numbers that were typed. The mails stay every Service record of
- * the coordinator in the period.
+ * rules): a coordinator's Total Customers for a month is the number of
+ * different customers in the OTIF-SCORE file whose production order closed
+ * that month (PO Closed Date) under that coordinator as Relation Manager.
+ * Nobody types it any more. First from November 2026 only; the same day the
+ * user chose OTIF for every past month too, May 2026's typed numbers
+ * included. The mails stay every Service record of the coordinator in the
+ * period.
  */
 
 import type { OtifLiveRow } from './otif-reports'
 
 export const SERVICE_OTIF_ROUTE = '/api/service-otif'
 
-/** The first month whose Total Customers comes from OTIF (yyyy-mm); earlier months keep the typed numbers. */
-export const OTIF_CUSTOMERS_FROM = '2026-11'
+/** The first month whose Total Customers comes from OTIF (yyyy-mm): every month (16 Nov 2026), so no typed number is used. */
+export const OTIF_CUSTOMERS_FROM = '0000-01'
 
 /** month (yyyy-mm) → coordinator id → different customers. */
 export type OtifCustomerCounts = Record<string, Record<string, number>>

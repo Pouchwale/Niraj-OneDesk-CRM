@@ -225,6 +225,7 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
         return map
       },
       coordinators: () => accounts.roster().filter((u) => u.role === 'coordinator').map((u) => ({ id: u.id, name: u.full_name })),
+      switchedOff: (userId) => (data.snapshot().moduleAccess ?? []).some((a) => a.coordinatorId === userId && a.off.includes('pre_sales')),
       snapshotDir: config.snapshotDir,
       logger,
     })

@@ -467,6 +467,9 @@ export function AssistantWidget() {
       if (away === 'leave') {
         return assistantSays(`${hello} You're marked on leave today, so there's no plan.`, 'Anything still open comes back on your next working day.')
       }
+      if (demoCompanyStore.isModuleOff(user.id, 'robi_tasks')) {
+        return assistantSays(`${hello} Robi's daily tasks are switched off for you, so there's no plan.`, 'The administrator decides which modules you use.')
+      }
       if (plan && plan.total > 0) {
         return assistantSays(
           `${hello} Today's plan${away === 'half_day' ? ' (half day)' : ''}: ${planProgressLine(plan)}.`,

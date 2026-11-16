@@ -37,6 +37,8 @@ interface Deps {
   assigned: () => Map<string, string | null>
   /** The CRM's coordinators, to match the file's coordinator names for customers with no CRM account. */
   coordinators: () => { id: string; name: string }[]
+  /** True when the administrator switched Pre Sales Analysis off for this coordinator (Admin Panel). */
+  switchedOff?: (userId: string) => boolean
   snapshotDir: string
   logger: Logger
   now?: () => Date
@@ -94,6 +96,13 @@ export function presalesRoutes(deps: Deps): Router {
       return byName ? { id: byName, from: 'file' } : { id: null, from: null }
     }
   }
+
+  // A coordinator with Pre Sales Analysis switched off gets none of it.
+  router.use((req, _res, next) => {
+    const user = req.user
+    if (user?.role === 'coordinator' && deps.switchedOff?.(user.id)) next(ApiError.forbidden('Pre Sales Analysis is not switched on for you.'))
+    else next()
+  })
 
   router.get('/', (req, res, next) => {
     try {
