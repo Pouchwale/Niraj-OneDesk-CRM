@@ -9,6 +9,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useRoleKpis } from './hooks/useRoleKpis';
 import { MyScoreCard } from '@/features/assistant/ScoresView';
 import { SetAsideKpis } from './SetAsideKpis';
+import { TeamDashboard } from './TeamDashboard';
 
 // Cute doodle elements for the empty space
 const DOODLES = [
@@ -114,11 +115,14 @@ export function DashboardPage() {
         {/* A coordinator's own score against Robi's daily plan. */}
         {user.role === 'coordinator' && <MyScoreCard userId={user.id} />}
 
-        {/* Money set aside: the team for the leader and admin, their own customers for a coordinator. */}
-        <SetAsideKpis teamView={user.role !== 'coordinator'} />
+        {/* The team leader and the administrator: the team dashboard (16 Nov 2026, the user's picks). */}
+        {user.role !== 'coordinator' && <TeamDashboard />}
 
-        {/* 2. The four figures chosen for whoever is signed in */}
-        <div className="space-y-4">
+        {/* Money set aside: their own customers for a coordinator. */}
+        {user.role === 'coordinator' && <SetAsideKpis teamView={false} />}
+
+        {/* 2. The four figures chosen for a coordinator */}
+        {user.role === 'coordinator' && <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold tracking-tight text-foreground">
               {sectionTitle}
@@ -152,7 +156,7 @@ export function DashboardPage() {
               />
             ))}
           </div>
-        </div>
+        </div>}
       </div>
     </>
   );
