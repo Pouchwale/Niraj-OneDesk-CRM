@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { demoCompanyStore } from './demo-companies'
-import { leadsByPerson, leadSummary, referencesFrom, weekEnd, weeklyByTeam, weekStart } from './self-leads'
+import { leadsByPerson, leadSummary, referencesFrom, weekEnd, weeklyByTeam, weekStart, LEAD_SOURCES, leadSourceLabel } from './self-leads'
 import type { SelfLead, TeamModule } from './types'
 
 function lead(overrides: Partial<SelfLead> = {}): SelfLead {
@@ -101,5 +101,14 @@ describe('saving a lead', () => {
     const [saved] = demoCompanyStore.getSelfLeads()
     expect(saved).toMatchObject({ status: 'closed', value: 90000, created_by: 'coord-1' })
     expect(saved.remarks.map((r) => r.note)).toEqual(['Asked for samples', 'Samples sent'])
+  })
+})
+
+describe('lead sources (16 Nov 2026)', () => {
+  it('lists the four sources in the form’s order and writes old leads as —', () => {
+    expect(LEAD_SOURCES.map((s) => s.label)).toEqual(['Self lead', 'Marketing', 'Active', 'Inactive'])
+    expect(leadSourceLabel('marketing')).toBe('Marketing')
+    expect(leadSourceLabel(null)).toBe('—')
+    expect(leadSourceLabel(undefined)).toBe('—')
   })
 })

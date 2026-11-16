@@ -20,8 +20,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { DATE_PRESETS, presetRange, type DatePreset } from '@/features/quotations/QuotationFilters'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
-import { inLeadPeriod, leadsByPerson, leadSummary, referencesFrom, SELF_LEAD_STATUS_LABEL, TEAMS, weekEnd, weeklyByTeam, type LeadSummary } from '@/lib/self-leads'
-import type { SelfLead, SelfLeadStatus, TeamModule } from '@/lib/types'
+import { inLeadPeriod, LEAD_SOURCES, leadSourceLabel, leadsByPerson, leadSummary, referencesFrom, SELF_LEAD_STATUS_LABEL, TEAMS, weekEnd, weeklyByTeam, type LeadSummary } from '@/lib/self-leads'
+import type { LeadSource, SelfLead, SelfLeadStatus, TeamModule } from '@/lib/types'
 import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { SelfLeadDialog } from './SelfLeadDialog'
 
@@ -58,6 +58,7 @@ export function SelfLeadsPage() {
   const [person, setPerson] = useState('all')
   const [status, setStatus] = useState<SelfLeadStatus | 'all'>('all')
   const [connectedOnly, setConnectedOnly] = useState<'all' | 'yes' | 'no'>('all')
+  const [source, setSource] = useState<LeadSource | 'all' | 'none'>('all')
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'leads' | 'people' | 'weekly'>('leads')
   const [editing, setEditing] = useState<SelfLead | 'new' | null>(null)
@@ -88,6 +89,7 @@ export function SelfLeadsPage() {
     return inScope
       .filter((l) => status === 'all' || l.status === status)
       .filter((l) => connectedOnly === 'all' || (connectedOnly === 'yes') === l.connected)
+      .filter((l) => source === 'all' || (source === 'none' ? !l.source : l.source === source))
       .filter(
         (l) =>
           !needle ||
@@ -126,9 +128,9 @@ export function SelfLeadsPage() {
       {
         name: 'Leads',
         rows: [
-          ['Date', 'Coordinator', 'Team', 'Company', 'Contact person', 'Contact number', 'Referred by', 'Connected', 'Connected on', 'Status', 'Value', 'Lost reason', 'Remarks'],
+          ['Date', 'Coordinator', 'Team', 'Source', 'Company', 'Contact person', 'Contact number', 'Referred by', 'Connected', 'Connected on', 'Status', 'Value', 'Lost reason', 'Remarks'],
           ...[...rows].reverse().map((l) => [
-            l.date, nameOf(l.coordinator_id), teamOf(l.coordinator_id) ?? '', l.company_name, l.contact_person ?? '', l.contact_number ?? '',
+            l.date, nameOf(l.coordinator_id), teamOf(l.coordinator_id) ?? '', l.source ? leadSourceLabel(l.source) : '', l.company_name, l.contact_person ?? '', l.contact_number ?? '',
             l.referred_by_name ?? '', l.connected ? 'Yes' : 'No', l.connected_date ?? '', SELF_LEAD_STATUS_LABEL[l.status], l.value ?? '', l.lost_reason ?? '',
             l.remarks.map((r) => `${r.at.slice(0, 10)} ${getCoordinatorDisplayName(r.by)}: ${r.note}`).join('\n'),
           ]),
@@ -396,6 +398,20 @@ export function SelfLeadsPage() {
                   <SelectItem value="no">Not connected yet</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={source} onValueChange={(v) => setSource(v as LeadSource | 'all' | 'none')}>
+                <SelectTrigger className="h-8 w-[150px] text-xs" aria-label="Source">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Every source</SelectItem>
+                  {LEAD_SOURCES.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="none">Source not set</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -410,6 +426,7 @@ export function SelfLeadsPage() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Date</th>
                     {canManageTeam && <th className="px-3 py-3 font-medium">Coordinator</th>}
+                    <th className="px-3 py-3 font-medium">Source</th>
                     <th className="px-3 py-3 font-medium">Company</th>
                     <th className="px-3 py-3 font-medium">Referred by</th>
                     <th className="px-3 py-3 font-medium">Connected</th>
@@ -430,6 +447,7 @@ export function SelfLeadsPage() {
                             <div className="text-xs text-muted-foreground">{teamOf(l.coordinator_id) ?? ''}</div>
                           </td>
                         )}
+                        <td className={cn('whitespace-nowrap px-3 py-2.5 text-xs', !l.source && 'text-muted-foreground')}>{leadSourceLabel(l.source)}</td>
                         <td className="min-w-[180px] px-3 py-2.5">
                           <div className="font-medium">{l.company_name}</div>
                           <div className="text-xs text-muted-foreground">{[l.contact_person, l.contact_number].filter(Boolean).join(' · ')}</div>

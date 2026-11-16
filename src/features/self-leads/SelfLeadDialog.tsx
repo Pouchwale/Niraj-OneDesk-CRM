@@ -21,15 +21,15 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { getAssignableOwners, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { demoCompanyStore } from '@/lib/demo-companies'
-import { referencesFrom, SELF_LEAD_STATUS_LABEL } from '@/lib/self-leads'
+import { LEAD_SOURCES, referencesFrom, SELF_LEAD_STATUS_LABEL } from '@/lib/self-leads'
 import { whenSaved } from '@/lib/shared-data'
-import type { SelfLead, SelfLeadStatus } from '@/lib/types'
-import { formatDate, todayISO } from '@/lib/utils'
+import type { LeadSource, SelfLead, SelfLeadStatus } from '@/lib/types'
+import { formatDate, todayISO, cn } from '@/lib/utils'
 
 const newId = () => `lead-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 const selectClass = 'h-9 w-full rounded-md border border-border bg-background px-2 text-sm'
 
-type FormKey = 'date' | 'coordinator_id' | 'company_name' | 'contact_person' | 'contact_number' | 'referred_by_name' | 'connected_date' | 'status' | 'value' | 'lost_reason'
+type FormKey = 'date' | 'coordinator_id' | 'source' | 'company_name' | 'contact_person' | 'contact_number' | 'referred_by_name' | 'connected_date' | 'status' | 'value' | 'lost_reason'
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 const sameName = (a: string, b: string) => clean(a) === clean(b)
@@ -59,6 +59,7 @@ export function SelfLeadDialog({
   const [form, setForm] = useState<Record<FormKey, string>>(() => ({
     date: lead?.date ?? today,
     coordinator_id: lead?.coordinator_id ?? (canManageTeam ? '' : currentUserId),
+    source: lead?.source ?? '',
     company_name: lead?.company_name ?? '',
     contact_person: lead?.contact_person ?? '',
     contact_number: lead?.contact_number ?? '',
@@ -93,10 +94,12 @@ export function SelfLeadDialog({
   const [ref, setRef] = useState({ company: '', person: '', phone: '', note: '' })
 
   /** The new lead for the reference typed in, owned by the same coordinator as the client. */
-  const referenceLead = (client: Pick<SelfLead, 'id' | 'company_name' | 'coordinator_id'>, at: string): SelfLead => ({
+  const referenceLead = (client: Pick<SelfLead, 'id' | 'company_name' | 'coordinator_id' | 'source'>, at: string): SelfLead => ({
     id: newId(),
     date: today,
     coordinator_id: client.coordinator_id,
+    // A reference takes the source of the lead it came from (the user's choice).
+    source: client.source ?? null,
     company_name: ref.company.trim(),
     contact_person: ref.person.trim() || null,
     contact_number: ref.phone.trim() || null,
@@ -142,6 +145,8 @@ export function SelfLeadDialog({
     ? 'Enter the date.'
     : !form.coordinator_id
       ? 'Choose the coordinator.'
+      : !lead && !form.source
+        ? 'Choose the source.'
       : !form.company_name.trim()
         ? 'Enter the company.'
         : form.status === 'lost' && form.lost_reason.trim().length < 3
@@ -165,6 +170,7 @@ export function SelfLeadDialog({
       id: lead?.id ?? newId(),
       date: form.date,
       coordinator_id: canManageTeam ? form.coordinator_id : currentUserId,
+      source: (form.source || null) as LeadSource | null,
       company_name: form.company_name.trim(),
       contact_person: text('contact_person'),
       contact_number: text('contact_number'),
@@ -277,6 +283,28 @@ export function SelfLeadDialog({
           ) : (
             <span className="hidden sm:block" />
           )}
+          <div className="space-y-1 sm:col-span-2">
+            <Label>Source{!lead && <span className="text-rose-600"> *</span>}</Label>
+            <div role="radiogroup" aria-label="Source" className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="lead-source">
+              {LEAD_SOURCES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.source === s.id}
+                  disabled={!canEdit}
+                  onClick={() => set('source', s.id)}
+                  className={cn(
+                    'h-9 rounded-md border px-3 text-sm transition-colors',
+                    form.source === s.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:bg-muted'
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            {lead && !lead.source && !form.source && <p className="text-xs text-muted-foreground">Not set on this older lead; choose one if you know it.</p>}
+          </div>
           {field('Company / customer', 'company_name', { placeholder: 'Company name' })}
           <div className="space-y-1">
             {field('Referred by (client)', 'referred_by_name', { list: 'lead-referrers', placeholder: 'Leave empty if not a reference' })}

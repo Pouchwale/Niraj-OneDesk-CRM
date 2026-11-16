@@ -13,7 +13,7 @@
  * module: GP3 or Pouchwale.
  */
 
-import type { SelfLead, SelfLeadStatus, TeamModule } from './types'
+import type { LeadSource, SelfLead, SelfLeadStatus, TeamModule } from './types'
 
 export const SELF_LEAD_STATUS_LABEL: Record<SelfLeadStatus, string> = {
   open: 'Open',
@@ -22,6 +22,17 @@ export const SELF_LEAD_STATUS_LABEL: Record<SelfLeadStatus, string> = {
 }
 
 export const TEAMS: TeamModule[] = ['GP3', 'Pouchwale']
+
+/** Where a lead came from, in the order the form lists them (16 Nov 2026). Every source counts toward the Self Leads score. */
+export const LEAD_SOURCES: { id: LeadSource; label: string }[] = [
+  { id: 'self', label: 'Self lead' },
+  { id: 'marketing', label: 'Marketing' },
+  { id: 'active', label: 'Active' },
+  { id: 'inactive', label: 'Inactive' },
+]
+
+/** A lead's source as written; "—" for leads added before sources existed. */
+export const leadSourceLabel = (source: LeadSource | null | undefined) => LEAD_SOURCES.find((s) => s.id === source)?.label ?? '—'
 
 export function inLeadPeriod(l: Pick<SelfLead, 'date'>, from: string | null, to: string | null): boolean {
   if (from && l.date < from) return false

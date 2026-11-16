@@ -578,6 +578,8 @@ export interface SelfLead {
    */
   referred_by_name: string | null
   referred_by_lead_id: string | null
+  /** Where the lead came from (16 Nov 2026): required on new leads; leads added before have none. */
+  source?: LeadSource | null
   /** True once the coordinator has actually spoken to the lead. */
   connected: boolean
   connected_date: string | null
@@ -591,6 +593,9 @@ export interface SelfLead {
   updated_at: string
   updated_by: string | null
 }
+
+/** Where a self lead came from. */
+export type LeadSource = 'self' | 'marketing' | 'active' | 'inactive'
 
 /** How a dispatch went against the sales order's date. */
 export type DispatchStatus = 'Early' | 'On Time' | 'Delay'
