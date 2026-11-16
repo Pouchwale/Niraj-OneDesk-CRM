@@ -1,6 +1,7 @@
 /**
  * A Robi day off (Admin Panel): nobody gets tasks, a plan already made is set
  * aside with its open work coming forward, and the day is N/A in the scores.
+ * Every Sunday is one automatically (the company is closed; 16 Nov 2026).
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -100,6 +101,24 @@ describe('Robi days off', () => {
     } as Parameters<typeof buildOverviewReport>[0])
     const flat = JSON.stringify(report)
     expect(flat).toContain('N/A (Robi day off)')
+  })
+
+  it('treats every Sunday as a day off: no plan, N/A, and Monday brings Saturday forward', () => {
+    const SAT = '2026-11-14'
+    const SUN = '2026-11-15'
+    const MON = '2026-11-16'
+    planFor(SAT)
+    expect(planFor(SUN).items).toHaveLength(0)
+    expect(demoCompanyStore.getDailyPlan(ME, SUN)).toBeNull()
+    expect(demoCompanyStore.getAttendance(HER, SUN)).toMatchObject({ status: 'leave', robiOff: true })
+    expect(demoCompanyStore.getRobiOffDay(SUN)?.note).toBe('Sunday')
+    // Sundays are automatic, so they are not in the administrator's list.
+    expect(demoCompanyStore.getRobiOffDays()).toEqual([])
+    expect(demoCompanyStore.getAttendance(ME, SAT)).toBeNull()
+    expect(demoCompanyStore.getAttendance(ME, MON)).toBeNull()
+    const monday = planFor(MON).items
+    expect(monday.filter((i) => i.carriedFrom === SAT)).toHaveLength(8)
+    expect(monday.filter((i) => i.carriedFrom === SUN)).toHaveLength(0)
   })
 
   it('lets only the administrator switch a day off or back on', () => {

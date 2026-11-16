@@ -233,3 +233,8 @@ export function addDaysISO(isoDate: string, days: number): string {
   date.setDate(date.getDate() + days)
   return toLocalISODate(date)
 }
+
+/** Whether a YYYY-MM-DD date is a Sunday (local calendar). */
+export function isSundayISO(isoDate: string): boolean {
+  return parseISODate(isoDate).getDay() === 0
+}

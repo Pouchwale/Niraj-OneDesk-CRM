@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { cn, todayISO } from '@/lib/utils'
+import { cn, isSundayISO, todayISO } from '@/lib/utils'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import { useAuth, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { sendReminder, sendReminders } from '@/lib/reminders'
@@ -459,7 +459,10 @@ export function AssistantWidget() {
       const awayEntry = demoCompanyStore.getAttendance(user.id, todayISO())
       const away = awayEntry?.status
       if (awayEntry?.robiOff) {
-        return assistantSays(`${hello} Robi is off today for everyone, so there's no plan and no score.`, 'Anything still open comes back on your next working day.')
+        return assistantSays(
+          `${hello} ${isSundayISO(todayISO()) ? "It's Sunday, so Robi is off" : 'Robi is off today for everyone'}, so there's no plan and no score.`,
+          'Anything still open comes back on your next working day.'
+        )
       }
       if (away === 'leave') {
         return assistantSays(`${hello} You're marked on leave today, so there's no plan.`, 'Anything still open comes back on your next working day.')

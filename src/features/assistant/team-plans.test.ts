@@ -31,7 +31,8 @@ if (typeof globalThis.localStorage === 'undefined') {
   })
 }
 
-const TODAY = '2026-09-13'
+// A Monday: Robi makes no plan on a Sunday.
+const TODAY = '2026-09-14'
 
 const company = (id: string, coordinatorId: string): Company =>
   ({

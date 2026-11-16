@@ -13,10 +13,13 @@
  * Total Customers is typed per coordinator per month by the team leader or
  * administrator (since 5 Nov 2026, user's choice: one number for every month
  * sent ratios to 450%). A period longer than a month adds up its months.
+ * From November 2026 it is no longer typed: it is the coordinator's different
+ * customers in the OTIF file with a PO closed that month (shared/service-otif.ts).
  */
 
 import { daysBetween, datesByNeighbours, pickDate, sheetDateCandidates } from './sheet-dates'
 import type { DispatchStatus, ServiceCustomerTarget, ServiceRecord } from './types'
+import { OTIF_CUSTOMERS_FROM, type OtifCustomerCounts } from '../../shared/service-otif'
 import { resolveResponsible, type BillingPerson } from './billing-issues'
 
 export const DISPATCH_STATUSES: DispatchStatus[] = ['Early', 'On Time', 'Delay']
@@ -49,6 +52,24 @@ export function customersFor(targets: readonly ServiceCustomerTarget[], coordina
   return targets.find((t) => t.coordinatorId === coordinatorId && targetMonth(t) === month)?.customers ?? null
 }
 
+/** Whether a month's Total Customers comes from OTIF (November 2026 on) rather than being typed. */
+export const customersFromOtif = (month: string) => month >= OTIF_CUSTOMERS_FROM
+
+/**
+ * A coordinator's Total Customers for one month: from OTIF from November 2026
+ * (0 when the file has none of theirs; null when the file could not be read),
+ * typed before that.
+ */
+export function monthCustomers(
+  targets: readonly ServiceCustomerTarget[],
+  otif: OtifCustomerCounts | null | undefined,
+  coordinatorId: string,
+  month: string
+): number | null {
+  if (customersFromOtif(month)) return otif ? (otif[month]?.[coordinatorId] ?? 0) : null
+  return customersFor(targets, coordinatorId, month)
+}
+
 const monthOf = (day: string) => day.slice(0, 7)
 function nextMonth(month: string): string {
   const y = Number(month.slice(0, 4))
@@ -76,7 +97,7 @@ export interface ServiceScore {
   coordinatorId: string
   /** The months' Total Customers added up; null when none of them has a number. */
   totalCustomers: number | null
-  /** Months in the period with no number typed for this coordinator. */
+  /** Months in the period with no number for this coordinator (none typed, or the OTIF file not read). */
   missingMonths: string[]
   mails: number
   /** Mails ÷ customers, 0-1+ (not capped); null without a customer count. */
@@ -92,7 +113,9 @@ export function serviceScores(
   targets: readonly ServiceCustomerTarget[],
   coordinatorIds: readonly string[],
   from: string | null,
-  to: string | null
+  to: string | null,
+  /** Total Customers from OTIF for November 2026 on (null or left out: those months have none). */
+  otif?: OtifCustomerCounts | null
 ): ServiceScore[] {
   const months = monthsInPeriod(from, to, records)
   const tally = new Map<string, { mails: number; sum: number }>(coordinatorIds.map((id) => [id, { mails: 0, sum: 0 }]))
@@ -105,7 +128,7 @@ export function serviceScores(
   }
   return [...tally.entries()]
     .map(([coordinatorId, { mails, sum }]) => {
-      const counts = months.map((m) => customersFor(targets, coordinatorId, m))
+      const counts = months.map((m) => monthCustomers(targets, otif, coordinatorId, m))
       const known = counts.filter((c): c is number => c !== null)
       const customers = known.length ? known.reduce((a, c) => a + c, 0) : null
       const usable = customers !== null && customers > 0

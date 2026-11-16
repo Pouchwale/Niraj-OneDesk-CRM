@@ -31,6 +31,7 @@ import { conversionsOf, dayFor } from './quotation-stats'
 import { leadSummary } from './self-leads'
 import { serviceScores } from './service-records'
 import type { AttendanceEntry, BillingIssue, Quotation, RobiOffDay, SelfLead, ServiceCustomerTarget, ServiceRecord } from './types'
+import type { OtifCustomerCounts } from '../../shared/service-otif'
 
 export type PeriodKind = 'week' | 'month' | 'year'
 export type ScoreModule = 'robi' | 'kpi' | 'kpi_dispute' | 'quotations' | 'billing' | 'service' | 'self_leads'
@@ -349,6 +350,8 @@ export interface ScoreInputs {
   billingIssues: readonly BillingIssue[]
   serviceRecords: readonly ServiceRecord[]
   serviceTargets: readonly ServiceCustomerTarget[]
+  /** Total Customers from the OTIF file, November 2026 on (shared/service-otif.ts); null when it could not be read. */
+  serviceOtif?: OtifCustomerCounts | null
   selfLeads: readonly SelfLead[]
 }
 
@@ -478,7 +481,7 @@ function billingEntries(inputs: ScoreInputs, start: string, end: string, firstIs
 
 function serviceMonthEntries(inputs: ScoreInputs, month: string, nameOf: (id: string) => string): ScoreEntry[] {
   const { start, end } = periodRange('month', month)
-  return serviceScores(inputs.serviceRecords, inputs.serviceTargets, inputs.coordinators.map((c) => c.id), start, end)
+  return serviceScores(inputs.serviceRecords, inputs.serviceTargets, inputs.coordinators.map((c) => c.id), start, end, inputs.serviceOtif)
     .filter((s) => s.mails > 0 || s.totalCustomers !== null)
     .map((s) => ({
       coordinatorId: s.coordinatorId,

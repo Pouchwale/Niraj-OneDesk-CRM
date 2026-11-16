@@ -1,6 +1,6 @@
 import { cleanFestivalConfig } from './festival-config'
 import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
-import { todayISO, toLocalISODate } from './utils'
+import { isSundayISO, todayISO, toLocalISODate } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
 import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, disputedAmountOf, isBankrupt, isNoFollowup, isSetAside, markNoFollowup } from './no-followup'
@@ -1644,8 +1644,14 @@ class DemoCompanyStore {
 
   /* ===== Robi days off ===== */
 
+  /**
+   * A day off the administrator set, or any Sunday: the company is closed on
+   * Sundays (user, 16 Nov 2026), so Robi makes no plan and nothing is scored.
+   */
   getRobiOffDay(date: string): RobiOffDay | null {
-    return this.robiOffDays.find((d) => d.date === date) ?? null
+    const set = this.robiOffDays.find((d) => d.date === date)
+    if (set) return set
+    return isSundayISO(date) ? { date, by: 'system', at: `${date}T00:00:00`, note: 'Sunday' } : null
   }
 
   getRobiOffDays(): RobiOffDay[] {

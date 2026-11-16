@@ -7,12 +7,20 @@ import type { AuthUser } from '../../../shared/auth'
 import { teamDayScores } from '../../../src/features/assistant/scores'
 import { attendanceLookup, kpiWeekOf, type KpiWeek, type ScoreInputs } from '../../../src/lib/score-history'
 import { toLocalISODate } from '../../../src/lib/utils'
+import type { OtifCustomerCounts } from '../../../shared/service-otif'
 import type { DataStore } from '../data/store'
 import type { SnapshotStore } from '../snapshots/store'
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
-export function scoreInputs(data: DataStore, snapshots: SnapshotStore, roster: () => AuthUser[], now: () => Date = () => new Date()): ScoreInputs {
+export function scoreInputs(
+  data: DataStore,
+  snapshots: SnapshotStore,
+  roster: () => AuthUser[],
+  now: () => Date = () => new Date(),
+  /** The Service score's Total Customers from the OTIF file (November 2026 on); null when it is not read. */
+  serviceOtif: () => OtifCustomerCounts | null = () => null
+): ScoreInputs {
   const snap = data.snapshot()
   const coordinators = roster()
     .filter((u) => u.role === 'coordinator')
@@ -52,6 +60,7 @@ export function scoreInputs(data: DataStore, snapshots: SnapshotStore, roster: (
     billingIssues: snap.billingIssues ?? [],
     serviceRecords: snap.serviceRecords ?? [],
     serviceTargets: snap.serviceTargets ?? [],
+    serviceOtif: serviceOtif(),
     selfLeads: snap.selfLeads ?? [],
   }
 }

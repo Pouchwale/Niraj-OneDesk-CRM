@@ -4,6 +4,9 @@
  * own; the team leader and the administrator see everyone's and the Scores:
  * mails, mail ratio, sum of points and final score per coordinator for the
  * period, against a Total Customers they type in (src/lib/service-records.ts).
+ * From November 2026 Total Customers is not typed: it is each coordinator's
+ * different customers in the OTIF file with a PO closed that month, counted
+ * on the server (shared/service-otif.ts, 16 Nov 2026).
  * Since 7 Nov 2026 the final score is written in minus scoring, as its gap
  * from 100 (src/lib/minus-score.ts); each record's 10 or 0 is named points,
  * as the formula adds them up.
@@ -27,6 +30,7 @@ import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { minusFixed, minusScore } from '@/lib/minus-score'
 import {
   customersFor,
+  customersFromOtif,
   DISPATCH_STATUSES,
   inServicePeriod,
   monthsInPeriod,
@@ -40,6 +44,8 @@ import { whenSaved } from '@/lib/shared-data'
 import type { DispatchStatus, ServiceRecord } from '@/lib/types'
 import { cn, formatDate, todayISO } from '@/lib/utils'
 import { ServiceRecordDialog } from './ServiceRecordDialog'
+import { getServiceOtif } from './service-otif-api'
+import type { ServiceOtifResponse } from '../../../shared/service-otif'
 
 const COLUMN_COUNT = 10
 
@@ -119,6 +125,20 @@ export function ServicePage() {
   const [status, setStatus] = useState<DispatchStatus | 'all'>('all')
   const [view, setView] = useState<'records' | 'scores'>('records')
   const [editing, setEditing] = useState<ServiceRecord | 'new' | null>(null)
+  // Total Customers from the OTIF file (November 2026 on), read each time the scores are opened.
+  const [otif, setOtif] = useState<{ loading: boolean; data: ServiceOtifResponse | null; error: string | null }>({ loading: false, data: null, error: null })
+  const showScores = canManageTeam && view === 'scores'
+  useEffect(() => {
+    if (!showScores) return
+    let live = true
+    setOtif((o) => ({ ...o, loading: true }))
+    getServiceOtif()
+      .then((data) => live && setOtif({ loading: false, data, error: null }))
+      .catch((err) => live && setOtif({ loading: false, data: null, error: err instanceof Error ? err.message : 'Could not read the OTIF counts.' }))
+    return () => {
+      live = false
+    }
+  }, [showScores])
 
   const coordinators = useMemo(() => getAssignableOwners().filter((p) => p.role === 'coordinator'), [])
   const range = preset === 'custom' ? { from: customFrom || null, to: customTo || null } : presetRange(preset, today)
@@ -145,12 +165,22 @@ export function ServicePage() {
   const progressive = useProgressiveRows(rows, { resetKey: `${range.from}|${range.to}|${person}|${status}|${search}` })
 
   const scores = useMemo(
-    () => serviceScores(all, targets, coordinators.map((c) => c.id), range.from, range.to),
-    [all, targets, coordinators, range.from, range.to]
+    () => serviceScores(all, targets, coordinators.map((c) => c.id), range.from, range.to, otif.data?.counts ?? null),
+    [all, targets, coordinators, range.from, range.to, otif.data]
   )
-  // One month in view: its Total Customers can be typed. Longer: the months are added up.
+  // One month in view, before November 2026: its Total Customers can be typed. Longer: the months are added up.
+  // From November 2026 the number comes from the OTIF file and is not typed.
   const months = useMemo(() => monthsInPeriod(range.from, range.to, all), [range.from, range.to, all])
-  const editableMonth = months.length === 1 ? months[0] : null
+  const otifMonths = months.filter(customersFromOtif)
+  const editableMonth = months.length === 1 && !customersFromOtif(months[0]) ? months[0] : null
+  // Relation Managers in the OTIF file that are no CRM coordinator, for the months in view.
+  const notCounted = useMemo(() => {
+    const out = new Map<string, number>()
+    for (const m of otifMonths) for (const [name, n] of Object.entries(otif.data?.unmatched?.[m] ?? {})) out.set(name, (out.get(name) ?? 0) + n)
+    return [...out.entries()].sort((a, b) => b[1] - a[1])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otif.data, otifMonths.join(',')])
+  const otifProblem = otif.error ?? otif.data?.error ?? (otif.data && !otif.data.configured ? 'The OTIF file is not set up on the server.' : null)
   const count = (s: DispatchStatus) => inPeriod.filter((r) => r.dispatch_status === s).length
   const noInfo = inPeriod.filter((r) => !r.information_date).length
 
@@ -288,8 +318,23 @@ export function ServicePage() {
               {periodLabel} ·{' '}
               {editableMonth
                 ? `type each coordinator's Total Customers for ${monthLabel(editableMonth)} (last month's number shows greyed)`
-                : `Total Customers is the months' numbers added up (${months.length} months); choose a single month to type them`}
+                : otifMonths.length === months.length && months.length > 0
+                  ? `Total Customers = each coordinator's different customers in the OTIF file with a PO closed in ${months.length === 1 ? monthLabel(months[0]) : 'each month'} (Relation Manager)${months.length > 1 ? ', added up' : ''}`
+                  : otifMonths.length > 0
+                    ? `Total Customers is the months' numbers added up: typed before Nov 2026, from the OTIF file from Nov 2026`
+                    : `Total Customers is the months' numbers added up (${months.length} months); choose a single month to type them`}
             </p>
+            {otifMonths.length > 0 && (
+              <p className={cn('mt-1 text-xs', otifProblem ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} data-testid="service-otif-status">
+                {otif.loading && !otif.data
+                  ? 'Reading the OTIF file…'
+                  : otifProblem
+                    ? `OTIF file not read, so these months show —: ${otifProblem}`
+                    : `OTIF file as saved ${otif.data?.fileModifiedAt ? new Date(otif.data.fileModifiedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}${
+                        notCounted.length ? ` · not counted (no CRM coordinator by that name): ${notCounted.map(([n, c]) => `${n} ${c}`).join(', ')}` : ''
+                      }`}
+              </p>
+            )}
           </div>
           <div className="overflow-x-auto rounded-md border border-border/50">
             <table className="w-full text-sm" data-testid="service-scores">
@@ -329,7 +374,14 @@ export function ServicePage() {
                       ) : (
                         <span
                           className="tabular-nums"
-                          title={s.missingMonths.length ? `No number for ${s.missingMonths.map(monthLabel).join(', ')}` : undefined}
+                          title={
+                            s.missingMonths.length
+                              ? `No number for ${s.missingMonths.map(monthLabel).join(', ')}`
+                              : otifMonths.length
+                                ? 'From the OTIF file: different customers with a PO closed in the month'
+                                : undefined
+                          }
+                          data-testid="service-total-customers"
                         >
                           {s.totalCustomers ?? '—'}
                           {s.missingMonths.length > 0 && s.totalCustomers !== null && (
@@ -352,7 +404,8 @@ export function ServicePage() {
           <p className="text-xs text-muted-foreground">
             Each record earns 10 points when it has an Information Date, otherwise 0. Customer mail ratio = mails ÷ total customers. Final score =
             (sum of points ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}, in minus scoring: the gap from 100, so 0 is full marks and 85 shows
-            as -15. Total customers is typed per month; a coordinator with no number for the period shows —.
+            as -15. From Nov 2026 total customers comes from the OTIF file: the coordinator's different customers (as Relation Manager) with a PO
+            closed in the month. Before that it was typed per month. A coordinator with no customers for the period shows —.
           </p>
         </GlassCard>
       ) : (

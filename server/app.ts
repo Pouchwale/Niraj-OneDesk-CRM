@@ -31,6 +31,8 @@ import { scoreHistoryRoutes } from './modules/score-history/routes'
 import { createOtifReportsStore } from './modules/otif-reports/store'
 import { otifReportRoutes } from './modules/otif-reports/routes'
 import { presalesRoutes } from './modules/presales/routes'
+import { createOtifCustomerSource } from './modules/service-otif/source'
+import { serviceOtifRoutes } from './modules/service-otif/routes'
 import { startPgMirror, type MirrorStatus } from './modules/pg-mirror/mirror'
 import { createAccountStore, type AccountStore } from './modules/auth/accounts'
 import { createSessionSigner, loadSessionSecret } from './modules/auth/sessions'
@@ -141,11 +143,24 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   // Every module's scores by week, month and year: each period locked two days
   // after it ends (the first run fills in the past). Everyone signed in reads
   // it; a coordinator gets only their own lines.
+  // The Service score's Total Customers from November 2026: each coordinator's customers in the OTIF file.
+  const otifCustomers = createOtifCustomerSource({
+    excel,
+    config: config.excel.otif,
+    coordinators: () => accounts.roster().filter((u) => u.role === 'coordinator').map((u) => ({ id: u.id, name: u.full_name })),
+    logger,
+  })
   const scoreHistory = createScoreHistoryStore(
     config.snapshotDir,
-    () => scoreInputs(data, snapshots, () => accounts.roster()),
+    () => scoreInputs(data, snapshots, () => accounts.roster(), undefined, () => otifCustomers.get().counts),
     () => new Date(),
-    () => [data.version(), snapshots.listResults().map((r) => r.id).join(','), accounts.roster().map((u) => u.id + u.role).join(',')].join('|')
+    () =>
+      [
+        data.version(),
+        snapshots.listResults().map((r) => r.id).join(','),
+        accounts.roster().map((u) => u.id + u.role + u.full_name).join(','),
+        excel.status('otif').modifiedAt ?? '',
+      ].join('|')
   )
   if (deps.weeklyAutoSave ?? config.isProduction) {
     startScoreLocks(
@@ -186,6 +201,7 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   router.use('/ai', requireSession(accounts, sessions), aiRoutes(ai))
   router.use('/excel', requireSession(accounts, sessions), excelRoutes(excel, logger))
   router.use('/score-history', requireSession(accounts, sessions), scoreHistoryRoutes(scoreHistory, logger))
+  router.use('/service-otif', requireSession(accounts, sessions), serviceOtifRoutes(otifCustomers))
   // Pre Sales Analysis (14 Nov 2026): the server reads the workbook and sends each coordinator only their customers,
   // matched by customer code to the CRM's Active and Overdue Payments accounts.
   router.use(

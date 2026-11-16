@@ -394,39 +394,40 @@ describe('resolvePlan', () => {
 })
 
 describe('plan store', () => {
+  // Weekdays: Robi makes no plan on a Sunday.
   beforeEach(() => resetPlansForTests())
 
   it('makes one plan per day and hands the same one back all day', () => {
-    const first = ensurePlan('coord-1', '2026-09-06', [task('broken-1', 'commitment_broken', { id: 'c1' })])
-    const again = ensurePlan('coord-1', '2026-09-06', [task('stale-5', 'stale_contact', { id: 'c5' })])
+    const first = ensurePlan('coord-1', '2026-09-07', [task('broken-1', 'commitment_broken', { id: 'c1' })])
+    const again = ensurePlan('coord-1', '2026-09-07', [task('stale-5', 'stale_contact', { id: 'c5' })])
     expect(again).toEqual(first)
     expect(again.items.map((i) => i.taskId)).toEqual(['broken-1'])
   })
 
   it('turns the page the next day, carrying unfinished work forward', () => {
-    ensurePlan('coord-1', '2026-09-06', [task('stale-9', 'stale_contact', { id: 'c9' })])
+    ensurePlan('coord-1', '2026-09-07', [task('stale-9', 'stale_contact', { id: 'c9' })])
     const tomorrow = ensurePlan(
       'coord-1',
-      '2026-09-07',
+      '2026-09-08',
       [task('broken-1', 'commitment_broken', { id: 'c1' })],
       { followups: [], open: new Set(['company:c9', 'company:c1']) }
     )
-    expect(tomorrow.date).toBe('2026-09-07')
+    expect(tomorrow.date).toBe('2026-09-08')
     expect(tomorrow.items.map((i) => i.taskId)).toEqual(['stale-9', 'broken-1'])
-    expect(tomorrow.items[0].carriedFrom).toBe('2026-09-06')
+    expect(tomorrow.items[0].carriedFrom).toBe('2026-09-07')
   })
 
   it('leaves behind what was actually finished', () => {
-    ensurePlan('coord-1', '2026-09-06', [task('stale-9', 'stale_contact', { id: 'c9' })])
+    ensurePlan('coord-1', '2026-09-07', [task('stale-9', 'stale_contact', { id: 'c9' })])
     const tomorrow = ensurePlan(
       'coord-1',
-      '2026-09-07',
+      '2026-09-08',
       [task('broken-1', 'commitment_broken', { id: 'c1' })],
       // c9 was rung after the plan asked for it, so it does not come forward.
       // The store stamps its plans with the real clock, so the call has to be
       // logged against that rather than against the plan's calendar date.
       {
-        followups: [{ ...followup('c9', '2026-09-06'), created_at: new Date(Date.now() + 1000).toISOString() }],
+        followups: [{ ...followup('c9', '2026-09-07'), created_at: new Date(Date.now() + 1000).toISOString() }],
         open: new Set(['company:c9', 'company:c1']),
       }
     )
@@ -434,7 +435,7 @@ describe('plan store', () => {
   })
 
   it('remembers what was set aside', () => {
-    ensurePlan('coord-1', '2026-09-06', [task('broken-1', 'commitment_broken', { id: 'c1' })])
+    ensurePlan('coord-1', '2026-09-07', [task('broken-1', 'commitment_broken', { id: 'c1' })])
     skipPlanItem('coord-1', 'broken-1')
     expect(getPlan('coord-1')?.skipped).toEqual(['broken-1'])
     // Unknown ids are ignored rather than stored.
