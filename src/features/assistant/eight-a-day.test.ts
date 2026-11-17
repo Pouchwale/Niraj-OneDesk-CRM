@@ -216,11 +216,17 @@ describe('credit/debit notes on money past 120 days', () => {
   const note = (id: string, notes: string, at = '2026-10-06T10:00:00') =>
     followup('overdue_payment', id, { notes, followup_date: at, created_at: `${at}.000Z`, next_reminder_date: '2026-10-30' })
 
-  it('gives a task every day, first and on top of the eight, even with a later follow-up date', () => {
+  it('waits for a later follow-up date, then comes first and on top of the eight', () => {
     const overdue = [noted('cn', 50000), ...['p', 'q', 'r', 's', 't'].map((id) => ageing(id))]
     const companies = ['a', 'b', 'c', 'd'].map((id) => invoice(id))
     const followups = [note('cn', 'Material rejected, need to issue C.N')]
-    const plan = planFor(TODAY, companies, overdue, followups, true)
+    // Next follow-up 30 Oct: nothing before it, not even a regular task (17 Nov 2026).
+    const early = planFor(TODAY, companies, overdue, followups, true)
+    expect(early.items.some((i) => i.entityId === 'cn')).toBe(false)
+    // On the day it was set for, it is back.
+    const due = [followup('overdue_payment', 'cn', { notes: 'Material rejected, need to issue C.N', followup_date: '2026-10-06T10:00:00', created_at: '2026-10-06T10:00:00.000Z', next_reminder_date: TODAY })]
+    resetPlansForTests()
+    const plan = planFor(TODAY, companies, overdue, due, true)
     expect(plan.items[0]).toMatchObject({ entityId: 'cn', kind: 'note_pending', special: 'note_pending' })
     // Eight regular tasks besides it.
     expect(plan.items.filter((i) => !i.special)).toHaveLength(8)
@@ -237,5 +243,12 @@ describe('credit/debit notes on money past 120 days', () => {
     ]
     const plan = planFor(TODAY, [], overdue, followups, true)
     expect(plan.items.some((i) => i.kind === 'note_pending')).toBe(false)
+  })
+
+  it('rests five days after a note follow-up with no next date', () => {
+    const overdue = [noted('cn', 50000)]
+    const followups = [followup('overdue_payment', 'cn', { notes: 'Need to issue C.N', followup_date: '2026-10-06T10:00:00', created_at: '2026-10-06T10:00:00.000Z', next_reminder_date: null })]
+    expect(planFor(TODAY, [], overdue, followups, true).items.some((i) => i.kind === 'note_pending')).toBe(false)
+    expect(planFor('2026-10-12', [], overdue, followups, true).items[0]).toMatchObject({ entityId: 'cn', kind: 'note_pending' })
   })
 })

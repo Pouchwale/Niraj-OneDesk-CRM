@@ -2,9 +2,12 @@
  * Special attention for money past 120 days that is held up by a credit or
  * debit note (since 13 Oct 2026). When the latest follow-up on an overdue
  * customer with a 121+ balance mentions a credit or debit note, Robi gives a
- * task for it every day - first in the list, on top of the day's eight, and
- * regardless of the five-day rest or a later follow-up date - until a newer
+ * task for it - first in the list, on top of the day's eight - until a newer
  * follow-up no longer mentions one.
+ *
+ * Since 17 Nov 2026 (user's rule) it waits like every other customer: a next
+ * follow-up date later than today holds it until that day, and a follow-up
+ * with no next date rests it five days. Before, it came every day regardless.
  */
 
 import { isSetAside } from '../../lib/no-followup'

@@ -182,10 +182,15 @@ export function ensurePlan(
     })
     carried = carried.filter((item) => dueEnough(entityKeyOf(item)))
   }
-  // Money past 120 days held up by a credit or debit note: a task every day,
-  // first and on top of the eight, whatever the rest or follow-up dates say.
+  // Money past 120 days held up by a credit or debit note: a task first and on
+  // top of the eight - but not while the customer waits for a next follow-up
+  // date or rests after a call, like everyone else (17 Nov 2026).
+  const noteWaiting = evidence ? waitingCustomers(evidence.followups, date, evidence.customerOf, true) : new Set<string>()
   const notes = evidence?.overduePayments
-    ? notePendingItems(date, evidence.overduePayments, evidence.followups, evidence.customerOf)
+    ? notePendingItems(date, evidence.overduePayments, evidence.followups, evidence.customerOf).filter((n) => {
+        const key = entityKeyOf(n)
+        return !key || !noteWaiting.has(evidence.customerOf?.(key) ?? key)
+      })
     : []
   if (notes.length && evidence) {
     const noted = new Set(notes.map((n) => evidence!.customerOf?.(entityKeyOf(n)!) ?? entityKeyOf(n)))
