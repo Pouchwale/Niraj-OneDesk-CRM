@@ -685,7 +685,20 @@ class DemoCompanyStore {
    * reading the same account the same way on the same day. Paid stays paid:
    * that was the team's decision, not the calendar's.
    */
+  /**
+   * Whether invoice statuses need working out again: after any change, and on
+   * a new day. Every read used to redo all of them - 2,218 invoices, many times
+   * per screen refresh - which was half of the app's lag (18 Nov 2026).
+   */
+  statusesStale = true
+  private statusesDay = -1
+
   refreshStatuses(): void {
+    const now = new Date()
+    const day = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate()
+    if (!this.statusesStale && this.statusesDay === day) return
+    this.statusesStale = false
+    this.statusesDay = day
     let changed = false
     for (const company of this.companies) {
       if (company.status === 'paid') continue
@@ -701,7 +714,7 @@ class DemoCompanyStore {
 
   getAllCompanies(): Company[] { this.refreshStatuses(); return [...this.companies] }
   getCompaniesForCoordinator(coordinatorId: string): Company[] { this.refreshStatuses(); return this.companies.filter(c => c.assigned_coordinator_id === coordinatorId) }
-  getCompanyById(id: string): Company | undefined { this.refreshStatuses(); return this.companies.find(c => c.id === id) }
+  getCompanyById(id: string): Company | undefined { this.refreshStatuses(); return byIdIn(this.companies, id) }
   getCompany(id: string): Company | undefined { return this.getCompanyById(id) }
 
   /**
@@ -1019,7 +1032,7 @@ class DemoCompanyStore {
   }
 
   getOverduePaymentById(id: string): OverduePayment | undefined {
-    return this.overduePayments.find(p => p.id === id)
+    return byIdIn(this.overduePayments, id)
   }
 
   upsertOverduePayment(payment: OverduePayment): { payment: OverduePayment; wasCreated: boolean } {
@@ -1874,6 +1887,34 @@ class DemoCompanyStore {
 }
 
 /**
+ * The record with this id, found through an index instead of a scan of the
+ * whole list (2,218 invoices, looked up thousands of times per screen refresh;
+ * 18 Nov 2026). The index remembers each id's position and is trusted only when
+ * the record there still carries that id - so a list that changed, was
+ * replaced or reordered can never hand back a record with another id; anything
+ * not where it was expected is looked up the slow way, as before.
+ */
+const idIndexes = new WeakMap<readonly { id: string }[], Map<string, number>>()
+function byIdIn<T extends { id: string }>(list: T[], id: string): T | undefined {
+  let index = idIndexes.get(list)
+  if (!index) {
+    index = new Map()
+    for (let i = 0; i < list.length; i++) if (!index.has(list[i].id)) index.set(list[i].id, i)
+    idIndexes.set(list, index)
+  }
+  const at = index.get(id)
+  if (at !== undefined && list[at]?.id === id) return list[at]
+  // Not where the index thought (the list changed) or not indexed yet: look the slow way, and remember it.
+  const found = list.findIndex((r) => r.id === id)
+  if (found === -1) {
+    index.delete(id)
+    return undefined
+  }
+  index.set(id, found)
+  return list[found]
+}
+
+/**
  * Method-name prefixes that only read. Everything else is assumed to mutate and
  * triggers a save.
  *
@@ -2054,6 +2095,8 @@ function withPersistence(store: DemoCompanyStore): DemoCompanyStore {
       return (...rawArgs: unknown[]) => {
         const args = forwardOp && !local ? withChosenId(prop, rawArgs) : rawArgs
         const result = (value as (...a: unknown[]) => unknown).apply(target, args)
+        // Records may have changed: statuses are worked out again on the next read.
+        target.statusesStale = true
         // Applied here so the screen redraws at once; sent on so everybody
         // else's screen catches up too.
         if (!local) forwardOp?.(prop, args)

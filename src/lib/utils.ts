@@ -66,6 +66,33 @@ export function parseCurrencyStrict(value: unknown): number | null {
  * Formats a number as Indian Rupee currency string.
  * For large values, uses shorthand: ₹1.8L, ₹2.5Cr, ₹50K
  */
+/**
+ * Formatters are costly to build and cheap to use: a screen formats thousands
+ * of amounts and dates on every refresh, and building a new one each time was
+ * a large part of the lag (18 Nov 2026). Built once per set of options, reused.
+ */
+const numberFormats = new Map<string, Intl.NumberFormat>()
+function numberFormat(options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  const key = JSON.stringify(options)
+  let format = numberFormats.get(key)
+  if (!format) {
+    format = new Intl.NumberFormat('en-IN', options)
+    numberFormats.set(key, format)
+  }
+  return format
+}
+
+const dateFormats = new Map<string, Intl.DateTimeFormat>()
+function dateFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = JSON.stringify(options)
+  let format = dateFormats.get(key)
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-IN', options)
+    dateFormats.set(key, format)
+  }
+  return format
+}
+
 export function formatCurrency(value: number, shorthand = false): string {
   if (shorthand) {
     const abs = Math.abs(value)
@@ -91,7 +118,7 @@ export function formatCurrency(value: number, shorthand = false): string {
    */
   const wouldVanish = value !== 0 && Math.abs(value) < 0.5
 
-  return new Intl.NumberFormat('en-IN', {
+  return numberFormat({
     style: 'currency',
     currency: 'INR',
     maximumFractionDigits: wouldVanish ? 2 : 0,
@@ -106,7 +133,7 @@ export function formatCurrency(value: number, shorthand = false): string {
  * rounding would let five rounded buckets disagree with their rounded sum.
  */
 export function formatCurrencyExact(value: number): string {
-  return new Intl.NumberFormat('en-IN', {
+  return numberFormat({
     style: 'currency',
     currency: 'INR',
     minimumFractionDigits: 2,
@@ -123,21 +150,21 @@ export function formatDate(date: Date | string, format: 'short' | 'long' | 'iso'
 
   switch (format) {
     case 'long':
-      return d.toLocaleDateString('en-IN', {
+      return dateFormat({
         weekday: 'long',
         day: 'numeric',
         month: 'long',
         year: 'numeric',
-      })
+      }).format(d)
     case 'iso':
       return d.toISOString().split('T')[0]
     case 'short':
     default:
-      return d.toLocaleDateString('en-IN', {
+      return dateFormat({
         day: '2-digit',
         month: 'short',
         year: 'numeric',
-      })
+      }).format(d)
   }
 }
 
