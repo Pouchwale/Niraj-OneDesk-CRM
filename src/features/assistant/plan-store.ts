@@ -153,6 +153,14 @@ export function ensurePlan(
     )
   }
 
+  // A list made for a day the coordinator was on leave (or a Robi day off),
+  // say because the leave was marked later, is not owed: its own tasks stay
+  // behind. Work already carried into that day from before still comes back
+  // (user's rule, 18 Nov 2026).
+  if (previous && demoCompanyStore.getAttendance(userId, previous.date)?.status === 'leave') {
+    carried = carried.filter((item) => item.carriedFrom !== undefined && item.carriedFrom < previous.date)
+  }
+
   // Below Robi's minimum now (Rs 1,000, as for new tasks): not worth a slot, carried or not (16 Nov 2026).
   if (evidence?.balanceOf) {
     carried = carried.filter((item) => {

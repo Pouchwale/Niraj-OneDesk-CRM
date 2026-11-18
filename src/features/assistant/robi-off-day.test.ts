@@ -65,11 +65,11 @@ describe('Robi days off', () => {
     expect(planFor(DAY3).items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
   })
 
-  it('sets aside a plan already made when the day is switched off the same day', () => {
+  it('sets aside a plan already made when the day is switched off, and carries none of it (18 Nov 2026)', () => {
     planFor(DAY1)
     dayOff(DAY1)
     expect(resolved(DAY1).items).toHaveLength(0)
-    expect(planFor(DAY2).items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
+    expect(planFor(DAY2).items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(0)
   })
 
   it('marks every coordinator as away that day, as N/A rather than leave, and back on clears it', () => {

@@ -74,12 +74,25 @@ describe('attendance: leave and half days', () => {
     expect(after.items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
   })
 
-  it('sets aside a plan already made when leave is marked the same day', () => {
+  it('sets aside a plan already made when leave is marked, and carries none of it (18 Nov 2026)', () => {
     planFor(DAY1)
     mark(DAY1, 'leave')
     expect(resolved(DAY1).items).toHaveLength(0)
-    // Still open, so it comes forward to the next working day.
-    expect(planFor(DAY2).items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
+    // The leave day's own tasks stay behind: the next day is a fresh eight.
+    const next = planFor(DAY2)
+    expect(next.items.filter((i) => i.carriedFrom)).toHaveLength(0)
+    expect(next.items).toHaveLength(8)
+  })
+
+  it('still brings back work carried into a leave day from before it (18 Nov 2026)', () => {
+    planFor(DAY1)
+    const leaveDay = planFor(DAY2)
+    expect(leaveDay.items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
+    // Leave for DAY2 marked late, after its list was made.
+    mark(DAY2, 'leave')
+    const after = planFor(DAY3)
+    expect(after.items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
+    expect(after.items.filter((i) => i.carriedFrom === DAY2)).toHaveLength(0)
   })
 
   it('gives four fresh tasks and one proof check on a half day marked ahead', () => {

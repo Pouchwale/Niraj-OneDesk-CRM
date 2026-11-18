@@ -77,6 +77,9 @@ WEEKLY KPI
 - Overdue Scoring compares two saved days. Its KPI score is written as the gap from 100%: 80 out of 100 shows as -20%, a full score as 0% (the same way as the daily scores).
 - Overdue Scoring has a Regular Overdue / Dispute Overdue toggle at the top (since 6 Nov 2026; named Regular accounts / Dispute accounts until 14 Nov 2026). Dispute Overdue is the customers in dispute, scored exactly the same way (0-120 and 121+ targets, achievement = old minus new, points capped at 50 each) with their own target percentage, set on the same card while Dispute is selected. Each saved day keeps the dispute percentage it was saved with; days saved before this existed use the current one (shown as "now"). Dispute results are kept apart from regular ones in Past results. Each tab shows only its own customers: on Regular the saved days' Coordinators and Balance and the downloaded data are the regular accounts only; on Dispute they are only the accounts in dispute (bankrupt, settled and unassigned rows left out).
 
+LEAVE AND ROBI TASKS
+- The tasks Robi gave for a day the coordinator was on leave (or a Robi day off) do not carry to the next working day, even when the leave was marked later. Work that was already carried into that day from earlier still comes back (since 18 Nov 2026).
+
 CREDIT / DEBIT NOTES
 - Money past 120 days held up by a credit or debit note gets special attention: when the latest follow-up on an overdue customer with a 121+ balance mentions a credit note, debit note, CN or DN, Robi gives a "Credit/debit note pending" task, first in the list and on top of the day's 8, until a newer follow-up no longer mentions a note. Like every customer it waits for a next follow-up date later than today, and rests 5 days after a follow-up with no next date (since 17 Nov 2026).
 
