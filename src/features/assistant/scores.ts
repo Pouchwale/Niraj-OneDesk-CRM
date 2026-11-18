@@ -9,6 +9,10 @@
  * company's, Saturday to Friday with Sunday off (since 7 Nov 2026; Monday to
  * Saturday before); a day with no plan is left out of the average.
  *
+ * A working day whose list came out empty - every customer waiting for a
+ * date, set aside or paid - is a full day: 0% (user's rule, from the week of
+ * 14 Nov 2026; EMPTY_DAY_FULL_FROM). Leave, Robi days off and Sundays stay out.
+ *
  * Extra work (since 13 Oct 2026): a follow-up on a customer who was not on
  * that day's list, counted once per customer per day. Each extra customer
  * makes up for one missed task, so it can lift a day to 0% but never above:
@@ -16,7 +20,7 @@
  */
 
 import type { Company, Followup, OverduePayment } from '../../lib/types'
-import { addDaysISO, toLocalISODate } from '../../lib/utils'
+import { addDaysISO, isSundayISO, toLocalISODate } from '../../lib/utils'
 import type { AttendanceStatus } from './attendance'
 import { customerLookup, entityKeyOf, openAccountKeys, type CustomerOf, type DailyPlan } from './daily-plan'
 import { planHistory, summariseHistory, type HistoryRow } from './plan-history'
@@ -131,7 +135,35 @@ export function teamDayScores(input: TeamScoreInput): { scores: Map<string, DayS
   const customerOf = customerLookup(companies, overdue)
   const rows = planHistory(plans, followups, input.today, owed, mine, customerOf, input.attendanceOf)
   const extra = extraWork(plans, followups.filter((f) => mine.has(f.coordinator_id)), customerOf)
-  return { scores: dailyScores(rows, extra), extra }
+  const scores = dailyScores(rows, extra)
+  emptyDayScores(scores, plans, input.today, input.attendanceOf, extra)
+  return { scores, extra }
+}
+
+/** From this day on, a working day with nothing on Robi's list scores 0% (a full day). Earlier days are left as they were. */
+export const EMPTY_DAY_FULL_FROM = '2026-11-14'
+
+/**
+ * Adds a full-day score (0%) for each stored list that has nothing to count -
+ * no task given, or every task paid or handed over before anyone acted - on a
+ * working day from EMPTY_DAY_FULL_FROM up to today. Leave, Robi days off and
+ * Sundays are not working days. Fills `scores` in place.
+ */
+export function emptyDayScores(
+  scores: Map<string, DayScore>,
+  plans: readonly Pick<DailyPlan, 'userId' | 'date'>[],
+  today: string,
+  attendanceOf?: (userId: string, date: string) => AttendanceStatus | null,
+  extra?: Map<string, Followup[]>
+): Map<string, DayScore> {
+  for (const plan of plans) {
+    if (plan.date < EMPTY_DAY_FULL_FROM || plan.date > today || isSundayISO(plan.date)) continue
+    if (attendanceOf?.(plan.userId, plan.date) === 'leave') continue
+    const key = `${plan.userId}|${plan.date}`
+    if (scores.has(key)) continue
+    scores.set(key, { done: 0, given: 0, score: 0, extra: extra?.get(key)?.length ?? 0, credited: 0 })
+  }
+  return scores
 }
 
 /** The average of the days that have a score, or null when none do. */

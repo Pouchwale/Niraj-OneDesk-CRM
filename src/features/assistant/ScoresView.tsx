@@ -69,10 +69,10 @@ function Cell({ s, today, leave, extra }: { s?: DayScore; today: boolean; leave?
     )
   if (!s) return extra ? <Extra n={extra} /> : <span className="text-muted-foreground">—</span>
   return (
-    <span title={`${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}${s.credited ? `, plus ${s.credited} extra counted` : ''}`}>
+    <span title={s.given ? `${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}${s.credited ? `, plus ${s.credited} extra counted` : ''}` : 'No task from Robi that day (every customer waiting, set aside or paid): a full day'}>
       <span className={cn('font-semibold tabular-nums', scoreTone(s.score))}>{scoreLabel(s.score)}</span>
       <span className="ml-1 text-[11px] text-muted-foreground tabular-nums">
-        {s.done}/{s.given}
+        {s.given ? `${s.done}/${s.given}` : 'no tasks'}
       </span>
       <Extra n={s.extra} credited={s.credited} />
     </span>
@@ -102,7 +102,7 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
         const more = extra.get(`${r.id}|${days[i]}`)
         if (onLeave(r.id, days[i])) return awayLabel(r.id, days[i])!
         if (!s) return more ? `+${more} extra` : '—'
-        return `${s.score}% (${s.done}/${s.given}${s.extra ? `, +${s.extra} extra` : ''})`
+        return s.given ? `${s.score}% (${s.done}/${s.given}${s.extra ? `, +${s.extra} extra` : ''})` : `${s.score}% (no tasks)`
       }),
       r.average === null ? '—' : `${r.average}%`,
     ])

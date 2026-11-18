@@ -4,7 +4,7 @@ import type { Followup } from '@/lib/types'
 import type { DailyPlan } from './daily-plan'
 
 import type { HistoryResult, HistoryRow } from './plan-history'
-import { extraWork, dailyScores, scoreLabel, weekAverage, weekDays, weekStart } from './scores'
+import { emptyDayScores, extraWork, dailyScores, scoreLabel, weekAverage, weekDays, weekStart } from './scores'
 
 function row(date: string, result: HistoryResult, extra = false): HistoryRow {
   return {
@@ -75,5 +75,27 @@ describe('coordinator scores', () => {
     // All 4 done, 2 extra: never above 0%.
     const full = dailyScores(['a', 'b', 'c', 'd'].map((t) => row(t, 'done')), extra).get('coord-1|2026-10-12')
     expect(full).toEqual({ done: 4, given: 4, score: 0, extra: 2, credited: 0 })
+  })
+})
+
+describe("a day with nothing on Robi's list (18 Nov 2026)", () => {
+  const plans = ['2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19'].map((date) => ({ userId: 'coord-1', date }))
+
+  it('scores a working day with no task as a full day (0%), from 14 Nov, up to today', () => {
+    const scores = emptyDayScores(new Map(), plans, '2026-11-18')
+    expect(scores.get('coord-1|2026-11-16')).toEqual({ done: 0, given: 0, score: 0, extra: 0, credited: 0 })
+    expect(scores.get('coord-1|2026-11-18')?.score).toBe(0)
+    // Before the rule, a Sunday, and a day still to come: no score.
+    expect(scores.has('coord-1|2026-11-13')).toBe(false)
+    expect(scores.has('coord-1|2026-11-15')).toBe(false)
+    expect(scores.has('coord-1|2026-11-19')).toBe(false)
+  })
+
+  it('leaves leave days out, and never replaces a day that had tasks', () => {
+    const had = new Map([['coord-1|2026-11-17', { done: 2, given: 8, score: -75, extra: 0, credited: 0 }]])
+    const scores = emptyDayScores(had, plans, '2026-11-18', (_u, d) => (d === '2026-11-16' ? 'leave' : null))
+    expect(scores.has('coord-1|2026-11-16')).toBe(false)
+    expect(scores.get('coord-1|2026-11-17')?.score).toBe(-75)
+    expect(weekAverage([scores.get('coord-1|2026-11-17'), scores.get('coord-1|2026-11-18')])).toBe(-38)
   })
 })
