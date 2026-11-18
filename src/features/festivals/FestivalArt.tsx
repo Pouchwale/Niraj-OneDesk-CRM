@@ -4,67 +4,14 @@
  * Janmashtami, Lord Shiva for Maha Shivratri, Bal Ganesha for Ganesh
  * Chaturthi, and a sister tying a rakhi on her brother's wrist for Raksha
  * Bandhan. Drawn here as plain SVG in a gentle, devotional style; nothing is
- * downloaded.
+ * downloaded. Since 18 Nov 2026 every other festival has its scene too
+ * (FestivalScenes.tsx), at the user's request.
  */
 
-import { useId, type ReactNode } from 'react'
+import { useId } from 'react'
 import { cn } from '@/lib/utils'
-
-type Draw = (id: string) => ReactNode
-
-const ring = (n: number, r: number, cx: number, cy: number, start = 0) =>
-  Array.from({ length: n }, (_, i) => {
-    const a = start + (i / n) * Math.PI * 2
-    return [cx + r * Math.cos(a), cy + r * Math.sin(a)] as const
-  })
-
-/** Points along a quadratic curve, for garlands and bead strings. */
-const along = (n: number, x0: number, y0: number, cx: number, cy: number, x1: number, y1: number) =>
-  Array.from({ length: n }, (_, i) => {
-    const t = (i + 0.5) / n
-    return [(1 - t) ** 2 * x0 + 2 * (1 - t) * t * cx + t * t * x1, (1 - t) ** 2 * y0 + 2 * (1 - t) * t * cy + t * t * y1] as const
-  })
-
-function Halo({ id, cx, cy, r, inner = '#fff7c2', outer = '#ffb703' }: { id: string; cx: number; cy: number; r: number; inner?: string; outer?: string }) {
-  return (
-    <>
-      <defs>
-        <radialGradient id={`${id}halo`}>
-          <stop offset="0%" stopColor={inner} stopOpacity="0.95" />
-          <stop offset="55%" stopColor={outer} stopOpacity="0.4" />
-          <stop offset="100%" stopColor={outer} stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <circle cx={cx} cy={cy} r={r} fill={`url(#${id}halo)`} />
-    </>
-  )
-}
-
-function Lotus({ cx, base, back = '#f9a8d4', front = '#ec4899', spread = 1 }: { cx: number; base: number; back?: string; front?: string; spread?: number }) {
-  return (
-    <g>
-      {[-66, -44, -22, 0, 22, 44, 66].map((a) => (
-        <ellipse key={`b${a}`} cx={cx} cy={base - 26 * spread} rx={13 * spread} ry={28 * spread} fill={back} stroke="#f472b6" strokeWidth="0.8" transform={`rotate(${a} ${cx} ${base})`} />
-      ))}
-      {[-50, -25, 0, 25, 50].map((a) => (
-        <ellipse key={`f${a}`} cx={cx} cy={base - 18 * spread} rx={11 * spread} ry={20 * spread} fill={front} stroke="#be185d" strokeWidth="0.6" transform={`rotate(${a} ${cx} ${base})`} />
-      ))}
-    </g>
-  )
-}
-
-/** Small lotus flower held in a hand. */
-function HandLotus({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
-  return (
-    <g transform={`translate(${x} ${y}) scale(${s})`}>
-      {[-50, -25, 0, 25, 50].map((a) => (
-        <ellipse key={a} cx="0" cy="-7" rx="3.6" ry="8" fill={a === 0 ? '#ec4899' : '#f9a8d4'} stroke="#db2777" strokeWidth="0.5" transform={`rotate(${a} 0 0)`} />
-      ))}
-      <circle cx="0" cy="-1" r="2.2" fill="#facc15" />
-      <path d="M0 0 L0 14" stroke="#16a34a" strokeWidth="1.6" />
-    </g>
-  )
-}
+import { along, Halo, HandLotus, Lotus, ring, type Draw } from './festival-art-kit'
+import { SCENES } from './FestivalScenes'
 
 /* ===================== Goddess Lakshmi (Diwali) ===================== */
 
@@ -515,6 +462,8 @@ const ART: Record<string, { draw: Draw; viewBox: string; label: string }> = {
   maha_shivratri: { draw: shiva, viewBox: '0 0 200 230', label: 'Lord Shiva' },
   ganesh_chaturthi: { draw: ganesha, viewBox: '0 0 200 230', label: 'Lord Ganesha' },
   raksha_bandhan: { draw: siblings, viewBox: '0 0 220 200', label: 'A sister tying a rakhi on her brother' },
+  // Every other festival's scene (18 Nov 2026): see FestivalScenes.tsx.
+  ...SCENES,
 }
 
 export const hasFestivalArt = (festivalId: string) => festivalId in ART

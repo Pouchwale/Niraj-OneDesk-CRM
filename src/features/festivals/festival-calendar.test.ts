@@ -28,6 +28,7 @@ import { FESTIVAL_INFO } from './festival-data'
 import { DATE_NOTES, PANCHANG_DATES, PANCHANG_YEARS } from './festival-dates'
 import { makeGreeting } from './festival-greetings'
 import { hasFestivalArt } from './FestivalArt'
+import { FESTIVAL_IDS } from './festival-data'
 import { THEMES } from './festival-themes'
 
 const festivals = resolveFestivals(null)
@@ -276,7 +277,8 @@ describe('greetings', () => {
       expect(hasFestivalArt(id), id).toBe(true)
       for (const line of [...byId(id).wishes, ...byId(id).robi]) expect(line, `${id}: ${line}`).toMatch(re)
     }
-    expect(hasFestivalArt('holi')).toBe(false)
+    // Since 18 Nov 2026 every festival has its scene (the user's request).
+    for (const id of FESTIVAL_IDS) expect(hasFestivalArt(id), id).toBe(true)
   })
 
   it('keeps the flag for shared national-day greetings but not on screen, where Windows cannot draw it', () => {
