@@ -14,7 +14,7 @@
 import type { AuthUser, UserDraftRequest } from '@shared/auth'
 import { MIN_PASSWORD_LENGTH } from '@shared/auth'
 import { SEED_PROFILES } from '@shared/roster'
-import { createAccount, deleteAccount, setAccountPassword, updateAccount } from '@/lib/auth-api'
+import { createAccount, deleteAccount, setAccountDisabled, setAccountPassword, updateAccount } from '@/lib/auth-api'
 import { takesTeam } from './roles'
 
 /** A profile as the app uses it. The server never sends password material. */
@@ -174,6 +174,20 @@ export async function editUser(id: string, draft: UserDraft): Promise<ManagedUse
   const { user, roster: next } = await updateAccount(id, toRequest(draft, Boolean(draft.password)))
   hydrateRoster(next)
   return user
+}
+
+/** The administrator switches an account off (no sign-in, out of the team's lists) or back on. */
+export async function setUserDisabled(id: string, disabled: boolean): Promise<ManagedUser> {
+  const { user, roster: next } = await setAccountDisabled(id, disabled)
+  hydrateRoster(next)
+  return user
+}
+
+/** Why this account cannot be disabled, or null when it can. */
+export function blockedFromDisabling(id: string, actingUserId?: string): string | null {
+  if (id === actingUserId) return 'You cannot disable the account you are signed in with.'
+  if (id === 'admin-0') return 'The system administrator account cannot be disabled.'
+  return null
 }
 
 export async function deleteUser(id: string): Promise<void> {

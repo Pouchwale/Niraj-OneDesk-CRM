@@ -34,6 +34,8 @@ export interface AccountStore {
   update(id: string, draft: UserDraftRequest): AuthUser
   remove(id: string, actingUserId: string): void
   setPassword(id: string, newPassword: string, options?: { currentPassword?: string }): void
+  /** The administrator switches an account off or back on. */
+  setDisabled(id: string, disabled: boolean, actingUserId: string): AuthUser
 }
 
 const publicView = ({ passwordHash: _hash, ...user }: StoredAccount): AuthUser => user
@@ -202,6 +204,23 @@ export function createAccountStore(dir: string, options: { now?: () => Date } = 
       if (account.id === 'admin-0') throw new AccountError('The system administrator account cannot be removed.')
       accounts = accounts.filter((a) => a.id !== id)
       save()
+    },
+
+    setDisabled(id, disabled, actingUserId) {
+      const account = byId(id)
+      if (!account) throw new AccountError('That account is not there.')
+      if (disabled && account.id === actingUserId) throw new AccountError('You cannot disable the account you are signed in with.')
+      if (disabled && account.id === 'admin-0') throw new AccountError('The system administrator account cannot be disabled.')
+      const at = now().toISOString()
+      if (disabled) Object.assign(account, { disabled: true, disabled_at: at, disabled_by: actingUserId })
+      else {
+        delete account.disabled
+        delete account.disabled_at
+        delete account.disabled_by
+      }
+      account.updated_at = at
+      save()
+      return publicView(account)
     },
 
     setPassword(id, newPassword, options = {}) {

@@ -27,7 +27,9 @@ export function sessionUser(req: Request, accounts: AccountStore, sessions: Sess
   const token = readCookie(req.headers.cookie, SESSION_COOKIE)
   const payload = sessions.verify(token)
   if (!payload) return null
-  return accounts.find(payload.sub)
+  const user = accounts.find(payload.sub)
+  // A disabled account's open session ends with its next request.
+  return user && !user.disabled ? user : null
 }
 
 export function requireSession(accounts: AccountStore, sessions: SessionSigner) {

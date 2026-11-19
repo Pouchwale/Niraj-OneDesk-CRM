@@ -22,6 +22,7 @@ export const AUTH_ROUTES = {
 
 export const authUserUrl = (id: string) => `${AUTH_ROUTES.users}/${encodeURIComponent(id)}`
 export const authPasswordUrl = (id: string) => `${authUserUrl(id)}/password`
+export const authDisabledUrl = (id: string) => `${authUserUrl(id)}/disabled`
 
 /** The cookie the session travels in. httpOnly, so no script can read it. */
 export const SESSION_COOKIE = 'crm_session'
@@ -42,6 +43,14 @@ export interface AuthUser {
   desk?: AuthDesk
   /** Accounts the app ships with cannot be deleted. */
   builtIn: boolean
+  /**
+   * Switched off by the administrator (19 Nov 2026): cannot sign in, any open
+   * session ends, and they are left out of the team's lists, Robi and the
+   * score tables. Their customers stay assigned to them; nothing is deleted.
+   */
+  disabled?: boolean
+  disabled_at?: string | null
+  disabled_by?: string | null
   created_at: string
   updated_at: string
 }

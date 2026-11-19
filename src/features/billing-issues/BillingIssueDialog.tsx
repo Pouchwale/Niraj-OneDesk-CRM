@@ -25,7 +25,7 @@ const newId = () => `billing-${Date.now()}-${Math.random().toString(36).slice(2,
 /** A responsible person as people read it: the user's name, or the text as written. */
 export function responsibleName(value: string | null): string {
   if (!value) return ''
-  const person = getAssignableOwners().find((p) => p.id === value)
+  const person = getAssignableOwners({ includeDisabled: true }).find((p) => p.id === value)
   return person ? person.full_name : value
 }
 

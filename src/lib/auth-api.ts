@@ -8,6 +8,7 @@
 
 import {
   AUTH_ROUTES,
+  authDisabledUrl,
   authPasswordUrl,
   authUserUrl,
   type AuthUser,
@@ -71,6 +72,9 @@ export const updateAccount = (id: string, draft: UserDraftRequest) =>
 
 export const deleteAccount = (id: string) =>
   call<{ roster: AuthUser[] }>(authUserUrl(id), { method: 'DELETE' })
+
+export const setAccountDisabled = (id: string, disabled: boolean) =>
+  call<{ user: AuthUser; roster: AuthUser[] }>(authDisabledUrl(id), { method: 'PUT', body: JSON.stringify({ disabled }) })
 
 export const setAccountPassword = (id: string, request: PasswordRequest) =>
   call<{ changed: boolean }>(authPasswordUrl(id), { method: 'PUT', body: JSON.stringify(request) })

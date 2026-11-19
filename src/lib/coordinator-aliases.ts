@@ -211,7 +211,7 @@ export function matchCoordinator(
   if (isMissingCoordinator(name)) return null
 
   const candidates = nameCandidates(name)
-  const profiles = roster ?? getAssignableOwners()
+  const profiles = roster ?? getAssignableOwners({ includeDisabled: true })
   const displayName = (id: string) => profiles.find((p) => p.id === id)?.full_name ?? 'coordinator'
 
   // 1. Configured aliases, normalized on both sides.

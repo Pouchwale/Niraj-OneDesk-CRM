@@ -15,7 +15,7 @@ import { createApp } from './app'
 import { loadConfig, type RawEnv } from './config'
 import { createLogger } from './logger'
 import { EXCEL_HEADERS, ROUTES } from '../shared/api'
-import { AUTH_ROUTES } from '../shared/auth'
+import { AUTH_ROUTES, authDisabledUrl } from '../shared/auth'
 
 const dir = mkdtempSync(join(tmpdir(), 'app-test-'))
 const workbook = join(dir, 'active payment.xlsx')
@@ -214,6 +214,44 @@ describe('signing in', () => {
 
     await fresh.signIn('niki', 'Niki@123')
     expect((await fresh.call('/api/snapshots')).status).toBe(200)
+
+    await fresh.stop()
+  })
+
+  it('lets only the administrator disable an account: no sign-in, its open session ends, enable brings it back', async () => {
+    const fresh = await start({ EXCEL_ACTIVE_PAYMENTS_PATH: workbook })
+    const json = { 'Content-Type': 'application/json' }
+    const login = (username: string, password: string) =>
+      fresh.withoutSession(AUTH_ROUTES.login, { method: 'POST', headers: json, body: JSON.stringify({ username, password }) })
+    const switchTo = (id: string, disabled: boolean) =>
+      fresh.call(authDisabledUrl(id), { method: 'PUT', headers: json, body: JSON.stringify({ disabled }) })
+
+    // Pragati is signed in on her own browser.
+    const hers = (await login('pragati', 'Pragati@123')).headers.get('set-cookie')!.split(';')[0]
+    const pragati = ((await (await fresh.withoutSession(AUTH_ROUTES.me, { headers: { cookie: hers } })).json()) as { user: { id: string } }).user
+
+    // The team leader may not.
+    await fresh.signIn('niki', 'Niki@123')
+    expect((await switchTo(pragati.id, true)).status).toBe(403)
+
+    await fresh.signIn()
+    const off = await switchTo(pragati.id, true)
+    expect(off.status).toBe(200)
+    expect(((await off.json()) as { roster: { id: string }[] }).roster.find((u: { id: string }) => u.id === pragati.id)).toMatchObject({ disabled: true, disabled_by: 'admin-0' })
+
+    // Her open session ends; signing in again is refused, and says why only after the right password.
+    expect(await (await fresh.withoutSession(AUTH_ROUTES.me, { headers: { cookie: hers } })).json()).toEqual({ user: null, roster: [] })
+    expect((await fresh.withoutSession('/api/data/snapshot', { headers: { cookie: hers } })).status).toBe(401)
+    const refused = await login('pragati', 'Pragati@123')
+    expect(refused.status).toBe(403)
+    expect(JSON.stringify(await refused.json())).toMatch(/disabled/)
+    expect((await login('pragati', 'wrong-password')).status).toBe(401)
+
+    // The administrator cannot switch off their own account or the system administrator's.
+    expect((await switchTo('admin-0', true)).status).toBe(400)
+
+    expect((await switchTo(pragati.id, false)).status).toBe(200)
+    expect((await login('pragati', 'Pragati@123')).status).toBe(200)
 
     await fresh.stop()
   })

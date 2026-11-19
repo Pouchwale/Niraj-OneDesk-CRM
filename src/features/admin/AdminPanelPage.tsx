@@ -26,14 +26,19 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/features/auth/AuthContext'
 import { getCompanies } from '@/lib/companies-api'
 import { getOverduePayments } from '@/lib/overdue-api'
-import { ROLE_LABEL } from '@/lib/users/roles'
+import { ASSIGNABLE_ROLES, ROLE_LABEL } from '@/lib/users/roles'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { RobiOffDaysCard } from './RobiOffDaysCard'
 import { ModuleAccessCard } from './ModuleAccessCard'
 import { FestivalAdminCard } from '@/features/festivals/FestivalAdminCard'
 import {
+  blockedFromDisabling,
   blockedFromRemoval,
   changePassword,
   deleteUser,
+  editUser,
+  setUserDisabled,
   type ManagedUser,
 } from '@/lib/users/store'
 import { MIN_PASSWORD_LENGTH } from '@shared/auth'
@@ -124,6 +129,46 @@ export function AdminPanelPage() {
     setFormOpen(true)
   }
 
+  /** Role straight from the list (19 Nov 2026); a coordinator needs a team, which the Edit form asks for. */
+  const changeRole = async (target: ManagedUser, role: ManagedUser['role']) => {
+    if (role === target.role) return
+    if (role === 'coordinator' && !target.module) {
+      toast.info(`Pick ${target.full_name.split(' ')[0]}'s team to make them a Coordinator.`)
+      openEdit(target)
+      return
+    }
+    if (!window.confirm(`Change ${target.full_name} from ${ROLE_LABEL[target.role]} to ${ROLE_LABEL[role]}?`)) return
+    try {
+      await editUser(target.id, {
+        full_name: target.full_name,
+        username: target.username,
+        email: target.email,
+        password: '',
+        role,
+        module: target.module,
+        relation_manager_name: target.relation_manager_name,
+        desk: target.desk ?? null,
+      })
+      toast.success(`${target.full_name} is now ${ROLE_LABEL[role]}.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not change the role')
+    }
+  }
+
+  /** Switch an account off (no sign-in, out of the team's lists) or back on. */
+  const toggleDisabled = async (target: ManagedUser, disabled: boolean) => {
+    const question = disabled
+      ? `Disable ${target.full_name}? They cannot sign in, their open session ends, and they leave the team lists, Robi and the score tables. Their customers stay assigned to them.`
+      : `Enable ${target.full_name} again? They can sign in and come back to the team lists.`
+    if (!window.confirm(question)) return
+    try {
+      await setUserDisabled(target.id, disabled)
+      toast.success(disabled ? `${target.full_name} is disabled.` : `${target.full_name} is enabled.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not change the account')
+    }
+  }
+
   const handleDelete = async (target: ManagedUser) => {
     try {
       await deleteUser(target.id)
@@ -203,8 +248,10 @@ export function AdminPanelPage() {
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Username</TableHead>
-                <TableHead>Password</TableHead>
+                {/* Only dots: hidden on narrower screens so Active and the actions fit (19 Nov 2026). */}
+                <TableHead className="hidden 2xl:table-cell">Password</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead>Active</TableHead>
                 <TableHead>Team</TableHead>
                 <TableHead>Accounts</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -214,8 +261,11 @@ export function AdminPanelPage() {
               {visible.map((u) => {
                 const isSelf = u.id === signedIn?.id
                 const blocked = blockedFromRemoval(u.id, signedIn?.id)
+                const noDisable = blockedFromDisabling(u.id, signedIn?.id)
+                // Your own role and the system administrator's stay put: either could lock the panel.
+                const roleLocked = isSelf || u.id === 'admin-0'
                 return (
-                  <TableRow key={u.id}>
+                  <TableRow key={u.id} className={cn(u.disabled && 'bg-muted/40 text-muted-foreground')} data-testid="user-row">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-medium">
@@ -229,13 +279,18 @@ export function AdminPanelPage() {
                           <p className="truncate font-medium">
                             {u.full_name}
                             {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
+                            {u.disabled && (
+                              <Badge variant="outline" className="ml-2 border-rose-500/30 bg-rose-500/10 text-[10px] text-rose-600">
+                                Disabled
+                              </Badge>
+                            )}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell className="font-mono text-sm">{u.username}</TableCell>
-                    <TableCell>
+                    <TableCell className="hidden 2xl:table-cell">
                       {/*
                         Nothing to show: the server keeps a hash, not the
                         password. Forgotten means set a new one, not look it up.
@@ -243,9 +298,35 @@ export function AdminPanelPage() {
                       <span className="font-mono text-sm text-muted-foreground">••••••••</span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={cn('whitespace-nowrap', ROLE_STYLE[u.role])}>
-                        {ROLE_LABEL[u.role]}
-                      </Badge>
+                      {roleLocked ? (
+                        <Badge variant="outline" className={cn('whitespace-nowrap', ROLE_STYLE[u.role])} title={isSelf ? 'You cannot change your own role.' : 'The system administrator keeps the administrator role.'}>
+                          {ROLE_LABEL[u.role]}
+                        </Badge>
+                      ) : (
+                        <Select value={u.role} onValueChange={(value) => changeRole(u, value as ManagedUser['role'])}>
+                          <SelectTrigger className={cn('h-8 w-[124px] text-xs', ROLE_STYLE[u.role])} aria-label={`Role of ${u.full_name}`} data-testid="user-role">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ASSIGNABLE_ROLES.map((role) => (
+                              <SelectItem key={role} value={role}>
+                                {ROLE_LABEL[role]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span title={noDisable ?? (u.disabled ? 'Disabled: cannot sign in' : 'Active')}>
+                        <Switch
+                          checked={!u.disabled}
+                          disabled={Boolean(noDisable)}
+                          onCheckedChange={(on) => toggleDisabled(u, !on)}
+                          aria-label={`${u.disabled ? 'Enable' : 'Disable'} ${u.full_name}`}
+                          data-testid="user-active"
+                        />
+                      </span>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {u.module ?? <span className="opacity-50">-</span>}
@@ -285,7 +366,7 @@ export function AdminPanelPage() {
               })}
               {visible.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                     No account matches “{query}”.
                   </TableCell>
                 </TableRow>

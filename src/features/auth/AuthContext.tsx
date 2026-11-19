@@ -18,10 +18,17 @@ import { ownerOf, type Owner, type OwnedRow } from '@/lib/owner'
 
 /** The roster, live — names, roles and teams, cached from the server. */
 const roster = (): ManagedUser[] => listUsers()
+/** The accounts at work: a disabled one is left out of the team's lists (19 Nov 2026). */
+const working = (): ManagedUser[] => roster().filter((p) => !p.disabled)
+
+/** Ids of the accounts the administrator has disabled. */
+export function getDisabledIds(): Set<string> {
+  return new Set(roster().filter((p) => p.disabled).map((p) => p.id))
+}
 
 /** Coordinators on one team, in roster order. */
 export function getTeamCoordinators(module: TeamModule): ManagedUser[] {
-  return roster().filter((p) => p.role === 'coordinator' && p.module === module)
+  return working().filter((p) => p.role === 'coordinator' && p.module === module)
 }
 
 export function getCoordinatorDisplayName(id: string): string {
@@ -46,7 +53,7 @@ export function findUserIdByName(name: string): string | undefined {
 }
 
 export function getAllCoordinators(): ManagedUser[] {
-  return roster().filter((p) => p.role === 'coordinator')
+  return working().filter((p) => p.role === 'coordinator')
 }
 
 /**
@@ -58,10 +65,13 @@ export function getAllCoordinators(): ManagedUser[] {
  * otherwise equal match. The administrator account is deliberately absent: it
  * runs the CRM rather than chasing payments.
  */
-export function getAssignableOwners(): ManagedUser[] {
+export function getAssignableOwners(options: { includeDisabled?: boolean } = {}): ManagedUser[] {
+  // Disabled people are not offered in pickers, but a sheet naming one still
+  // matches them, so their customers stay theirs (includeDisabled).
+  const people = options.includeDisabled ? roster() : working()
   return [
-    ...roster().filter((p) => p.role === 'coordinator'),
-    ...roster().filter((p) => p.role === 'team_leader'),
+    ...people.filter((p) => p.role === 'coordinator'),
+    ...people.filter((p) => p.role === 'team_leader'),
   ]
 }
 

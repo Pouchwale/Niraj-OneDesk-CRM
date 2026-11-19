@@ -86,6 +86,12 @@ export function authRoutes(accounts: AccountStore, sessions: SessionSigner, logg
     }
 
     attempts.delete(key)
+    // Said only after the right password, so it tells a stranger nothing.
+    if (user.disabled) {
+      logger.warn('auth: disabled account refused', { user: user.id })
+      next(ApiError.forbidden('This account is disabled. Ask the administrator.'))
+      return
+    }
     res.cookie(SESSION_COOKIE, sessions.sign(user.id), {
       httpOnly: true,
       sameSite: 'lax',
@@ -164,6 +170,21 @@ export function authRoutes(accounts: AccountStore, sessions: SessionSigner, logg
       handle(() => accounts.remove(String(req.params.id), req.user!.id))
       logger.info('auth: account removed', { id: req.params.id, by: req.user!.id })
       res.json({ roster: accounts.roster() })
+    } catch (err) {
+      next(err)
+    }
+  })
+
+  // Switching an account off or on: the administrator only (requireRole() lets only the admin through).
+  router.put('/users/:id/disabled', requireSession(accounts, sessions), requireRole(), (req, res, next) => {
+    try {
+      let updated
+      const disabled = Boolean((req.body ?? {}).disabled)
+      handle(() => {
+        updated = accounts.setDisabled(String(req.params.id), disabled, req.user!.id)
+      })
+      logger.info(disabled ? 'auth: account disabled' : 'auth: account enabled', { id: req.params.id, by: req.user!.id })
+      res.json({ user: updated, roster: accounts.roster() })
     } catch (err) {
       next(err)
     }

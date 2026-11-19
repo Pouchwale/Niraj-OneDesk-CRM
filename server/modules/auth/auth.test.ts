@@ -192,6 +192,19 @@ describe('the accounts', () => {
     expect(accounts.find(added.id)).toBeNull()
   })
 
+  it('disables and enables an account, kept across a restart, never the owner or oneself', () => {
+    const accounts = createAccountStore(dir)
+    const added = accounts.create({ username: 'temp', email: 't@gp3.com', full_name: 'Temp', role: 'coordinator', module: 'GP3', password: 'Temp@1234' })
+    expect(() => accounts.setDisabled('admin-0', true, 'admin-1')).toThrow(AccountError)
+    expect(() => accounts.setDisabled(added.id, true, added.id)).toThrow(AccountError)
+    expect(accounts.setDisabled(added.id, true, 'admin-0')).toMatchObject({ disabled: true, disabled_by: 'admin-0' })
+    expect(createAccountStore(dir).find(added.id)?.disabled).toBe(true)
+    // An edit keeps it disabled.
+    accounts.update(added.id, { username: 'temp', email: 't@gp3.com', full_name: 'Temp Two', role: 'team_leader', module: null })
+    expect(accounts.find(added.id)).toMatchObject({ disabled: true, role: 'team_leader' })
+    expect(accounts.setDisabled(added.id, false, 'admin-0').disabled).toBeUndefined()
+  })
+
   it('removes a shipped account for good, even after a restart', () => {
     createAccountStore(dir).remove('coord-9', 'admin-0')
     const reopened = createAccountStore(dir)

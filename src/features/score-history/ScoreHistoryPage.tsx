@@ -31,7 +31,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getAllCoordinators, getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
+import { getAllCoordinators, getCoordinatorDisplayName, getDisabledIds, useAuth } from '@/features/auth/AuthContext'
 import { scoreTone } from '@/features/assistant/scores'
 import { kpiGap } from '@/features/snapshots/transform'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -236,7 +236,9 @@ export function ScoreHistoryPage() {
   const people = useMemo(() => {
     if (!canManageTeam) return user ? [{ id: user.id, name: user.full_name }] : []
     const names = new Map(getAllCoordinators().map((c) => [c.id, c.full_name ?? c.id]))
-    for (const p of periods) for (const e of p.entries) if (!names.has(e.coordinatorId)) names.set(e.coordinatorId, e.name)
+    // A disabled account is left out while disabled; its history is kept and returns when enabled.
+    const disabled = getDisabledIds()
+    for (const p of periods) for (const e of p.entries) if (!names.has(e.coordinatorId) && !disabled.has(e.coordinatorId)) names.set(e.coordinatorId, e.name)
     return [...names.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [canManageTeam, user, periods])
 
