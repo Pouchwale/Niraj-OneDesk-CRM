@@ -22,6 +22,8 @@ export type AssistantTaskKind =
   | 'overdue_followup'
   /** Money past 120 days held up by a credit or debit note (note-pending.ts). */
   | 'note_pending'
+  /** A Ready for Dispatch customer, for an RFD-only coordinator (rfd-plan.ts). */
+  | 'rfd_followup'
 
 /**
  * What the coordinator can do with a nudge. Deliberately nothing that writes a
@@ -71,6 +73,7 @@ export const TASK_PRIORITY: Record<AssistantTaskKind, number> = {
   stale_contact: 8,
   overdue_followup: 9,
   note_pending: 0,
+  rfd_followup: 9,
 }
 
 /** A single turn in the on-screen conversation. */

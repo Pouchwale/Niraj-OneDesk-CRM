@@ -14,7 +14,13 @@
 import type { Followup } from '../../lib/types'
 import { formatCurrency, formatDate, toLocalISODate } from '../../lib/utils'
 import { accountKeyOf } from '../../lib/account-key'
+import { demoCompanyStore } from '../../lib/demo-companies'
 import { TASK_PRIORITY, type AssistantTask, type AssistantTaskKind } from './types'
+
+/** Whether the record an RFD task points at still has a line waiting with money pending. */
+export function rfdStillWaiting(entityKey: string): boolean {
+  return demoCompanyStore.rfdRows.some((r) => r.pending_value > 0 && `${r.anchor_type}:${r.anchor_id}` === entityKey)
+}
 
 export const PLAN_SIZE = 4
 const MAX_PER_KIND = 2
@@ -48,6 +54,8 @@ export interface PlanItem {
   round?: number
   /** The follow-up the task was raised from (a promise, a reminder), if any. */
   followupId?: string
+  /** A Ready for Dispatch task: the line it opens on the RFD page (rfd-plan.ts). */
+  rfdLineId?: string
   kind: AssistantTaskKind
   message: string
   detail?: string
@@ -157,7 +165,9 @@ export function waitingCustomers(
   today: string,
   customerOf?: CustomerOf,
   /** The daily plan also rests a customer five days after a follow-up with no next date. */
-  rest = false
+  rest = false,
+  /** A shorter (or longer) rest for some customers: RFD lines 80+ days old rest three (19 Nov 2026). */
+  restDaysFor?: (customerKey: string) => number | undefined
 ): Set<string> {
   const latest = new Map<string, (typeof followups)[number]>()
   for (const f of followups) {
@@ -178,7 +188,8 @@ export function waitingCustomers(
     else if (rest && next.length === 0) {
       // Local days: a call at 1 am IST is that day's, not the previous day's (UTC) (16 Nov 2026).
       const contacted = [f.followup_date, f.created_at].filter(Boolean).map((d) => localDay(String(d))).sort().at(-1) ?? ''
-      if (contacted > restUntil) waiting.add(key)
+      const days = restDaysFor?.(key)
+      if (contacted > (days === undefined ? restUntil : addDays(today, -days))) waiting.add(key)
     }
   }
   return waiting
@@ -710,6 +721,10 @@ export function resolvePlan(
      * rather than done. Counting it as done is what put ticks against work
      * that was never filled in.
      */
+    // Ready for Dispatch work is not in the payments book: it ends when the
+    // customer's lines leave the RFD sheet (dispatched or paid), 19 Nov 2026.
+    if (item.kind === 'rfd_followup') return { ...item, status: rfdStillWaiting(key) ? unstarted : 'closed' }
+
     if (owed !== undefined && !owed.has(key)) return { ...item, status: 'closed' }
 
     // Still owed, but not this coordinator's any more.

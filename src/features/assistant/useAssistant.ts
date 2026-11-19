@@ -11,7 +11,7 @@ import { todayISO } from '@/lib/utils'
 import { buildAssistantTasks } from './rules'
 import { isSuppressed, loadAssistantState, markDone, snooze } from './assistant-state'
 import { balanceLookup, customerLookup, dueDateLookup, openAccountKeys, resolvePlan, type ResolvedPlan } from './daily-plan'
-import { ensurePlan, judgedOnAttendance, skipPlanItem, unskipPlanItem } from './plan-store'
+import { ensurePlan, judgedOnAttendance, rfdEvidence, skipPlanItem, unskipPlanItem } from './plan-store'
 import { planForAttendance } from './attendance'
 import { proofRequestsDue } from './proof'
 import type { AssistantIntent, AssistantTask } from './types'
@@ -24,6 +24,8 @@ async function getMyFollowups(coordinatorId: string): Promise<Followup[]> {
 export interface UseAssistantOptions {
   /** Hand this person a daily plan. Only coordinators work one. */
   withPlan?: boolean
+  /** Ready for Dispatch only (Avani): the plan comes from her RFD lines. */
+  rfdOnly?: boolean
 }
 
 /**
@@ -39,6 +41,9 @@ export interface UseAssistantOptions {
  */
 export function useAssistant(coordinatorId: string | undefined, options: UseAssistantOptions = {}) {
   const withPlan = options.withPlan ?? true
+  const rfdOnly = options.rfdOnly ?? false
+  // The RFD sheet, for an RFD-only coordinator's list.
+  const rfdRows = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdRows)
   const [companies, setCompanies] = useState<Company[]>([])
   const [overduePayments, setOverduePayments] = useState<OverduePayment[]>([])
   const [followups, setFollowups] = useState<Followup[]>([])
@@ -129,6 +134,13 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
      * `mine` is this coordinator's share of that book. An account still owed
      * but no longer theirs has changed hands, which is not something they did.
      */
+    if (rfdOnly) {
+      // Ready for Dispatch only: her list and its ticks come from the RFD lines.
+      const evidence = rfdEvidence(coordinatorId, todayISO(), followups, rfdRows)
+      const made = ensurePlan(coordinatorId, todayISO(), [], evidence)
+      void attendance
+      return judgedOnAttendance(made, (p) => resolvePlan(p, [], evidence.followups, coordinatorId, evidence.open, evidence.mine, undefined, evidence.customerOf))
+    }
     const mine = openAccountKeys(companies, overduePayments)
     const owed = owedKeys.size > 0 ? owedKeys : mine
     // A call logged on any of the customer's records completes their task.
@@ -151,6 +163,8 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
     owedKeys,
     planVersion,
     attendance,
+    rfdOnly,
+    rfdRows,
   ])
 
   // A picked task just done: Robi asks for its proof (ProofGate shows the screen).
@@ -166,10 +180,10 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
       plan,
       followups,
       demoCompanyStore.getProofRequests(),
-      customerLookup(companies, overduePayments)
+      rfdOnly ? rfdEvidence(coordinatorId, plan.date, followups, rfdRows).customerOf : customerLookup(companies, overduePayments)
     )
     for (const request of due) demoCompanyStore.addProofRequest(request)
-  }, [coordinatorId, plan, followups, companies, overduePayments])
+  }, [coordinatorId, plan, followups, companies, overduePayments, rfdOnly, rfdRows])
 
   const skipItem = useCallback(
     (taskId: string) => {

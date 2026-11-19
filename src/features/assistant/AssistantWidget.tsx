@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn, isSundayISO, todayISO } from '@/lib/utils'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import { useAuth, getCoordinatorDisplayName } from '@/features/auth/AuthContext'
+import { isRfdOnly } from '@/lib/users/rfd-only'
 import { sendReminder, sendReminders } from '@/lib/reminders'
 import { seesAllAccounts } from '@/lib/users/roles'
 
@@ -124,7 +125,9 @@ function partOfDay(): string {
 }
 
 /** Where a record lives, so "open" lands on it with its panel open. */
-function recordPath(item: { entityType?: string; entityId?: string }): string | null {
+function recordPath(item: { entityType?: string; entityId?: string; kind?: string; rfdLineId?: string }): string | null {
+  // A Ready for Dispatch task opens the customer's line on the RFD page, where its follow-ups are logged.
+  if (item.kind === 'rfd_followup') return item.rfdLineId ? `/rfd?line=${encodeURIComponent(item.rfdLineId)}` : '/rfd'
   if (!item.entityType || !item.entityId) return null
   return item.entityType === 'overdue_payment'
     ? `/overdue?payment=${item.entityId}`
@@ -198,7 +201,7 @@ export function AssistantWidget() {
   const {
     tasks, allTasks, plan, companies, overduePayments, followups,
     isLoading, answer, skipItem, unskipItem,
-  } = useAssistant(user?.id, { withPlan: isCoordinator })
+  } = useAssistant(user?.id, { withPlan: isCoordinator, rfdOnly: isRfdOnly(user) })
   const team = useTeamPlans(isLeader)
   const screen = useScreen()
   const focused = useFocusedRecord()
@@ -570,7 +573,7 @@ export function AssistantWidget() {
 
   /** Lands on the record with its panel open; the logging happens there. */
   const openRecord = useCallback(
-    (item: { entityType?: string; entityId?: string }) => {
+    (item: { entityType?: string; entityId?: string; kind?: string; rfdLineId?: string }) => {
       const path = recordPath(item)
       if (!path) return
       setOpen(false)
@@ -1345,7 +1348,11 @@ function PlanRow({
         <p className={cn('truncate text-sm font-medium', item.status === 'done' && 'line-through')}>
           {item.entityName ?? 'Account'}
           {/* From Overdue Payments: four a day, and any extra rounds after them. */}
-          {item.entityType === 'overdue_payment' && (
+          {item.kind === 'rfd_followup' ? (
+            <span className="ml-1.5 inline-block rounded bg-emerald-500/15 px-1 py-px align-middle text-[10px] font-semibold uppercase text-emerald-700 dark:text-emerald-400">
+              RFD
+            </span>
+          ) : item.entityType === 'overdue_payment' && (
             <span className="ml-1.5 inline-block rounded bg-amber-500/15 px-1 py-px align-middle text-[10px] font-semibold uppercase text-amber-700 dark:text-amber-400">
               Overdue
             </span>

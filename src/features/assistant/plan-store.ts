@@ -12,7 +12,9 @@
  * follow-ups every time (see resolvePlan).
  */
 
-import type { Company, Followup, OverduePayment } from '@/lib/types'
+import type { Company, Followup, OverduePayment, RfdRow } from '@/lib/types'
+import { isRfdOnly } from '@/lib/users/rfd-only'
+import { rfdCustomers, rfdLookups, rfdPlanItems, RFD_HALF_DAY_SIZE, RFD_PLAN_SIZE } from './rfd-plan'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import { isSetAside } from '@/lib/no-followup'
 import { addDaysISO, formatCurrency, formatDate, formatRelativeDate } from '@/lib/utils'
@@ -89,6 +91,17 @@ export interface PlanEvidence {
   companies?: Company[]
   /** Fresh tasks per half: four, or two on a half day. */
   perHalf?: number
+  /** An RFD-only coordinator (Avani): the list comes from Ready for Dispatch (rfd-plan.ts). */
+  rfd?: { rows: RfdRow[] }
+}
+
+/**
+ * The evidence for an RFD-only coordinator's list: their own follow-ups, read
+ * against the customers of their Ready for Dispatch lines.
+ */
+export function rfdEvidence(userId: string, date: string, followups: Followup[], rows: RfdRow[] = demoCompanyStore.getRfdRows()): PlanEvidence {
+  const { customerOf, balanceOf, open } = rfdLookups(rfdCustomers(rows, userId, date))
+  return { followups: followups.filter((f) => f.coordinator_id === userId), open, mine: open, customerOf, balanceOf, rfd: { rows } }
 }
 
 /**
@@ -176,6 +189,27 @@ export function ensurePlan(
     carried = carried.filter((item) => {
       const key = entityKeyOf(item)
       return !key || !waiting.has(evidence.customerOf?.(key) ?? key)
+    })
+  }
+
+  // Ready for Dispatch only (Avani, 19 Nov 2026): seven RFD customers a day, four on a half day.
+  if (evidence?.rfd) {
+    const items = rfdPlanItems({
+      rows: evidence.rfd.rows,
+      userId,
+      date,
+      followups: evidence.followups,
+      carried,
+      size: attendance === 'half_day' ? RFD_HALF_DAY_SIZE : RFD_PLAN_SIZE,
+    })
+    if (existing && items.length === 0) return existing
+    return demoCompanyStore.recordDailyPlan({
+      userId,
+      date,
+      items,
+      skipped: [],
+      createdAt: new Date().toISOString(),
+      proofTaskIds: pickProofTasks(items, attendance === 'half_day' ? 1 : undefined),
     })
   }
 
@@ -493,7 +527,7 @@ export interface TeamPlan {
  * see themselves. Read by the Overview, the leader's robot and the assistant.
  */
 export function teamPlans(
-  coordinators: { id: string; full_name: string }[],
+  coordinators: { id: string; full_name: string; username?: string | null; role?: string | null }[],
   companies: Company[],
   overduePayments: OverduePayment[],
   followups: Followup[],
@@ -504,6 +538,13 @@ export function teamPlans(
   const balanceOf = balanceLookup(companies, overduePayments)
   const dueDateOf = dueDateLookup(companies)
   return coordinators.map((coordinator) => {
+    // Ready for Dispatch only (Avani): her list and its ticks come from the RFD lines.
+    if (isRfdOnly({ role: coordinator.role ?? 'coordinator', username: coordinator.username })) {
+      const evidence = rfdEvidence(coordinator.id, today, followups)
+      const made = ensurePlan(coordinator.id, today, [], evidence)
+      const plan = judgedOnAttendance(made, (p) => resolvePlan(p, [], evidence.followups, coordinator.id, evidence.open, evidence.mine, undefined, evidence.customerOf))
+      return { coordinatorId: coordinator.id, name: coordinator.full_name, plan, tasks: [] }
+    }
     const tasks = buildAssistantTasks({
       companies: companies.filter((c) => c.assigned_coordinator_id === coordinator.id),
       overduePayments: overduePayments.filter((p) => p.assigned_coordinator_id === coordinator.id),

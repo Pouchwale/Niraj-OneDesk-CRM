@@ -88,6 +88,8 @@ function time(iso: string): string {
 
 function accountLink(row: HistoryRow): string | null {
   const { entityType, entityId } = row.item;
+  // A Ready for Dispatch task: its line on the RFD page.
+  if (row.item.kind === 'rfd_followup') return row.item.rfdLineId ? `/rfd?line=${encodeURIComponent(row.item.rfdLineId)}` : '/rfd';
   if (!entityType || !entityId) return null;
   return entityType === 'overdue_payment' ? `/overdue?payment=${entityId}` : `/companies?company=${entityId}`;
 }

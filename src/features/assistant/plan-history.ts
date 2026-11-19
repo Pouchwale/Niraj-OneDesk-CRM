@@ -10,6 +10,7 @@
 
 import { keepForHalfDay, type AttendanceStatus } from './attendance'
 import type { Followup } from '../../lib/types'
+import { rfdStillWaiting } from './daily-plan'
 import {
   completingFollowup,
   endOfDay,
@@ -143,6 +144,8 @@ export function planHistory(
       if (followup) status = 'done'
       // How the day was judged when it ended.
       else if (!isToday && plan.outcome?.[item.taskId]) status = plan.outcome[item.taskId]
+      // Ready for Dispatch work ends when the customer's lines leave the RFD sheet, not the payments book.
+      else if (key && item.kind === 'rfd_followup') status = rfdStillWaiting(key) ? (skipped.has(item.taskId) ? 'skipped' : 'open') : 'closed'
       else if (key && owed && !owed.has(key)) status = 'closed'
       else if (key && mine && !mine.get(plan.userId)?.has(key)) status = 'moved'
       else status = skipped.has(item.taskId) ? 'skipped' : 'open'
