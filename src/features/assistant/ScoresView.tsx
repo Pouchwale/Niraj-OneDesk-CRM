@@ -69,10 +69,11 @@ function Cell({ s, today, leave, extra }: { s?: DayScore; today: boolean; leave?
     )
   if (!s) return extra ? <Extra n={extra} /> : <span className="text-muted-foreground">—</span>
   return (
-    <span title={s.given ? `${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}${s.credited ? `, plus ${s.credited} extra counted` : ''}` : 'No task from Robi that day (every customer waiting, set aside or paid): a full day'}>
+    <span title={`${s.given ? `${s.done} of ${s.given} tasks done${today ? ' so far today' : ''}${s.credited ? `, plus ${s.credited} extra counted` : ''}` : 'No task from Robi that day (every customer waiting, set aside or paid): a full day'}${s.granted ? `. ${s.granted}` : ''}`}>
       <span className={cn('font-semibold tabular-nums', scoreTone(s.score))}>{scoreLabel(s.score)}</span>
       <span className="ml-1 text-[11px] text-muted-foreground tabular-nums">
         {s.given ? `${s.done}/${s.given}` : 'no tasks'}
+        {s.granted && ' · given'}
       </span>
       <Extra n={s.extra} credited={s.credited} />
     </span>

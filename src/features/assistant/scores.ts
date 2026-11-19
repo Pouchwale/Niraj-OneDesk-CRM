@@ -34,6 +34,8 @@ export interface DayScore {
   extra: number
   /** Of those, how many made up for missed tasks (never more than were missed). */
   credited: number
+  /** Set to full marks by the administrator's word (FULL_DAY_GRANTS): why. */
+  granted?: string
 }
 
 /**
@@ -137,7 +139,28 @@ export function teamDayScores(input: TeamScoreInput): { scores: Map<string, DayS
   const extra = extraWork(plans, followups.filter((f) => mine.has(f.coordinator_id)), customerOf)
   const scores = dailyScores(rows, extra)
   emptyDayScores(scores, plans, input.today, input.attendanceOf, extra)
+  fullDayGrants(scores)
   return { scores, extra }
+}
+
+/**
+ * Days the administrator set to full marks (0%), by `${coordinatorId}|${date}`.
+ * Only the day itself changes: its undone tasks still carried to the next day
+ * and count there (user's choice, 19 Nov 2026).
+ */
+export const FULL_DAY_GRANTS: Readonly<Record<string, string>> = {
+  // Disha Acharya and Krupa Patel, 18 Nov 2026 (user's request, 19 Nov 2026).
+  'user-mu6lihq4-pcxcy|2026-11-18': 'Set to full marks by the administrator (19 Nov 2026)',
+  'coord-5|2026-11-18': 'Set to full marks by the administrator (19 Nov 2026)',
+}
+
+/** Puts the granted days at 0% (a full day), keeping the tasks done and given as they were. Fills `scores` in place. */
+export function fullDayGrants(scores: Map<string, DayScore>, grants: Readonly<Record<string, string>> = FULL_DAY_GRANTS): Map<string, DayScore> {
+  for (const [key, why] of Object.entries(grants)) {
+    const s = scores.get(key)
+    if (s) scores.set(key, { ...s, score: 0, granted: why })
+  }
+  return scores
 }
 
 /** From this day on, a working day with nothing on Robi's list scores 0% (a full day). Earlier days are left as they were. */

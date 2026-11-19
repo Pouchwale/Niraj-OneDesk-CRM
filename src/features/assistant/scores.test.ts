@@ -4,7 +4,7 @@ import type { Followup } from '@/lib/types'
 import type { DailyPlan } from './daily-plan'
 
 import type { HistoryResult, HistoryRow } from './plan-history'
-import { emptyDayScores, extraWork, dailyScores, scoreLabel, weekAverage, weekDays, weekStart } from './scores'
+import { emptyDayScores, extraWork, dailyScores, FULL_DAY_GRANTS, fullDayGrants, scoreLabel, weekAverage, weekDays, weekStart } from './scores'
 
 function row(date: string, result: HistoryResult, extra = false): HistoryRow {
   return {
@@ -97,5 +97,22 @@ describe("a day with nothing on Robi's list (18 Nov 2026)", () => {
     expect(scores.has('coord-1|2026-11-16')).toBe(false)
     expect(scores.get('coord-1|2026-11-17')?.score).toBe(-75)
     expect(weekAverage([scores.get('coord-1|2026-11-17'), scores.get('coord-1|2026-11-18')])).toBe(-38)
+  })
+})
+
+describe('days set to full marks by the administrator', () => {
+  it('puts the day at 0% and keeps its tasks as they were; other days untouched', () => {
+    const scores = new Map([
+      ['a|2026-11-18', { done: 0, given: 8, score: -100, extra: 0, credited: 0 }],
+      ['a|2026-11-19', { done: 7, given: 16, score: -56, extra: 0, credited: 0 }],
+    ])
+    fullDayGrants(scores, { 'a|2026-11-18': 'why', 'b|2026-11-18': 'no plan, nothing added' })
+    expect(scores.get('a|2026-11-18')).toEqual({ done: 0, given: 8, score: 0, extra: 0, credited: 0, granted: 'why' })
+    expect(scores.get('a|2026-11-19')?.score).toBe(-56)
+    expect(scores.has('b|2026-11-18')).toBe(false)
+  })
+
+  it('covers Disha Acharya and Krupa Patel on 18 Nov 2026 only', () => {
+    expect(Object.keys(FULL_DAY_GRANTS).sort()).toEqual(['coord-5|2026-11-18', 'user-mu6lihq4-pcxcy|2026-11-18'])
   })
 })
