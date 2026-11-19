@@ -1,6 +1,6 @@
 import { cleanFestivalConfig } from './festival-config'
 import { cleanModulesOff, type AppModuleId, type ModuleAccess } from '../../shared/module-access'
-import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
+import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, RfdMark, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { isSundayISO, todayISO, toLocalISODate } from './utils'
 import { sameBpCode } from './bp-code'
 import { deriveCompanyStatus } from './status-rules'
@@ -449,6 +449,8 @@ export interface PersistedStore {
   attendance?: AttendanceEntry[]
   /** Ready for Dispatch lines with money pending (the RFD sheet). Optional for older files. */
   rfdRows?: RfdRow[]
+  /** RFD lines set aside: no physical quantity, dispute, need to destroy (19 Nov 2026). */
+  rfdMarks?: RfdMark[]
   /** Quotations, kept in the CRM since 13 Oct 2026. Optional for older files. */
   quotations?: Quotation[]
   /** The billing issue log, kept in the CRM since 5 Nov 2026. Optional for older files. */
@@ -557,6 +559,7 @@ class DemoCompanyStore {
   decisionRequests: DecisionRequest[] = restored?.decisionRequests ?? []
   attendance: AttendanceEntry[] = restored?.attendance ?? []
   rfdRows: RfdRow[] = restored?.rfdRows ?? []
+  rfdMarks: RfdMark[] = restored?.rfdMarks ?? []
   quotations: Quotation[] = restored?.quotations ?? []
   billingIssues: BillingIssue[] = restored?.billingIssues ?? []
   serviceRecords: ServiceRecord[] = restored?.serviceRecords ?? []
@@ -1447,6 +1450,7 @@ class DemoCompanyStore {
       decisionRequests: this.decisionRequests,
       attendance: this.attendance,
       rfdRows: this.rfdRows,
+      rfdMarks: this.rfdMarks,
       quotations: this.quotations,
       billingIssues: this.billingIssues,
       serviceRecords: this.serviceRecords,
@@ -1486,6 +1490,21 @@ class DemoCompanyStore {
   replaceRfdRows(rows: RfdRow[]): void {
     if (!Array.isArray(rows)) return
     this.rfdRows = rows.filter((r) => r && typeof r.id === 'string')
+  }
+
+  getRfdMarks(): RfdMark[] {
+    return [...this.rfdMarks]
+  }
+
+  /** Sets an RFD line aside (one mark per line; marking again replaces it). */
+  setRfdMark(mark: RfdMark): void {
+    if (!mark?.lineId || !String(mark.note ?? '').trim()) return
+    this.rfdMarks = [...this.rfdMarks.filter((m) => m.lineId !== mark.lineId), mark]
+  }
+
+  /** Puts an RFD line back into the list. */
+  clearRfdMark(lineId: string): void {
+    this.rfdMarks = this.rfdMarks.filter((m) => m.lineId !== lineId)
   }
 
   /* ===== Quotations ===== */
@@ -1873,6 +1892,7 @@ class DemoCompanyStore {
     this.decisionRequests = snapshot.decisionRequests ?? []
     this.attendance = snapshot.attendance ?? []
     this.rfdRows = snapshot.rfdRows ?? []
+    this.rfdMarks = snapshot.rfdMarks ?? []
     this.quotations = snapshot.quotations ?? []
     this.billingIssues = snapshot.billingIssues ?? []
     this.serviceRecords = snapshot.serviceRecords ?? []

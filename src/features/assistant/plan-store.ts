@@ -14,6 +14,7 @@
 
 import type { Company, Followup, OverduePayment, RfdRow } from '@/lib/types'
 import { isRfdOnly } from '@/lib/users/rfd-only'
+import { openRfdRows } from '@/lib/rfd-marks'
 import { rfdCustomers, rfdLookups, rfdPlanItems, RFD_HALF_DAY_SIZE, RFD_PLAN_SIZE } from './rfd-plan'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import { isSetAside } from '@/lib/no-followup'
@@ -99,7 +100,9 @@ export interface PlanEvidence {
  * The evidence for an RFD-only coordinator's list: their own follow-ups, read
  * against the customers of their Ready for Dispatch lines.
  */
-export function rfdEvidence(userId: string, date: string, followups: Followup[], rows: RfdRow[] = demoCompanyStore.getRfdRows()): PlanEvidence {
+export function rfdEvidence(userId: string, date: string, followups: Followup[], sheet: RfdRow[] = demoCompanyStore.getRfdRows()): PlanEvidence {
+  // A line set aside (no physical quantity, dispute, need to destroy) is nobody's task.
+  const rows = openRfdRows(sheet)
   const { customerOf, balanceOf, open } = rfdLookups(rfdCustomers(rows, userId, date))
   return { followups: followups.filter((f) => f.coordinator_id === userId), open, mine: open, customerOf, balanceOf, rfd: { rows } }
 }

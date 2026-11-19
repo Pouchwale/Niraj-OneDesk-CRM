@@ -22,6 +22,9 @@ const KIND: Record<DecisionRequest['kind'], { label: string; style: string }> = 
   dispute: { label: 'Dispute', style: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-400' },
   export: { label: 'Export client', style: 'bg-sky-500/10 text-sky-700 border-sky-500/30 dark:text-sky-400' },
   bankrupt: { label: 'Bankrupt', style: 'bg-rose-500/10 text-rose-700 border-rose-500/30 dark:text-rose-400' },
+  rfd_no_physical_qty: { label: 'RFD · No physical quantity', style: 'bg-violet-500/10 text-violet-700 border-violet-500/30 dark:text-violet-400' },
+  rfd_dispute: { label: 'RFD · Dispute', style: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-400' },
+  rfd_destroy: { label: 'RFD · Need to destroy', style: 'bg-rose-500/10 text-rose-700 border-rose-500/30 dark:text-rose-400' },
 }
 
 const time = (iso?: string | null) =>
@@ -69,8 +72,9 @@ export function DecisionApprovals({ onChanged }: { onChanged?: () => void }) {
           <div>
             <h3 className="font-semibold leading-tight">Approvals</h3>
             <p className="text-xs text-muted-foreground">
-              Coordinators asking to mark a customer No follow-up, Dispute, Export client or Bankrupt. Approving applies it — the
-              customer leaves the lists and the totals — in the coordinator's name with their reason.
+              Coordinators asking to mark a customer No follow-up, Dispute, Export client or Bankrupt, or a Ready for Dispatch line
+              No physical quantity, Dispute or Need to destroy. Approving applies it — the customer (or the RFD line) leaves the
+              lists and the totals — in the coordinator's name with their reason.
             </p>
           </div>
         </div>

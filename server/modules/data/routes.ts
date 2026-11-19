@@ -43,6 +43,7 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     decisionRequests: (snapshot.decisionRequests ?? []).filter((r) => r.requestedBy === userId),
     attendance: (snapshot.attendance ?? []).filter((a) => a.userId === userId),
     rfdRows: (snapshot.rfdRows ?? []).filter((r) => r.assigned_coordinator_id === userId),
+    rfdMarks: (snapshot.rfdMarks ?? []).filter((m) => m.coordinator_id === userId),
     quotations: (snapshot.quotations ?? []).filter((q) => q.coordinator_id === userId),
     // Their own service rows; the team's and the customer counts are the leader's to read.
     serviceRecords: (snapshot.serviceRecords ?? []).filter((r) => r.coordinator_id === userId),
@@ -115,7 +116,7 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
         next(ApiError.badRequest('Arguments must be a list.'))
         return
       }
-      const book = { companies: store.snapshot().companies, overduePayments: store.snapshot().overduePayments }
+      const book = { companies: store.snapshot().companies, overduePayments: store.snapshot().overduePayments, rfdRows: store.snapshot().rfdRows ?? [] }
       const refusal =
         accountRefusal(user.role, user.id, method, (args ?? []) as unknown[], book) ??
         decisionRequestRefusal(user.role, user.id, method, (args ?? []) as unknown[], book)

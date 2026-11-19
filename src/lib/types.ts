@@ -323,7 +323,10 @@ export interface ProofRequest {
  */
 export interface DecisionRequest {
   id: string
-  kind: 'no_followup' | 'dispute' | 'export' | 'bankrupt'
+  /** rfd_*: one Ready for Dispatch line set aside (RfdMark), since 19 Nov 2026. */
+  kind: 'no_followup' | 'dispute' | 'export' | 'bankrupt' | RfdDecisionKind
+  /** For an rfd_* request: the RFD line it is about. */
+  rfdLineId?: string | null
   entityType: FollowupEntityType
   entityId: string
   bpCode: string | null
@@ -460,6 +463,36 @@ export interface RfdRow {
   anchor_type: FollowupEntityType | null
   anchor_id: string | null
   imported_at: string
+}
+
+/** Why a Ready for Dispatch line is set aside (19 Nov 2026). */
+export type RfdMarkKind = 'no_physical_qty' | 'dispute' | 'destroy'
+export type RfdDecisionKind = 'rfd_no_physical_qty' | 'rfd_dispute' | 'rfd_destroy'
+
+/**
+ * One RFD line set aside: it leaves the RFD list, the pending total and
+ * Robi's tasks, and is listed in its own register. Kept by line id, apart
+ * from the sheet, so the next sync does not undo it. RFD only: the
+ * customer's payments are untouched.
+ */
+export interface RfdMark {
+  lineId: string
+  kind: RfdMarkKind
+  /** Why - required. */
+  note: string
+  /** Who asked (the coordinator), or who marked it directly. */
+  by: string
+  at: string
+  /** The team leader or administrator who approved a coordinator's request. */
+  approvedBy?: string | null
+  /** What the line was when it was marked, for the register. */
+  customer_name: string
+  bp_code: string | null
+  sales_order: string | null
+  item_code: string | null
+  item_name: string | null
+  pending_value: number
+  coordinator_id: string | null
 }
 
 /** Open: waiting on the customer. Closed: the order came (won). Lost: it did not. */

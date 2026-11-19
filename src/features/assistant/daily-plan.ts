@@ -19,7 +19,8 @@ import { TASK_PRIORITY, type AssistantTask, type AssistantTaskKind } from './typ
 
 /** Whether the record an RFD task points at still has a line waiting with money pending. */
 export function rfdStillWaiting(entityKey: string): boolean {
-  return demoCompanyStore.rfdRows.some((r) => r.pending_value > 0 && `${r.anchor_type}:${r.anchor_id}` === entityKey)
+  const held = new Set(demoCompanyStore.rfdMarks.map((m) => m.lineId))
+  return demoCompanyStore.rfdRows.some((r) => r.pending_value > 0 && !held.has(r.id) && `${r.anchor_type}:${r.anchor_id}` === entityKey)
 }
 
 export const PLAN_SIZE = 4

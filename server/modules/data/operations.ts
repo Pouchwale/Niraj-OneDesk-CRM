@@ -25,7 +25,7 @@
  */
 
 import type { AuthRole } from '../../../shared/auth'
-import type { Company, OverduePayment } from '../../../src/lib/types'
+import type { Company, OverduePayment, RfdRow } from '../../../src/lib/types'
 
 export type OperationLevel = 'team' | 'own' | 'account'
 
@@ -70,6 +70,9 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   clearAttendance: 'team',
   // The RFD sheet, synced by the team leader's screen like the other books.
   replaceRfdRows: 'team',
+  // An RFD line set aside (19 Nov 2026): the leader marks it, a coordinator asks (addDecisionRequest).
+  setRfdMark: 'account',
+  clearRfdMark: 'team',
   // Quotations: a coordinator keeps their own (see quotationRefusal).
   saveQuotation: 'own',
   addQuotationFollowup: 'own',
@@ -294,6 +297,8 @@ export function mayCall(role: AuthRole | undefined, operation: string): boolean 
 export interface Book {
   companies: Company[]
   overduePayments: OverduePayment[]
+  /** The RFD sheet, for requests about an RFD line. */
+  rfdRows?: RfdRow[]
 }
 
 /**
@@ -329,6 +334,10 @@ export function accountRefusal(
     const reason = String(args[3] ?? '').trim()
     if (reason.length < MIN_REASON) return `Give a reason (at least ${MIN_REASON} characters).`
   }
+  if (method === 'setRfdMark') {
+    const note = String((args[0] as { note?: string } | undefined)?.note ?? '').trim()
+    if (note.length < MIN_REASON) return `Give a reason (at least ${MIN_REASON} characters).`
+  }
 
   if (role === 'admin' || role === 'team_leader') return null
   // A coordinator asks instead (addDecisionRequest); the team leader applies it.
@@ -347,10 +356,17 @@ export function decisionRequestRefusal(
   book: Book
 ): string | null {
   if (method !== 'addDecisionRequest') return null
-  const r = (args[0] ?? {}) as { entityType?: string; entityId?: string; requestedBy?: string; reason?: string }
+  const r = (args[0] ?? {}) as { entityType?: string; entityId?: string; requestedBy?: string; reason?: string; kind?: string; rfdLineId?: string }
   if (String(r.reason ?? '').trim().length < MIN_REASON) return `Give a reason (at least ${MIN_REASON} characters).`
   if (role === 'admin' || role === 'team_leader') return null
   if (r.requestedBy !== userId) return 'A request can only be sent in your own name.'
+  // An RFD line: it must be one of theirs on the sheet (19 Nov 2026).
+  if (String(r.kind ?? '').startsWith('rfd_')) {
+    const line = (book.rfdRows ?? []).find((l) => l.id === r.rfdLineId)
+    if (!line) return 'That Ready for Dispatch line could not be found.'
+    if (line.assigned_coordinator_id !== userId) return 'You can only ask about a Ready for Dispatch line assigned to you.'
+    return null
+  }
   const record =
     r.entityType === 'company'
       ? book.companies.find((c) => c.id === r.entityId)

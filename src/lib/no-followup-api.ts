@@ -19,6 +19,7 @@ import { CLEAR_NO_FOLLOWUP, markNoFollowup } from './no-followup'
 import { normalizeBpCode, sameBpCode } from './bp-code'
 import type { DecisionRequest } from './types'
 import { whenSaved } from './shared-data'
+import { applyRfdDecision, isRfdDecision } from './rfd-marks'
 
 export type NoFollowupEntity = 'company' | 'overdue_payment'
 
@@ -209,6 +210,8 @@ export function pendingDecisionFor(target: NoFollowupTarget): DecisionRequest | 
     .find(
       (r) =>
         r.status === 'pending' &&
+        // An RFD line's request is about that line, not the customer's payments.
+        !isRfdDecision(r) &&
         (r.entityId === target.entityId || (!!target.bpCode && !!r.bpCode && sameBpCode(r.bpCode, target.bpCode)))
     )
 }
@@ -216,7 +219,10 @@ export function pendingDecisionFor(target: NoFollowupTarget): DecisionRequest | 
 /** Applies the request in the coordinator's name, with their reason, and records who approved it. */
 export async function approveDecision(request: DecisionRequest, approverId: string): Promise<void> {
   const target = { entityType: request.entityType, entityId: request.entityId, bpCode: request.bpCode }
-  if (request.kind === 'bankrupt') {
+  if (isRfdDecision(request)) {
+    // One RFD line set aside; the customer's payments are untouched.
+    applyRfdDecision(request, approverId)
+  } else if (request.kind === 'bankrupt') {
     await declareCustomerBankrupt(target, request.requestedBy, request.reason)
   } else {
     await setNoFollowup(target, request.requestedBy, request.reason, request.kind === 'dispute' || request.kind === 'export' ? request.kind : null)

@@ -55,7 +55,10 @@ export interface OverviewReport {
 export const rupees = (n: number | null | undefined) => `Rs ${Math.round(n ?? 0).toLocaleString('en-IN')}`
 
 const MODE: Record<string, string> = { call: 'Call', whatsapp: 'WhatsApp', email: 'Email', in_person: 'In person', other: 'Other' }
-const KIND: Record<DecisionRequest['kind'], string> = { no_followup: 'No follow-up', dispute: 'Dispute', export: 'Export client', bankrupt: 'Bankrupt' }
+const KIND: Record<DecisionRequest['kind'], string> = {
+  no_followup: 'No follow-up', dispute: 'Dispute', export: 'Export client', bankrupt: 'Bankrupt',
+  rfd_no_physical_qty: 'RFD · No physical quantity', rfd_dispute: 'RFD · Dispute', rfd_destroy: 'RFD · Need to destroy',
+}
 const PROOF: Record<ProofRequest['status'], string> = {
   pending: 'Waiting', submitted: 'To review', missed: 'Missed', approved: 'Approved', rejected: 'Rejected',
 }

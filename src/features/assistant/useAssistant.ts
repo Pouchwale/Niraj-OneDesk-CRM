@@ -44,6 +44,8 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
   const rfdOnly = options.rfdOnly ?? false
   // The RFD sheet, for an RFD-only coordinator's list.
   const rfdRows = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdRows)
+  // Lines set aside leave her list at once.
+  const rfdMarks = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdMarks)
   const [companies, setCompanies] = useState<Company[]>([])
   const [overduePayments, setOverduePayments] = useState<OverduePayment[]>([])
   const [followups, setFollowups] = useState<Followup[]>([])
@@ -165,6 +167,7 @@ export function useAssistant(coordinatorId: string | undefined, options: UseAssi
     attendance,
     rfdOnly,
     rfdRows,
+    rfdMarks,
   ])
 
   // A picked task just done: Robi asks for its proof (ProofGate shows the screen).

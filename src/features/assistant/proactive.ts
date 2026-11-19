@@ -250,7 +250,7 @@ function deskNudges(input: NudgeInput): Nudge[] {
     .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))
   if (approvals.length > 0) {
     const oldest = approvals[0]
-    const kind = { no_followup: 'No follow-up', dispute: 'Dispute', export: 'Export client', bankrupt: 'Bankrupt' }[oldest.kind]
+    const kind = { no_followup: 'No follow-up', dispute: 'Dispute', export: 'Export client', bankrupt: 'Bankrupt', rfd_no_physical_qty: 'RFD · No physical quantity', rfd_dispute: 'RFD · Dispute', rfd_destroy: 'RFD · Need to destroy' }[oldest.kind]
     out.push({
       key: `lead-approvals:${approvals.map((r) => r.id).join(',')}`,
       text: `${approvals.length} request${approvals.length === 1 ? ' is' : 's are'} waiting for your approval.`,

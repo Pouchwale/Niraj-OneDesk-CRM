@@ -18,11 +18,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { rowOwner, useAuth } from '@/features/auth/AuthContext'
+import { getCoordinatorDisplayName, rowOwner, useAuth } from '@/features/auth/AuthContext'
 import { FollowUpTimeline } from '@/features/companies/FollowUpTimeline'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { OWNER_ALL, matchesOwner, ownerOptions } from '@/lib/owner'
-import type { RfdRow } from '@/lib/types'
+import { openRfdRows } from '@/lib/rfd-marks'
+import type { RfdMark, RfdRow } from '@/lib/types'
+import { RfdMarkBadge, RfdSetAside } from './RfdSetAside'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 
 type Age = 'all' | 'week' | 'month' | 'quarter' | 'older'
@@ -41,7 +43,18 @@ const qty = (r: RfdRow) => (r.rfd_qty === null ? '—' : `${r.rfd_qty.toLocaleSt
 
 export function RfdPage() {
   const { user, canManageTeam, isAdmin } = useAuth()
-  const all = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdRows)
+  const sheet = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdRows)
+  const marks = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdMarks)
+  // Lines set aside (no physical quantity, dispute, need to destroy) leave the list and the totals.
+  const all = useMemo(() => openRfdRows(sheet, marks), [sheet, marks])
+  const setAside = useMemo(() => {
+    const byLine = new Map(sheet.map((r) => [r.id, r]))
+    return marks
+      .map((m) => ({ mark: m, line: byLine.get(m.lineId) ?? null }))
+      .filter((x): x is { mark: RfdMark; line: RfdRow } => x.line !== null)
+      .sort((a, b) => b.mark.at.localeCompare(a.mark.at))
+  }, [sheet, marks])
+  const [showAside, setShowAside] = useState(false)
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [age, setAge] = useState<Age>('all')
@@ -83,7 +96,7 @@ export function RfdPage() {
   const pending = rows.reduce((s, r) => s + r.pending_value, 0)
   const customers = new Set(rows.map((r) => r.bp_code ?? r.customer_name)).size
   const oldest = rows.reduce((m, r) => Math.max(m, r.days ?? 0), 0)
-  const open = all.find((r) => r.id === openId) ?? null
+  const open = sheet.find((r) => r.id === openId) ?? null
 
   const download = async () => {
     const { downloadWorkbook } = await import('@/features/snapshots/download')
@@ -145,9 +158,22 @@ export function RfdPage() {
           </div>
         </div>
 
-        {canManageTeam && <OwnerFilter value={owner} onChange={(v) => setParam('owner', v)} options={ownerChoices} rowNoun="line" />}
+        <div className="flex items-center gap-2">
+          {canManageTeam && <OwnerFilter value={owner} onChange={(v) => setParam('owner', v)} options={ownerChoices} rowNoun="line" />}
+          <Button
+            size="sm"
+            variant={showAside ? 'default' : 'outline'}
+            className="ml-auto h-8 px-3 text-xs"
+            onClick={() => setShowAside((v) => !v)}
+            data-testid="rfd-set-aside-toggle"
+          >
+            {showAside ? 'Back to the list' : `Set aside (${setAside.length})`}
+          </Button>
+        </div>
 
-        {rows.length === 0 ? (
+        {showAside ? (
+          <SetAsideRegister items={setAside} onOpen={(id) => setParam('line', id)} />
+        ) : rows.length === 0 ? (
           <p className="p-10 text-center text-sm text-muted-foreground">
             {all.length === 0
               ? canManageTeam
@@ -211,6 +237,60 @@ export function RfdPage() {
   )
 }
 
+/** Lines set aside: what, why, who, and the money held out. */
+function SetAsideRegister({ items, onOpen }: { items: { mark: RfdMark; line: RfdRow }[]; onOpen: (lineId: string) => void }) {
+  if (items.length === 0) {
+    return <p className="p-10 text-center text-sm text-muted-foreground">No line is set aside.</p>
+  }
+  const held = items.reduce((s, x) => s + x.line.pending_value, 0)
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        {items.length} line{items.length === 1 ? '' : 's'}, {formatCurrency(held)} pending, held out of the list, the totals and Robi's tasks. Open one to see it or
+        put it back.
+      </p>
+      <div className="overflow-x-auto rounded-md border border-border/50">
+        <table className="w-full text-sm" data-testid="rfd-set-aside-table">
+          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3 font-medium">Customer</th>
+              <th className="px-3 py-3 font-medium">Sales order / item</th>
+              <th className="px-3 py-3 font-medium">Set aside as</th>
+              <th className="px-3 py-3 font-medium">Reason</th>
+              <th className="px-3 py-3 font-medium">By</th>
+              <th className="px-3 py-3 text-right font-medium">Pending</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {items.map(({ mark, line }) => (
+              <tr key={mark.lineId} className="cursor-pointer hover:bg-muted/30" onClick={() => onOpen(line.id)} data-testid="rfd-set-aside-row">
+                <td className="min-w-[200px] px-4 py-3">
+                  <div className="font-medium">{line.customer_name}</div>
+                  <div className="font-mono text-xs text-muted-foreground">{line.bp_code ?? 'Not in CRM'}</div>
+                </td>
+                <td className="max-w-[220px] px-3 py-3">
+                  <div className="tabular-nums">SO {line.sales_order ?? '—'}</div>
+                  <div className="truncate text-xs text-muted-foreground" title={line.item_name ?? ''}>{line.item_name ?? '—'}</div>
+                </td>
+                <td className="px-3 py-3"><RfdMarkBadge kind={mark.kind} /></td>
+                <td className="min-w-[260px] max-w-[380px] px-3 py-3 text-xs">{mark.note}</td>
+                <td className="whitespace-nowrap px-3 py-3 text-xs">
+                  {getCoordinatorDisplayName(mark.by)}
+                  <div className="text-muted-foreground">
+                    {formatDate(mark.at)}
+                    {mark.approvedBy ? ` · approved by ${getCoordinatorDisplayName(mark.approvedBy)}` : ''}
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-right font-semibold tabular-nums">{formatCurrency(line.pending_value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function RfdPanel({
   row,
   all,
@@ -270,6 +350,8 @@ function RfdPanel({
                 This customer has <b>{sameCustomer.length} lines</b> ready, <b>{formatCurrency(customerPending)}</b> pending in all.
               </p>
             )}
+
+            <RfdSetAside line={row} currentUserId={currentUserId} canDecide={isAdmin} />
 
             <div className="space-y-3">
               <h3 className="text-lg font-semibold">Follow-ups</h3>

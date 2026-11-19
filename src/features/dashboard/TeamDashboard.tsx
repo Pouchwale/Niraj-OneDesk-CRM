@@ -18,6 +18,7 @@ import { getAllCoordinators } from '@/features/auth/AuthContext'
 import { useModuleAccess } from '@/features/auth/module-access'
 import { formatFinal } from '@/features/score-history/format'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
+import { openRfdRows } from '@/lib/rfd-marks'
 import { getFollowupCommitments, type Commitment } from '@/lib/followups-api'
 import { markSwitchedOff, periodLabel, weekOf, type PeriodScores } from '@/lib/score-history'
 import { getScoreHistory } from '@/lib/score-history-api'
@@ -46,7 +47,10 @@ export function TeamDashboard() {
   const [weekStart, setWeekStart] = useState(thisWeek)
   const access = useModuleAccess()
   const quotations = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.quotations)
-  const rfdRows = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdRows)
+  const rfdSheet = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdRows)
+  const rfdMarks = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdMarks)
+  // Lines set aside (no physical quantity, dispute, need to destroy) are not waiting.
+  const rfdRows = useMemo(() => openRfdRows(rfdSheet, rfdMarks), [rfdSheet, rfdMarks])
   const billingIssues = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.billingIssues)
   const overdueNow = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.overduePayments)
   const coordinators = useMemo(() => getAllCoordinators().map((c) => ({ id: c.id, name: c.full_name ?? c.id })).sort((a, b) => a.name.localeCompare(b.name)), [])

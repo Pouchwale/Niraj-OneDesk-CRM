@@ -266,6 +266,26 @@ export const TABLES: { spec: TableSpec; rows: (s: MirrorSource) => Row[] }[] = [
   },
   {
     spec: {
+      name: 'rfd_marks',
+      key: ['line_id'],
+      columns: [
+        col('line_id', 'text', f('lineId')),
+        col('kind', 'text'),
+        col('reason', 'text', f('note')),
+        col('marked_by', 'text', f('by')),
+        col('marked_at', 'timestamptz', f('at')),
+        col('approved_by', 'text', f('approvedBy')),
+        col('customer_name', 'text'),
+        col('bp_code', 'text'),
+        col('sales_order', 'text'),
+        col('pending_value', 'numeric'),
+        col('coordinator_id', 'text'),
+      ],
+    },
+    rows: (s) => (s.store.rfdMarks ?? []) as unknown as Row[],
+  },
+  {
+    spec: {
       name: 'quotations',
       key: ['id'],
       columns: [
