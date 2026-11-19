@@ -10,6 +10,7 @@ import { addBuckets, bucketsOf, disputeExtraIdOf, isDisputeExtra, splitDisputedB
 import { invoiceKeyOf } from './account-key'
 // Relative: this file runs on the server too, outside Vite's alias resolution.
 import { DAY_MS } from './constants'
+import { withoutCarryBeforeFreshStart } from './robi-fresh-start'
 import type { DailyPlan, PlanItemStatus } from '../features/assistant/daily-plan'
 
 /**
@@ -1831,6 +1832,9 @@ class DemoCompanyStore {
    * since may have changed that.
    */
   recordDailyPlan(plan: DailyPlan): DailyPlan {
+    // A fresh start: work from before it is not carried in, even from a page still running older code.
+    const kept = withoutCarryBeforeFreshStart(plan.userId, plan.date, plan.items)
+    if (kept.length !== plan.items.length) plan = { ...plan, items: kept }
     const index = this.dailyPlans.findIndex((p) => p.userId === plan.userId && p.date === plan.date)
     if (index === -1) {
       this.dailyPlans.push(plan)

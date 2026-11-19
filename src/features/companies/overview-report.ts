@@ -9,6 +9,7 @@ import { customerLookup, openAccountKeys } from '@/features/assistant/daily-plan
 import { planHistory, RESULT_LABEL, type HistoryRow } from '@/features/assistant/plan-history'
 import { dailyScores, emptyDayScores, extraWork, fullDayGrants, weekAverage, type DayScore } from '@/features/assistant/scores'
 import { summariseHistory, type FollowupHistoryEntry } from '@/lib/followups-api'
+import { dropBeforeFreshStart } from '@/lib/robi-fresh-start'
 import { isNoFollowup, setAsideKindOf, SET_ASIDE_LABEL } from '@/lib/no-followup'
 import type { AttendanceEntry, Company, DecisionRequest, Followup, OverduePayment, ProofRequest } from '@/lib/types'
 
@@ -135,13 +136,13 @@ export function buildOverviewReport(input: ReportInput): OverviewReport {
     customerLookup(input.companies, input.overduePayments)
   )
   const extraOf = (userId: string) => [...extra.entries()].filter(([k]) => k.startsWith(`${userId}|`)).reduce((n, [, v]) => n + v.length, 0)
-  const scores = fullDayGrants(emptyDayScores(
+  const scores = dropBeforeFreshStart(fullDayGrants(emptyDayScores(
     dailyScores(tasks, extra),
     input.plans.filter((p) => coordinatorIds.has(p.userId) && inPeriod(p.date, from, to)),
     input.today,
     (u, d) => (robiOff.has(d) ? 'leave' : leave.get(`${u}|${d}`) ?? null),
     extra
-  ))
+  )))
   const scoresOf = (userId: string) => [...scores.entries()].filter(([k]) => k.startsWith(`${userId}|`)).map(([, s]) => s)
 
   const proofs = input.proofRequests.filter((r) => coordinatorIds.has(r.coordinatorId) && inPeriod(r.date, from, to))

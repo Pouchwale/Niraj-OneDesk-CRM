@@ -125,13 +125,20 @@ describe("Avani's Ready for Dispatch list", () => {
     expect(after.items.find((i) => i.entityName === 'B5')?.status).toBe('closed')
   })
 
-  it('carries what was left on top, and a followed-up customer rests five days', () => {
+  it('carries what was left on top (from her fresh start on 20 Nov), and a followed-up customer rests five days', () => {
     planOn(THU)
     const done = [followup('B6', THU), followup('B5', THU), followup('B4', THU), followup('B3', THU), followup('B2', THU), followup('O1', THU)]
     const fri = planOn(FRI, done)
     // N2 was not done: it comes back on top; the six rung rest, so only the four left come fresh.
-    expect(fri.items[0]).toMatchObject({ entityName: 'N2', carriedFrom: THU })
-    expect(names(fri)).toEqual(['N2', 'B1', 'O2', 'O3', 'N1'])
+    // Friday 20 Nov is Avani's fresh start (ROBI_FRESH_START): Thursday's N2 is not carried in.
+    expect(fri.items.some((i) => i.carriedFrom)).toBe(false)
+    // From then on, what is left comes back on top: Friday's list into Saturday.
+    const friDone = fri.items.slice(1).map((i) => followup(i.entityName!, FRI))
+    const sat = planOn(SAT, [...done, ...friDone])
+    expect(sat.items[0]).toMatchObject({ entityName: fri.items[0].entityName, carriedFrom: FRI })
+    // N2, left on Thursday, can still be picked fresh; the six rung on Thursday rest.
+    expect(names(fri)).toEqual(['B1', 'O2', 'O3', 'N2', 'N1'])
+    expect(names(sat)).toEqual(['B1'])
   })
 
   it('brings an 80+ day customer back three days after a follow-up, others after five', () => {

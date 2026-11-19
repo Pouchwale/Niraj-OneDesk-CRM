@@ -24,6 +24,7 @@ import { addDaysISO, isSundayISO, toLocalISODate } from '../../lib/utils'
 import type { AttendanceStatus } from './attendance'
 import { customerLookup, entityKeyOf, openAccountKeys, type CustomerOf, type DailyPlan } from './daily-plan'
 import { planHistory, summariseHistory, type HistoryRow } from './plan-history'
+import { dropBeforeFreshStart } from '../../lib/robi-fresh-start'
 
 export interface DayScore {
   done: number
@@ -140,6 +141,7 @@ export function teamDayScores(input: TeamScoreInput): { scores: Map<string, DayS
   const scores = dailyScores(rows, extra)
   emptyDayScores(scores, plans, input.today, input.attendanceOf, extra)
   fullDayGrants(scores)
+  dropBeforeFreshStart(scores)
   return { scores, extra }
 }
 

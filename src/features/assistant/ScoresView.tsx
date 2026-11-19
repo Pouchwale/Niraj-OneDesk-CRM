@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { addDaysISO, cn, formatDate, todayISO } from '@/lib/utils'
 import { scoreLabel, scoreTone, teamDayScores, weekAverage, weekDays, weekStart, type DayScore } from './scores'
+import { beforeFreshStart } from '@/lib/robi-fresh-start'
 
 /** Every coordinator's day scores, and extra work per day, live from the shared records. */
 function useScores(coordinatorIds: string[]): { scores: Map<string, DayScore>; extra: Map<string, number> } {
@@ -38,9 +39,11 @@ const dayName = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateStrin
 
 /**
  * Not scored that day, and why: on leave (marked in Overview → Attendance), or
- * a Robi day off for everyone (Admin Panel), shown as N/A.
+ * a Robi day off for everyone (Admin Panel), shown as N/A; also N/A before a
+ * coordinator's fresh start (ROBI_FRESH_START).
  */
 const awayLabel = (userId: string, date: string): 'Leave' | 'N/A' | null => {
+  if (beforeFreshStart(userId, date)) return 'N/A'
   const away = demoCompanyStore.getAttendance(userId, date)
   if (away?.status !== 'leave') return null
   return away.robiOff ? 'N/A' : 'Leave'
@@ -63,7 +66,7 @@ function Extra({ n, credited }: { n?: number; credited?: number }) {
 function Cell({ s, today, leave, extra }: { s?: DayScore; today: boolean; leave?: 'Leave' | 'N/A' | null; extra?: number }) {
   if (leave)
     return (
-      <span className="text-xs text-muted-foreground" title={leave === 'N/A' ? 'Robi day off: no tasks, not scored' : 'On leave: not scored'}>
+      <span className="text-xs text-muted-foreground" title={leave === 'N/A' ? 'Not scored (Robi day off, or before the score started afresh)' : 'On leave: not scored'}>
         {leave}
       </span>
     )
@@ -91,7 +94,10 @@ export function WeeklyScores({ coordinators }: { coordinators: { id: string; ful
     const week = days.map((d) => scores.get(`${c.id}|${d}`))
     return { id: c.id, name: c.full_name, week, average: weekAverage(week) }
   })
-  const rows = table.filter((r) => r.week.some(Boolean) || days.some((d) => extra.get(`${r.id}|${d}`)))
+  // Someone with a list on a day before their fresh start stays on the table, shown N/A.
+  const rows = table.filter(
+    (r) => r.week.some(Boolean) || days.some((d) => extra.get(`${r.id}|${d}`) || (beforeFreshStart(r.id, d) && demoCompanyStore.getDailyPlan(r.id, d)))
+  )
   const teamAverage = weekAverage(rows.flatMap((r) => r.week))
 
   const download = async () => {

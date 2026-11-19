@@ -17,6 +17,7 @@ import { isRfdOnly } from '@/lib/users/rfd-only'
 import { openRfdRows } from '@/lib/rfd-marks'
 import { rfdCustomers, rfdLookups, rfdPlanItems, RFD_HALF_DAY_SIZE, RFD_PLAN_SIZE } from './rfd-plan'
 import { demoCompanyStore } from '@/lib/demo-companies'
+import { withoutCarryBeforeFreshStart } from '@/lib/robi-fresh-start'
 import { isSetAside } from '@/lib/no-followup'
 import { addDaysISO, formatCurrency, formatDate, formatRelativeDate } from '@/lib/utils'
 import { nextToFollowUp, type NextUp } from './next-up'
@@ -176,6 +177,9 @@ export function ensurePlan(
   if (previous && demoCompanyStore.getAttendance(userId, previous.date)?.status === 'leave') {
     carried = carried.filter((item) => item.carriedFrom !== undefined && item.carriedFrom < previous.date)
   }
+
+  // A fresh start (Avani, 20 Nov 2026): nothing comes forward from before it.
+  carried = withoutCarryBeforeFreshStart(userId, date, carried)
 
   // Below Robi's minimum now (Rs 1,000, as for new tasks): not worth a slot, carried or not (16 Nov 2026).
   if (evidence?.balanceOf) {
