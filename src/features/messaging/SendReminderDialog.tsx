@@ -58,8 +58,10 @@ interface SendReminderDialogProps {
  *
  * The app never sends anything itself: it opens the channel with the message
  * pre-filled so the coordinator reviews and presses send in their own signed-in
- * session. Because we cannot observe the send, the follow-up is logged as
- * "reminder sent" at the moment the channel is opened.
+ * session. We cannot observe the send, so the dialog then asks "Did you send
+ * it?" and logs the follow-up only on "Yes, sent" (20 Nov 2026). It used to log
+ * the moment the channel opened, which ticked Robi's task done and asked for a
+ * proof of a message never sent (Krupa, Rudradeo, 20 Nov 2026).
  */
 export function SendReminderDialog({
   target, open, onClose, coordinatorId, coordinatorName, coordinatorPhone, onSent,
@@ -73,6 +75,8 @@ export function SendReminderDialog({
   const [provider, setProvider] = useState<EmailProvider>(getEmailProvider())
   const [org, setOrg] = useState(getSenderOrg())
   const [isSending, setIsSending] = useState(false)
+  /** The channel just opened, waiting for "Did you send it?"; nothing is logged until "Yes, sent". */
+  const [opened, setOpened] = useState<'whatsapp' | 'email' | null>(null)
 
   const rendered = useMemo(() => {
     if (!target) return null
@@ -105,6 +109,12 @@ export function SendReminderDialog({
     setPhone(target.contactNumber ?? '')
     setEmail(target.email ?? '')
   }, [open, target])
+
+  // A new opening, or another customer, starts without a pending "Did you send it?". Keyed on the
+  // customer, not the target object, which the page rebuilds on every render (it did when WhatsApp opened).
+  useEffect(() => {
+    setOpened(null)
+  }, [open, target?.entityType, target?.entityId])
 
   // Keep the editable bodies in step with the chosen template.
   useEffect(() => {
@@ -158,20 +168,39 @@ export function SendReminderDialog({
       openChannel(url)
 
       setSenderOrg(org)
-      await logReminder(channel, channel === 'whatsapp' ? whatsappBody : emailBody)
-
-      toast.success(
+      setOpened(channel)
+      toast.info(
         channel === 'whatsapp'
-          ? 'WhatsApp opened — press send there. Logged as a follow-up.'
-          : 'Mail compose opened — press send there. Logged as a follow-up.'
+          ? 'WhatsApp opened: press send there, then come back and say if you sent it.'
+          : 'Mail compose opened: press send there, then come back and say if you sent it.'
       )
-      onSent?.()
-      onClose()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not open the message.')
     } finally {
       setIsSending(false)
     }
+  }
+
+  /** "Yes, sent": only now is the reminder a follow-up (and can tick Robi's task). */
+  const confirmSent = async () => {
+    if (!opened) return
+    setIsSending(true)
+    try {
+      await logReminder(opened, opened === 'whatsapp' ? whatsappBody : emailBody)
+      toast.success('Reminder logged as a follow-up.', { description: 'Next reminder in three days.' })
+      setOpened(null)
+      onSent?.()
+      onClose()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not log the reminder.')
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  const notSent = () => {
+    setOpened(null)
+    toast('Nothing logged.', { description: 'Send it again when you are ready, or close this.' })
   }
 
   return (
@@ -192,6 +221,23 @@ export function SendReminderDialog({
             </div>
           ) : null}
         </DialogHeader>
+
+        {opened && (
+          <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3" data-testid="reminder-confirm">
+            <p className="text-sm font-medium">
+              Did you send the {opened === 'whatsapp' ? 'WhatsApp message' : 'email'} to {target.customerName}?
+            </p>
+            <p className="text-xs text-muted-foreground">Only a sent reminder is logged as a follow-up and counts for Robi's task.</p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="ghost" onClick={notSent} disabled={isSending} data-testid="reminder-not-sent">
+                Not sent
+              </Button>
+              <Button onClick={() => void confirmSent()} disabled={isSending} data-testid="reminder-sent">
+                Yes, sent: log it
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4">
           <div className="space-y-2">
@@ -300,12 +346,13 @@ export function SendReminderDialog({
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               This opens WhatsApp or your mail app with the message ready — you press send there.
-              Either way the outreach is logged on the follow-up timeline and a reminder is set for
-              three days from now.
+              Then say whether you sent it: only a sent reminder is logged on the follow-up timeline
+              (with a reminder three days from now) and counts for Robi's task.
             </span>
           </div>
         </div>
 
+        {!opened && (
         <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onClose} disabled={isSending}>Cancel</Button>
           <Button
@@ -324,6 +371,7 @@ export function SendReminderDialog({
             <MessageCircle className="mr-2 h-4 w-4" /> Send on WhatsApp
           </Button>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   )
