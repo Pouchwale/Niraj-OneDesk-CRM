@@ -8,7 +8,7 @@
  */
 
 import type { Commitment } from '@/lib/followups-api'
-import { finalScoreOf, SCORE_MODULES, type PeriodScores, type ScoreModule } from '@/lib/score-history'
+import { finalScoreOf, SCORE_MODULES, weightsFor, type PeriodScores, type ScoreModule } from '@/lib/score-history'
 import { performanceOf, quotationDay } from '@/lib/quotation-stats'
 import type { BillingIssue, OverduePayment, Quotation, RfdRow } from '@/lib/types'
 import type { AppModuleId } from '../../../shared/module-access'
@@ -94,7 +94,7 @@ export function teamWeek(input: TeamWeekInput): TeamWeekRow[] {
   const end = addDaysISO(input.weekStart, 6)
   const inWeek = (day: string | null | undefined) => Boolean(day) && day! >= input.weekStart && day! <= end
   const collected = collectedSince(input.overdueAtStart, input.overdueAtEnd)
-  const finalOf = (p: PeriodScores | null, id: string) => (p ? finalScoreOf(p.entries.filter((e) => e.coordinatorId === id), p.finalWeights ?? null) : null)
+  const finalOf = (p: PeriodScores | null, id: string) => (p ? finalScoreOf(p.entries.filter((e) => e.coordinatorId === id), weightsFor(p, id)) : null)
 
   return input.coordinators.map((c) => {
     const off = input.modulesOff(c.id)

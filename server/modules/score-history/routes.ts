@@ -9,11 +9,18 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { ApiError } from '../../http/errors'
 import type { Logger } from '../../logger'
 import { requireRole } from '../auth/middleware'
-import { lockGraceDays, type PeriodKind, type ScoreHistoryResponse } from '../../../src/lib/score-history'
+import { lockGraceDays, type PeriodKind, type PeriodScores, type ScoreHistoryResponse } from '../../../src/lib/score-history'
 import { toLocalISODate } from '../../../src/lib/utils'
 import type { ScoreHistoryStore } from './store'
 
 const KINDS: PeriodKind[] = ['week', 'month', 'year']
+
+/** A coordinator sees only their own lines, and only their own ratio. */
+function ownLines(p: PeriodScores, userId: string): PeriodScores {
+  const { personWeights, ...rest } = p
+  const mine = personWeights?.[userId]
+  return { ...rest, entries: p.entries.filter((e) => e.coordinatorId === userId), ...(mine ? { personWeights: { [userId]: mine } } : {}) }
+}
 const DEFAULT_COUNT: Record<PeriodKind, number> = { week: 12, month: 12, year: 10 }
 
 export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Router {
@@ -29,8 +36,10 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
         kind,
         today: toLocalISODate(new Date()),
         graceDays: lockGraceDays(kind),
-        periods: store.periods(kind, count).map((p) => ({ ...p, entries: seesTeam ? p.entries : p.entries.filter((e) => e.coordinatorId === user.id) })),
+        periods: store.periods(kind, count).map((p) => (seesTeam ? p : ownLines(p, user.id))),
         finalRatios: store.finalRatios(),
+        // Who has a ratio of their own is for the team leader and the administrator.
+        ...(seesTeam ? { personRatios: store.personRatios() } : {}),
         leadTargets: store.leadTargets(),
       }
       res.json(body)
@@ -91,6 +100,29 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
     }
     logger.info('score history: self leads target removed', { id: req.params.id, by: req.user!.id })
     res.json({ leadTargets: store.leadTargets() })
+  })
+
+  // Ratios for particular coordinators (20 Nov 2026): the administrator adds, changes and removes them.
+  const savePerson = (req: Request, res: Response, next: NextFunction) => {
+    let ratio
+    try {
+      ratio = store.savePersonRatio(req.body, req.user!.id, req.params.id ? String(req.params.id) : undefined)
+    } catch (err) {
+      next(ApiError.badRequest(err instanceof Error ? err.message : 'That ratio cannot be used.'))
+      return
+    }
+    logger.info('score history: per-person ratio saved', { id: ratio.id, coordinators: ratio.coordinatorIds, weights: ratio.weights, by: req.user!.id })
+    res.json({ ratio, personRatios: store.personRatios() })
+  }
+  router.post('/person-ratios', requireRole(), savePerson)
+  router.put('/person-ratios/:id', requireRole(), savePerson)
+  router.delete('/person-ratios/:id', requireRole(), (req, res, next) => {
+    if (!store.deletePersonRatio(String(req.params.id))) {
+      next(ApiError.notFound('That ratio is not there any more.'))
+      return
+    }
+    logger.info('score history: per-person ratio removed', { id: req.params.id, by: req.user!.id })
+    res.json({ personRatios: store.personRatios() })
   })
 
   router.post('/ratios', requireRole(), saveRatio())

@@ -302,3 +302,28 @@ describe('inputs', () => {
     expect(earliestDay({ ...inputs, robiDays: new Map(), kpiWeeks: [], quotations: [], billingIssues: [], serviceRecords: [], selfLeads: [] })).toBeNull()
   })
 })
+
+describe('a ratio of their own', () => {
+  it('replaces the team ratio for that coordinator only', async () => {
+    const { weightsFor, personWeightsOf, finalScoreOf } = await import('./score-history')
+    const period = { finalWeights: { robi: 50, quotations: 50 }, personWeights: personWeightsOf([{ coordinatorIds: ['c1'], weights: { quotations: 100 } }]) }
+    expect(weightsFor(period, 'c1')).toEqual({ quotations: 100 })
+    expect(weightsFor(period, 'c2')).toEqual({ robi: 50, quotations: 50 })
+    expect(weightsFor({ finalWeights: null }, 'c1')).toBeNull()
+    expect(weightsFor({ finalWeights: null, personWeights: { c1: { robi: 100 } } }, 'c1')).toEqual({ robi: 100 })
+    const entries = [
+      { module: 'robi' as const, score: -40 },
+      { module: 'quotations' as const, score: 80 },
+    ]
+    // Robi -40 is 60 of 100; quotations 80. Team: (60 + 80) / 2 = 70; c1's own: 80.
+    expect(finalScoreOf(entries, weightsFor(period, 'c2')).score).toBe(70)
+    expect(finalScoreOf(entries, weightsFor(period, 'c1')).score).toBe(80)
+  })
+
+  it('is checked: at least one coordinator, shares adding up to 100', async () => {
+    const { checkPersonRatio } = await import('./score-history')
+    expect(checkPersonRatio({ coordinatorIds: ['a', ' a ', 'b'], weights: { robi: 100 } })).toEqual({ coordinatorIds: ['a', 'b'], weights: { robi: 100 } })
+    expect(() => checkPersonRatio({ coordinatorIds: [], weights: { robi: 100 } })).toThrow(/at least one/)
+    expect(() => checkPersonRatio({ coordinatorIds: ['a'], weights: { robi: 40 } })).toThrow()
+  })
+})

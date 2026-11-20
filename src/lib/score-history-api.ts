@@ -1,6 +1,6 @@
 /** The score history from the server (see server/modules/score-history). */
 
-import { SCORE_HISTORY_ROUTE, type FinalRatio, type FinalWeights, type LeadTarget, type PeriodKind, type PeriodScores, type ScoreHistoryResponse } from './score-history'
+import { SCORE_HISTORY_ROUTE, type FinalRatio, type FinalWeights, type LeadTarget, type PeriodKind, type PeriodScores, type PersonRatio, type ScoreHistoryResponse } from './score-history'
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -27,6 +27,14 @@ export const saveFinalRatio = (ratio: { from: string; to: string | null; weights
 /** The administrator removes a dated ratio. */
 export const deleteFinalRatio = (id: string) =>
   call<{ finalRatios: FinalRatio[] }>(`${SCORE_HISTORY_ROUTE}/ratios/${encodeURIComponent(id)}`, { method: 'DELETE' })
+
+/** The administrator adds a ratio for particular coordinators, or changes the one with `id`. */
+export const savePersonRatio = (ratio: { coordinatorIds: string[]; weights: FinalWeights }, id?: string) =>
+  call<{ ratio: PersonRatio; personRatios: PersonRatio[] }>(`${SCORE_HISTORY_ROUTE}/person-ratios${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(ratio) })
+
+/** The administrator removes a per-person ratio: those people go back to the team ratio. */
+export const deletePersonRatio = (id: string) =>
+  call<{ personRatios: PersonRatio[] }>(`${SCORE_HISTORY_ROUTE}/person-ratios/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 export const recalculatePeriod = (id: string) => call<PeriodScores>(`${SCORE_HISTORY_ROUTE}/recalculate`, { method: 'POST', body: JSON.stringify({ id }) })
 

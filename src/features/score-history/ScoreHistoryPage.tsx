@@ -40,6 +40,7 @@ import {
   FINAL_HINT,
   FINAL_WEIGHTED_HINT,
   finalScoreOf,
+  weightsFor,
   LOCK_GRACE_DAYS,
   lockGraceDays,
   periodLabel,
@@ -245,9 +246,9 @@ export function ScoreHistoryPage() {
   const entryOf = (period: PeriodScores | null, personId: string, m: ScoreModule) =>
     period?.entries.find((e) => e.coordinatorId === personId && e.module === m)
   const finalOf = (period: PeriodScores | null, personId: string) =>
-    finalScoreOf(period?.entries.filter((e) => e.coordinatorId === personId) ?? [], period?.finalWeights ?? null)
-  // The hint follows the period on screen: worked out by a ratio, or the plain average.
-  const ratio = selected?.finalWeights ?? null
+    finalScoreOf(period?.entries.filter((e) => e.coordinatorId === personId) ?? [], weightsFor(period, personId))
+  // The hint follows the period on screen: worked out by a ratio (the team's or someone's own), or the plain average.
+  const ratio = selected?.finalWeights ?? (selected?.personWeights && Object.keys(selected.personWeights).length ? selected.personWeights : null)
   const finalHint = ratio ? FINAL_WEIGHTED_HINT : FINAL_HINT
 
   const workOutAgain = async () => {

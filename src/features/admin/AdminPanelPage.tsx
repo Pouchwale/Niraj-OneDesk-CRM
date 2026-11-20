@@ -31,6 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { RobiOffDaysCard } from './RobiOffDaysCard'
 import { ModuleAccessCard } from './ModuleAccessCard'
+import { PersonRatioCard } from './PersonRatioCard'
 import { FestivalAdminCard } from '@/features/festivals/FestivalAdminCard'
 import {
   blockedFromDisabling,
@@ -218,6 +219,8 @@ export function AdminPanelPage() {
       </div>
 
       <ModuleAccessCard userId={signedIn?.id ?? 'admin-0'} />
+
+      <PersonRatioCard />
 
       <RobiOffDaysCard userId={signedIn?.id ?? 'admin-0'} />
 

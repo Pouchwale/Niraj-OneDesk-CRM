@@ -120,6 +120,42 @@ describe('the final score ratios by dates', () => {
   })
 })
 
+describe('ratios for particular coordinators', () => {
+  it('scores the people on it by their own shares in open periods, locks with them, and refuses a person twice', () => {
+    const dir = mkdtempSync(join(root, 'person-ratio-'))
+    let clock = new Date('2026-11-06T10:00:00')
+    const store = createScoreHistoryStore(dir, () => baseInputs([quote('a', 'c1', '2026-10-01', 'closed')]), () => clock)
+    store.lockDue()
+    store.saveFinalRatio({ from: '2026-10-01', to: null, weights: { robi: 60, quotations: 40 } }, 'admin-0')
+    const own = store.savePersonRatio({ coordinatorIds: ['c1', 'c2', 'c1'], weights: { quotations: 100 } }, 'admin-0')
+    expect(own.coordinatorIds).toEqual(['c1', 'c2'])
+    // Locked October keeps what it had; the open November carries the people's own ratio beside the team's.
+    const [october, november] = store.periods('month', 2)
+    expect(october.personWeights).toBeUndefined()
+    expect(november.finalWeights).toEqual({ robi: 60, quotations: 40 })
+    expect(november.personWeights).toEqual({ c1: { quotations: 100 }, c2: { quotations: 100 } })
+
+    expect(() => store.savePersonRatio({ coordinatorIds: ['c2', 'c3'], weights: { robi: 100 } }, 'admin-0')).toThrow(/One person already has/)
+    expect(() => store.savePersonRatio({ coordinatorIds: [], weights: { robi: 100 } }, 'admin-0')).toThrow(/at least one coordinator/)
+    expect(() => store.savePersonRatio({ coordinatorIds: ['c3'], weights: { robi: 90 } }, 'admin-0')).toThrow(/add up to 90%/)
+    // Changing their own ratio keeps them on it; taking c2 off frees c2 for another.
+    store.savePersonRatio({ coordinatorIds: ['c1'], weights: { robi: 20, quotations: 80 } }, 'admin-0', own.id)
+    store.savePersonRatio({ coordinatorIds: ['c2'], weights: { robi: 100 } }, 'admin-0')
+    expect(store.periods('week', 1)[0].personWeights).toEqual({ c1: { robi: 20, quotations: 80 }, c2: { robi: 100 } })
+
+    // The week 31 Oct - 6 Nov locks with the people's ratios as they stand; removing one later does not reach it.
+    clock = new Date('2026-11-12T10:00:00')
+    expect(store.lockDue()).toEqual(['week:2026-10-31'])
+    expect(store.deletePersonRatio(own.id)).toBe(true)
+    expect(store.deletePersonRatio(own.id)).toBe(false)
+    const locked = store.periods('week', 3).find((p) => p.key === '2026-10-31')!
+    expect(locked.personWeights).toEqual({ c1: { robi: 20, quotations: 80 }, c2: { robi: 100 } })
+    expect(store.relock('week:2026-10-31', 'admin-0')!.personWeights).toEqual({ c1: { robi: 20, quotations: 80 }, c2: { robi: 100 } })
+    // The open week: c1 is back on the team ratio.
+    expect(store.periods('week', 1)[0].personWeights).toEqual({ c2: { robi: 100 } })
+  })
+})
+
 describe('the route', () => {
   let server: ReturnType<typeof createServer>
   let port = 0
@@ -189,6 +225,30 @@ describe('the route', () => {
     expect((await send(admin, 'DELETE', `/ratios/${saved.id}`)).status).toBe(200)
     expect((await send(admin, 'DELETE', `/ratios/${saved.id}`)).status).toBe(404)
     expect(((await (await get(admin)).json()) as ScoreHistoryResponse).finalRatios).toEqual([])
+  })
+
+  it('lets only the administrator set ratios for particular coordinators; a coordinator sees only their own', async () => {
+    const send = async (cookie: string, method: string, path: string, body?: unknown) =>
+      fetch(`http://127.0.0.1:${port}${SCORE_HISTORY_ROUTE}${path}`, { method, headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) })
+    const ratio = { coordinatorIds: ['coord-1', 'coord-2'], weights: { quotations: 100 } }
+    expect((await send(await signIn('niki', 'Niki@123'), 'POST', '/person-ratios', ratio)).status).toBe(403)
+    const admin = await signIn('admin', 'Admin@123')
+    const made = await send(admin, 'POST', '/person-ratios', ratio)
+    expect(made.status).toBe(200)
+    const { ratio: saved } = (await made.json()) as { ratio: { id: string } }
+    expect((await send(admin, 'POST', '/person-ratios', { coordinatorIds: ['coord-2'], weights: { robi: 100 } })).status).toBe(400)
+
+    const team = (await (await get(await signIn('niki', 'Niki@123'))).json()) as ScoreHistoryResponse
+    expect(team.personRatios?.map((r) => r.coordinatorIds)).toEqual([['coord-1', 'coord-2']])
+    expect(team.periods[1].personWeights).toEqual({ 'coord-1': { quotations: 100 }, 'coord-2': { quotations: 100 } })
+    const mine = (await (await get(await signIn('pragati', 'Pragati@123'))).json()) as ScoreHistoryResponse
+    expect(mine.personRatios).toBeUndefined()
+    expect(mine.periods[1].personWeights).toEqual({ 'coord-1': { quotations: 100 } })
+
+    expect((await send(admin, 'PUT', `/person-ratios/${saved.id}`, { coordinatorIds: ['coord-2'], weights: { robi: 100 } })).status).toBe(200)
+    expect((await send(admin, 'DELETE', `/person-ratios/${saved.id}`)).status).toBe(200)
+    expect((await send(admin, 'DELETE', `/person-ratios/${saved.id}`)).status).toBe(404)
+    expect(((await (await get(admin)).json()) as ScoreHistoryResponse).personRatios).toEqual([])
   })
 
   it('lets only the administrator work a period out again', async () => {

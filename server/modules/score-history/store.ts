@@ -26,7 +26,11 @@ import {
   periodRange,
   recentKeys,
   ratioOn,
+  checkPersonRatio,
+  personWeightsOf,
+  type PersonRatio,
   type FinalRatio,
+  type FinalWeights,
   type FinalWeightsSetting,
   type LeadTarget,
   type PeriodKind,
@@ -57,6 +61,14 @@ interface HistoryFile {
   finalRatios?: FinalRatio[]
   /** The administrator's Self Leads targets by dates (16 Nov 2026). */
   leadTargets?: LeadTarget[]
+  /** The administrator's ratios for particular coordinators (20 Nov 2026). */
+  personRatios?: PersonRatio[]
+}
+
+/** The per-person ratios as a period carries them; absent when there are none. */
+const personPart = (file: HistoryFile): { personWeights?: Record<string, FinalWeights> } => {
+  const weights = personWeightsOf(file.personRatios ?? [])
+  return Object.keys(weights).length ? { personWeights: weights } : {}
 }
 
 const leadTargetsOf = (file: HistoryFile): LeadTarget[] => [...(file.leadTargets ?? [])].sort((a, b) => a.from.localeCompare(b.from))
@@ -80,6 +92,12 @@ export interface ScoreHistoryStore {
   saveLeadTarget(input: unknown, by: string, id?: string): LeadTarget
   /** Removes a dated Self Leads target; false when there was none. */
   deleteLeadTarget(id: string): boolean
+  /** The ratios for particular coordinators. */
+  personRatios(): PersonRatio[]
+  /** Adds a per-person ratio, or changes the one with `id`. Throws a message for the screen. */
+  savePersonRatio(input: unknown, by: string, id?: string): PersonRatio
+  /** Removes a per-person ratio; false when there was none. */
+  deletePersonRatio(id: string): boolean
 }
 
 /**
@@ -152,7 +170,7 @@ export function createScoreHistoryStore(
     // Each period locks with the ratio in force on its first day, as it stands now.
     const ratios = ratiosOf(file)
     for (const [kind, key] of due) {
-      file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', finalWeights: ratioOn(ratios, periodRange(kind, key).start)?.weights ?? null }
+      file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', finalWeights: ratioOn(ratios, periodRange(kind, key).start)?.weights ?? null, ...personPart(file) }
     }
     write(file)
     return due.map(([kind, key]) => periodId(kind, key))
@@ -169,7 +187,7 @@ export function createScoreHistoryStore(
       const locked = file.periods[periodId(kind, key)]
       if (locked) return locked
       // Still open, or ended within the grace days: worked out live.
-      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, finalWeights: ratioOn(ratiosOf(file), periodRange(kind, key).start)?.weights ?? null }
+      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, finalWeights: ratioOn(ratiosOf(file), periodRange(kind, key).start)?.weights ?? null, ...personPart(file) }
     })
   }
 
@@ -181,7 +199,7 @@ export function createScoreHistoryStore(
     const { start } = periodRange(held.kind, held.key)
     if (start > today) return null
     // Worked out again from today's records, with the ratio it was locked with.
-    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by, finalWeights: held.finalWeights ?? null }
+    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by, finalWeights: held.finalWeights ?? null, ...(held.personWeights ? { personWeights: held.personWeights } : {}) }
     file.periods[id] = again
     write(file)
     return again
@@ -237,7 +255,31 @@ export function createScoreHistoryStore(
     return true
   }
 
-  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio, leadTargets, saveLeadTarget, deleteLeadTarget }
+  const personRatios = (): PersonRatio[] => [...(read().personRatios ?? [])]
+
+  const savePersonRatio = (input: unknown, by: string, id?: string): PersonRatio => {
+    const checked = checkPersonRatio(input)
+    const file = read()
+    const list = file.personRatios ?? []
+    if (id && !list.some((r) => r.id === id)) throw new Error('That ratio is not there any more.')
+    const taken = checked.coordinatorIds.filter((c) => list.some((r) => r.id !== id && r.coordinatorIds.includes(c)))
+    if (taken.length) throw new Error(`${taken.length === 1 ? 'One person already has' : `${taken.length} people already have`} a ratio of their own; change that one, or take them off it first.`)
+    const ratio: PersonRatio = { id: id ?? randomUUID(), ...checked, updatedAt: now().toISOString(), updatedBy: by }
+    file.personRatios = id ? list.map((r) => (r.id === id ? ratio : r)) : [...list, ratio]
+    write(file)
+    return ratio
+  }
+
+  const deletePersonRatio = (id: string): boolean => {
+    const file = read()
+    const list = file.personRatios ?? []
+    if (!list.some((r) => r.id === id)) return false
+    file.personRatios = list.filter((r) => r.id !== id)
+    write(file)
+    return true
+  }
+
+  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio, leadTargets, saveLeadTarget, deleteLeadTarget, personRatios, savePersonRatio, deletePersonRatio }
 }
 
 /** A minute and a half after start (the data is loaded by then), and every half hour after, lock what has ended. */

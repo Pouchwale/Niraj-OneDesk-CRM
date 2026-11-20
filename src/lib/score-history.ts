@@ -96,6 +96,40 @@ export function checkFinalRatio(value: unknown): { from: string; to: string | nu
   return { from: v.from, to, weights: checkFinalWeights(v.weights) }
 }
 
+/**
+ * A ratio of the administrator's own for some coordinators (20 Nov 2026): the
+ * people on it are scored by these shares instead of the team ratio, from now
+ * until it is removed (no dates). A person is on one such ratio at most.
+ * Open periods use it as it stands; a period locks with it.
+ */
+export interface PersonRatio {
+  id: string
+  coordinatorIds: string[]
+  weights: FinalWeights
+  updatedAt?: string
+  updatedBy?: string
+}
+
+/** A per-person ratio as given, checked. Throws a message for the screen. */
+export function checkPersonRatio(value: unknown): { coordinatorIds: string[]; weights: FinalWeights } {
+  const v = (value ?? {}) as { coordinatorIds?: unknown; weights?: unknown }
+  const ids = Array.isArray(v.coordinatorIds) ? [...new Set(v.coordinatorIds.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map((id) => id.trim()))] : []
+  if (!ids.length) throw new Error('Choose at least one coordinator.')
+  return { coordinatorIds: ids, weights: checkFinalWeights(v.weights) }
+}
+
+/** Each coordinator's own ratio, by id. */
+export function personWeightsOf(ratios: readonly Pick<PersonRatio, 'coordinatorIds' | 'weights'>[]): Record<string, FinalWeights> {
+  const out: Record<string, FinalWeights> = {}
+  for (const r of ratios) for (const id of r.coordinatorIds) out[id] ??= r.weights
+  return out
+}
+
+/** The ratio a coordinator's final score uses in a period: their own, else the team's (null: the plain average). */
+export function weightsFor(period: Pick<PeriodScores, 'finalWeights' | 'personWeights'> | null | undefined, coordinatorId: string): FinalWeights | null {
+  return period?.personWeights?.[coordinatorId] ?? period?.finalWeights ?? null
+}
+
 /** The last day a ratio is in force: its To date, or (open-ended) the day before the next ratio starts; null = no end. */
 export function ratioEnd(ratio: Pick<FinalRatio, 'from' | 'to'>, all: readonly Pick<FinalRatio, 'from' | 'to'>[]): string | null {
   if (ratio.to) return ratio.to
@@ -279,6 +313,8 @@ export interface PeriodScores {
    * null: the plain average (every period locked before a ratio was set).
    */
   finalWeights?: FinalWeights | null
+  /** Coordinators scored by a ratio of their own (PersonRatio), by id: as it stood when the period locked (open: as it stands now). */
+  personWeights?: Record<string, FinalWeights>
   entries: ScoreEntry[]
 }
 
@@ -289,6 +325,8 @@ export interface ScoreHistoryResponse {
   periods: PeriodScores[]
   /** The administrator's ratios by dates, oldest first; empty while none is set. */
   finalRatios: FinalRatio[]
+  /** The administrator's ratios for particular coordinators (20 Nov 2026). */
+  personRatios?: PersonRatio[]
   /** The administrator's Self Leads targets by dates, oldest first; empty: the default (3 leads, 30%). */
   leadTargets?: LeadTarget[]
 }
