@@ -201,7 +201,7 @@ describe('placing the table in an email', () => {
     const byName = parseDraft('To: Isha Agro Developer Pvt.Ltd\nSubject: Hi\n\nDear Sir,')
     expect(draftWithTable(byName, all).table).toContain('Total |')
     const nobody = parseDraft('To: Unknown\nSubject: Hi\n\nDear Sir,')
-    expect(draftWithTable(nobody, all)).toEqual({ body: 'Dear Sir,', table: '', html: '' })
+    expect(draftWithTable(nobody, all)).toEqual({ body: 'Dear Sir,', table: '', html: '', email: null })
   })
 })
 

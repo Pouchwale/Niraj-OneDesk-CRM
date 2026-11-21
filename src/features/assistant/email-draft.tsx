@@ -37,7 +37,7 @@ import {
   withInvoiceTable,
   withoutInvoiceTable,
 } from '@/lib/customer-statement'
-import { buildEmailUrl, getSavedEmailProvider, openChannel } from '@/lib/messaging'
+import { buildEmailUrl, emailProviderName, emailRecipients, getEmailProvider, openChannel } from '@/lib/messaging'
 
 export interface EmailDraft {
   to: string
@@ -105,7 +105,7 @@ export function emailAddressOf(customerName: string): string | null {
   const found = demoCompanyStore
     .getAllCompanies()
     .find((c) => (c.name ?? '').trim().toLowerCase().replace(/\s+/g, ' ') === name && c.email && /@/.test(c.email))
-  return found?.email?.trim() ?? null
+  return emailRecipients(found?.email).join(',') || null
 }
 
 /** The mailto link for a draft: the customer's address when known, the subject and the body. */
@@ -115,18 +115,23 @@ export function mailtoOf(draft: EmailDraft, address: string | null): string {
 }
 
 /** The draft with the customer's invoice table above its sign-off (21 Nov 2026), and that table. */
-export function draftWithTable(draft: EmailDraft, invoices: Parameters<typeof statementForCode>[1]): { body: string; table: string; html: string } {
+export function draftWithTable(draft: EmailDraft, invoices: Parameters<typeof statementForCode>[1]): { body: string; table: string; html: string; email: string | null } {
   const customer = statementForCode(draft.code, invoices) ?? statementForName(draft.to, invoices)
   const table = customer ? invoiceTableText(customer) : ''
-  return { body: withInvoiceTable(draft.body, table), table, html: customer ? invoiceTableHtml(customer) : '' }
+  return { body: withInvoiceTable(draft.body, table), table, html: customer ? invoiceTableHtml(customer) : '', email: customer?.lead.email ?? null }
 }
 
 export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
   const [copied, setCopied] = useState(false)
-  const address = emailAddressOf(draft.to)
+  /** The link just opened, offered again in case the browser blocked the new tab. */
+  const [composeUrl, setComposeUrl] = useState<string | null>(null)
   // On by default; a thank-you or a dispatch note may not want it.
   const [includeTable, setIncludeTable] = useState(true)
   const prepared = draftWithTable(draft, demoCompanyStore.getAllCompanies())
+  const address = emailRecipients(prepared.email).join(',') || emailAddressOf(draft.to)
+  // Gmail unless this person chose another: not every PC has a mail app for a mailto link to open.
+  const provider = getEmailProvider()
+  const providerName = emailProviderName(provider)
   const body = includeTable ? prepared.body : draft.body
   const table = includeTable ? prepared.table : ''
   const html = includeTable ? prepared.html : ''
@@ -141,14 +146,15 @@ export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
     }
   }
   const openEmail = () => {
-    const provider = getSavedEmailProvider() ?? 'default'
     // A link can carry only plain text: the formatted email is copied for Ctrl+V.
     if (html && copyRich(emailHtml(draft.body, html), body)) {
       toast.info('The full email with the invoice table is copied.', {
-        description: 'In the new email, click in the message and press Ctrl+V, then send.',
+        description: `In the new email, ${address ? '' : "type the customer's address in To, "}click in the message and press Ctrl+V, then send.`,
         duration: 15000,
       })
-      openChannel(buildEmailUrl(provider, address ?? '', draft.subject, ''))
+      const pasteUrl = buildEmailUrl(provider, address ?? '', draft.subject, '')
+      setComposeUrl(pasteUrl)
+      openChannel(pasteUrl)
       return
     }
     let url = buildEmailUrl(provider, address ?? '', draft.subject, body)
@@ -160,6 +166,7 @@ export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
         duration: 15000,
       })
     }
+    setComposeUrl(url)
     openChannel(url)
   }
   return (
@@ -192,12 +199,23 @@ export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
           {copied ? 'Copied' : 'Copy'}
         </Button>
         <Button size="sm" className="h-7 text-xs" onClick={openEmail} data-testid="robi-email-open">
-          <Mail className="mr-1 h-3.5 w-3.5" /> Open in email
+          <Mail className="mr-1 h-3.5 w-3.5" /> Open in {providerName}
         </Button>
         {prepared.table && (
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setIncludeTable((on) => !on)} data-testid="robi-email-table-toggle">
             {includeTable ? 'Remove invoice table' : 'Add invoice table'}
           </Button>
+        )}
+        {composeUrl && (
+          <a
+            href={composeUrl}
+            target={composeUrl.startsWith('mailto:') ? undefined : '_blank'}
+            rel="noopener noreferrer"
+            className="self-center text-xs font-medium text-primary underline"
+            data-testid="robi-email-link"
+          >
+            {providerName === 'email' ? 'Email' : providerName} did not open? Click here
+          </a>
         )}
       </div>
     </div>

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 
 import {
   buildEmailUrl,
+  emailProviderName,
+  emailRecipients,
   buildWhatsAppUrl,
   isValidEmail,
   normalizePhoneForWhatsApp,
@@ -77,6 +79,30 @@ describe('channel URLs', () => {
     const fallback = buildEmailUrl('default', 'a@b.com', 'Subject line', 'Body text')
     expect(fallback.startsWith('mailto:')).toBe(true)
     expect(fallback).toContain('subject=Subject%20line')
+  })
+})
+
+describe('the addresses in an email cell', () => {
+  it('reads what the file really holds', () => {
+    expect(emailRecipients('accounts@customer.com')).toEqual(['accounts@customer.com'])
+    expect(emailRecipients(' <purchase@customer.com> ')).toEqual(['purchase@customer.com'])
+    expect(emailRecipients('a@one.com/b@two.co.in')).toEqual(['a@one.com', 'b@two.co.in'])
+    expect(emailRecipients('a@one.com; A@ONE.com, b@two.com')).toEqual(['a@one.com', 'b@two.com'])
+  })
+
+  it('finds none in a blank, a dash or a broken address', () => {
+    for (const cell of ['', '-', null, undefined, 'n/a', 'missing@domain']) expect(emailRecipients(cell)).toEqual([])
+  })
+
+  it('opens a compose window with two addresses, or with none', () => {
+    expect(new URL(buildEmailUrl('gmail', 'a@one.com,b@two.com', 'S', '')).searchParams.get('to')).toBe('a@one.com,b@two.com')
+    expect(new URL(buildEmailUrl('gmail', '', 'S', '')).searchParams.get('to')).toBe('')
+    expect(buildEmailUrl('default', 'a@one.com,b@two.com', 'S', '').startsWith('mailto:a%40one.com,b%40two.com?')).toBe(true)
+    expect(buildEmailUrl('default', '', 'S', '').startsWith('mailto:?')).toBe(true)
+  })
+
+  it('names the mail program on the button', () => {
+    expect(['gmail', 'outlook', 'default'].map((p) => emailProviderName(p as 'gmail'))).toEqual(['Gmail', 'Outlook', 'email'])
   })
 })
 

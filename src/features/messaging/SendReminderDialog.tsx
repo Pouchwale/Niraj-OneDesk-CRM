@@ -18,12 +18,11 @@ import {
   MESSAGE_TEMPLATES, WHATSAPP_PDF_NOTE, renderMessage, suggestTemplate, type TemplateKey,
 } from '@/lib/message-templates'
 import {
-  EMAIL_PROVIDERS, buildEmailUrl, buildWhatsAppUrl, getEmailProvider, getSenderOrg,
-  isValidEmail, normalizePhoneForWhatsApp, openChannel, setEmailProvider, setSenderOrg,
+  EMAIL_PROVIDERS, buildEmailUrl, buildWhatsAppUrl, emailProviderName, emailRecipients, getEmailProvider, getSenderOrg,
+  normalizePhoneForWhatsApp, openChannel, setEmailProvider, setSenderOrg,
   type EmailProvider,
 } from '@/lib/messaging'
 import { addDaysISO, formatCurrency, todayISO } from '@/lib/utils'
-import { cn } from '@/lib/utils'
 import type { FollowupEntityType } from '@/lib/types'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import {
@@ -93,6 +92,8 @@ export function SendReminderDialog({
   const [tableToPaste, setTableToPaste] = useState(false)
   /** The invoice PDF just downloaded for the WhatsApp chat. */
   const [pdfName, setPdfName] = useState<string | null>(null)
+  /** The link just opened, offered again in case the browser blocked the new tab. */
+  const [composeUrl, setComposeUrl] = useState<string | null>(null)
   const pdfTools = useRef<PdfTools | null>(null)
   // The form is long, so what to do next is brought into view once the channel opens.
   const confirmBox = useRef<HTMLDivElement>(null)
@@ -120,6 +121,9 @@ export function SendReminderDialog({
     Math.abs((target?.amount ?? 0) - (statement?.overdue ?? 0)) > 1 &&
     Math.abs((target?.amount ?? 0) - (statement?.outstanding ?? 0)) > 1
 
+  // The page rebuilds the target on every render: only a real change may reset what is being typed.
+  const targetKey = JSON.stringify(target ?? null)
+
   const rendered = useMemo(() => {
     if (!target) return null
     return renderMessage(templateKey, {
@@ -137,7 +141,7 @@ export function SendReminderDialog({
       coordinatorPhone,
       senderOrg: org,
     })
-  }, [target, templateKey, coordinatorName, coordinatorPhone, org, hasTable])
+  }, [targetKey, templateKey, coordinatorName, coordinatorPhone, org, hasTable])
 
   // Reset to a sensible template and the record's own contact details each time
   // the dialog is opened for a different account.
@@ -152,8 +156,8 @@ export function SendReminderDialog({
       })
     )
     setPhone(target.contactNumber ?? '')
-    setEmail(target.email ?? '')
-  }, [open, target])
+    setEmail(emailRecipients(target.email).join(', '))
+  }, [open, targetKey])
 
   // A new opening, or another customer, starts without a pending "Did you send it?". Keyed on the
   // customer, not the target object, which the page rebuilds on every render (it did when WhatsApp opened).
@@ -161,6 +165,7 @@ export function SendReminderDialog({
     setOpened(null)
     setTableToPaste(false)
     setPdfName(null)
+    setComposeUrl(null)
   }, [open, target?.entityType, target?.entityId])
 
   // Keep the editable bodies in step with the chosen template.
@@ -174,7 +179,10 @@ export function SendReminderDialog({
   if (!target) return null
 
   const normalizedPhone = normalizePhoneForWhatsApp(phone)
-  const emailUsable = isValidEmail(email)
+  // The button stays clickable without an address: most customers have none saved, and it can be typed in the email.
+  const recipients = emailRecipients(email)
+  const emailTo = recipients.join(',')
+  const providerName = emailProviderName(provider)
 
   /** Records the outreach so the timeline reflects what the customer received. */
   const logReminder = async (channel: 'whatsapp' | 'email', body: string) => {
@@ -200,17 +208,13 @@ export function SendReminderDialog({
       toast.error('Enter a valid mobile number with country code.')
       return
     }
-    if (channel === 'email' && !emailUsable) {
-      toast.error('Enter a valid email address.')
-      return
-    }
 
     setIsSending(true)
     try {
       let url =
         channel === 'whatsapp'
           ? buildWhatsAppUrl(normalizedPhone!, whatsappBody)
-          : buildEmailUrl(provider, email, subject, emailBody)
+          : buildEmailUrl(provider, emailTo, subject, emailBody)
       /*
        * A link can carry only plain text, so the lined table cannot go in it.
        * The whole formatted email is copied and a new email opens to paste it into.
@@ -220,11 +224,11 @@ export function SendReminderDialog({
         const plain = emailText(emailBody, invoiceTable)
         pasteTable = copyRich(emailHtml(emailBody, invoiceHtml), plain)
         if (pasteTable) {
-          url = buildEmailUrl(provider, email, subject, '')
+          url = buildEmailUrl(provider, emailTo, subject, '')
         } else {
-          url = buildEmailUrl(provider, email, subject, plain)
+          url = buildEmailUrl(provider, emailTo, subject, plain)
           const fits = emailLinkFits(provider, url)
-          if (!fits) url = buildEmailUrl(provider, email, subject, withoutInvoiceTable(plain, invoiceTable))
+          if (!fits) url = buildEmailUrl(provider, emailTo, subject, withoutInvoiceTable(plain, invoiceTable))
           toast.error('The lined table could not be copied.', {
             description: fits
               ? 'The email opens with a plain text table instead.'
@@ -254,6 +258,7 @@ export function SendReminderDialog({
       setPdfName(savedPdf)
 
       // Open first: browsers only allow this inside the click gesture.
+      setComposeUrl(url)
       openChannel(url)
 
       setSenderOrg(org)
@@ -264,7 +269,7 @@ export function SendReminderDialog({
             ? 'PDF downloaded and WhatsApp opened: attach the PDF, send, then come back and say if you sent it.'
             : 'WhatsApp opened: press send there, then come back and say if you sent it.'
           : pasteTable
-            ? 'Email opened: click in the message, press Ctrl+V, send it, then come back and say if you sent it.'
+            ? `Email opened: ${recipients.length ? '' : "type the customer's address in To, "}click in the message, press Ctrl+V, send it, then come back and say if you sent it.`
             : 'Mail compose opened: press send there, then come back and say if you sent it.'
       )
     } catch (err) {
@@ -298,7 +303,9 @@ export function SendReminderDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
+        {/* Only the form scrolls, so the send buttons are always on screen. */}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-1" data-testid="reminder-scroll">
         <DialogHeader>
           <DialogTitle>Send payment reminder</DialogTitle>
           <DialogDescription>
@@ -329,6 +336,17 @@ export function SendReminderDialog({
               <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm font-medium text-amber-800 dark:text-amber-300" data-testid="reminder-paste-table">
                 The full email with the invoice table is copied. In the new email, click in the message and press Ctrl+V, then send.
               </p>
+            )}
+            {composeUrl && (
+              <a
+                href={composeUrl}
+                target={composeUrl.startsWith('mailto:') ? undefined : '_blank'}
+                rel="noopener noreferrer"
+                className="inline-block text-sm font-medium text-primary underline"
+                data-testid="reminder-open-link"
+              >
+                {opened === 'whatsapp' ? 'WhatsApp' : providerName === 'email' ? 'Email' : providerName} did not open? Click here
+              </a>
             )}
             <p className="text-xs text-muted-foreground">Only a sent reminder is logged as a follow-up and counts for Robi's task.</p>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -379,9 +397,10 @@ export function SendReminderDialog({
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="accounts@customer.com"
               />
-              {email && !emailUsable && (
-                <p className="flex items-center gap-1 text-xs text-rose-500">
-                  <AlertTriangle className="h-3 w-3" /> Not a valid email address
+              {recipients.length === 0 && (
+                <p className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400" data-testid="reminder-no-email">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  {email.trim() ? 'Not a valid email address.' : 'No email saved for this customer.'} Type it here, or in {providerName} after it opens.
                 </p>
               )}
             </div>
@@ -479,16 +498,17 @@ export function SendReminderDialog({
           </div>
         </div>
 
+        </div>
+
         {!opened && (
-        <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end" data-testid="reminder-actions">
           <Button variant="ghost" onClick={onClose} disabled={isSending}>Cancel</Button>
           <Button
             variant="outline"
             onClick={() => handleSend('email')}
-            disabled={isSending || !emailUsable}
-            className={cn(!emailUsable && 'opacity-60')}
+            disabled={isSending}
           >
-            <Mail className="mr-2 h-4 w-4" /> Open in email
+            <Mail className="mr-2 h-4 w-4" /> Open in {providerName}
           </Button>
           <Button
             onClick={() => handleSend('whatsapp')}

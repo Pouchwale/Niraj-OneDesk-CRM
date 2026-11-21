@@ -70,6 +70,25 @@ export function isValidEmail(value: string | null | undefined): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim())
 }
 
+/**
+ * Every email address in a cell, without what surrounds them (21 Nov 2026).
+ * The file holds "<a@b.com>", "a@b.com/c@d.com" and "-" as well as plain addresses.
+ */
+export function emailRecipients(raw: string | null | undefined): string[] {
+  const found = String(raw ?? '').match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g) ?? []
+  const seen = new Set<string>()
+  return found.filter((address) => {
+    const key = address.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/** The mail program's name on a button. */
+export const emailProviderName = (provider: EmailProvider) =>
+  provider === 'gmail' ? 'Gmail' : provider === 'outlook' ? 'Outlook' : 'email'
+
 export function buildWhatsAppUrl(phone: string, message: string): string {
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
 }
@@ -99,7 +118,7 @@ export function buildEmailUrl(
       )
     default:
       return (
-        `mailto:${encodeURIComponent(recipient)}` +
+        `mailto:${recipient.split(',').map((address) => encodeURIComponent(address.trim())).join(',')}` +
         `?subject=${encodeURIComponent(subject)}` +
         `&body=${encodeURIComponent(body)}`
       )
@@ -130,16 +149,6 @@ export function getEmailProvider(): EmailProvider {
     // Storage unavailable; fall through to the default.
   }
   return 'gmail'
-}
-
-/** The mail program this person has chosen, if they ever chose one. */
-export function getSavedEmailProvider(): EmailProvider | null {
-  try {
-    const stored = localStorage.getItem(EMAIL_PROVIDER_KEY)
-    return stored === 'gmail' || stored === 'outlook' || stored === 'default' ? stored : null
-  } catch {
-    return null
-  }
 }
 
 export function setEmailProvider(provider: EmailProvider): void {
