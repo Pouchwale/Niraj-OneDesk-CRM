@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
  * a full-strength border, while light keeps the glass it was designed with.
  */
 const glassCardVariants = cva(
-  "relative overflow-hidden rounded-xl border border-border/50 dark:border-border backdrop-blur-md transition-all",
+  "relative overflow-hidden rounded-xl border border-border/50 dark:border-border [will-change:backdrop-filter] transition-all",
   {
     variants: {
       variant: {

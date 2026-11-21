@@ -40,7 +40,7 @@ export const Header = ({ onMenuClick }: HeaderProps) => {
   const location = useLocation();
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-md border-b border-border/80 px-4 md:px-6 flex items-center justify-between transition-colors">
+    <header className="scroll-solid sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-md border-b border-border/80 px-4 md:px-6 flex items-center justify-between transition-colors">
       <div className="flex items-center gap-4">
         <button
           onClick={onMenuClick}

@@ -15,6 +15,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react'
 import { cn } from '@/lib/utils'
+import { userIsActive } from '@/lib/user-activity'
 
 export type RobotMood = 'idle' | 'talking' | 'thinking' | 'happy' | 'alert' | 'sleepy' | 'listening'
 
@@ -95,13 +96,15 @@ export function RobiBuddy({
    */
   const lookX = useMotionValue(0)
   const lookY = useMotionValue(0)
-  const pupilX = useSpring(useTransform(lookX, (v) => v * 3.4), { stiffness: 420, damping: 28 })
-  const pupilY = useSpring(useTransform(lookY, (v) => v * 2.6), { stiffness: 420, damping: 28 })
-  const bodyX = useSpring(useTransform(lookX, (v) => v * size * 0.06), { stiffness: 160, damping: 14 })
-  const bodyY = useSpring(useTransform(lookY, (v) => v * size * 0.04), { stiffness: 160, damping: 14 })
-  const lean = useSpring(useTransform(lookX, (v) => v * 7), { stiffness: 140, damping: 12 })
-  const earX = useSpring(useTransform(lookX, (v) => v * -2.4), { stiffness: 90, damping: 9 })
-  const earY = useSpring(useTransform(lookY, (v) => v * -1.6), { stiffness: 90, damping: 9 })
+  // A spring stops once what is left is too small to see, instead of redrawing the page for it.
+  const settle = { restDelta: 0.04, restSpeed: 0.08 }
+  const pupilX = useSpring(useTransform(lookX, (v) => v * 3.4), { stiffness: 420, damping: 28, ...settle })
+  const pupilY = useSpring(useTransform(lookY, (v) => v * 2.6), { stiffness: 420, damping: 28, ...settle })
+  const bodyX = useSpring(useTransform(lookX, (v) => v * size * 0.06), { stiffness: 160, damping: 14, ...settle })
+  const bodyY = useSpring(useTransform(lookY, (v) => v * size * 0.04), { stiffness: 160, damping: 14, ...settle })
+  const lean = useSpring(useTransform(lookX, (v) => v * 7), { stiffness: 140, damping: 12, ...settle })
+  const earX = useSpring(useTransform(lookX, (v) => v * -2.4), { stiffness: 90, damping: 9, ...settle })
+  const earY = useSpring(useTransform(lookY, (v) => v * -1.6), { stiffness: 90, damping: 9, ...settle })
 
   // A blink every few seconds, at an uneven pace; a double blink now and then.
   useEffect(() => {
@@ -138,7 +141,7 @@ export function RobiBuddy({
       lookY.set((dy / dist) * reach)
     }
     const wander = window.setInterval(() => {
-      if (Date.now() - lastPointer.current < 4000) return
+      if (Date.now() - lastPointer.current < 4000 || userIsActive()) return
       const spots = [[0, 0], [-0.8, 0.1], [0.8, -0.2], [0.2, -0.7], [0, 0], [-0.4, 0.4]]
       const [x, y] = spots[Math.floor(Math.random() * spots.length)]
       lookX.set(x)

@@ -6,7 +6,7 @@
  * festival calendar (the user's rule).
  */
 
-import { lazy, Suspense, useEffect, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { PartyPopper } from 'lucide-react'
 import { useAuth } from '@/features/auth/AuthContext'
 import { cn } from '@/lib/utils'
@@ -22,6 +22,16 @@ export function FestivalChip() {
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [focusId, setFocusId] = useState<string | null>(null)
+  const chip = useRef<HTMLButtonElement>(null)
+  const dayName = primary?.festival.name
+
+  // How far the glow ring starts inside its full size, so it grows exactly 6px on every side.
+  useEffect(() => {
+    const el = chip.current
+    if (!el || !dayName) return
+    el.style.setProperty('--glow-sx', String(el.offsetWidth / (el.offsetWidth + 12)))
+    el.style.setProperty('--glow-sy', String(el.offsetHeight / (el.offsetHeight + 12)))
+  }, [dayName])
 
   useEffect(
     () =>
@@ -50,6 +60,7 @@ export function FestivalChip() {
   return (
     <>
       <button
+        ref={chip}
         type="button"
         onClick={() => {
           setFocusId(null)

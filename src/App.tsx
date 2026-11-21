@@ -11,10 +11,6 @@ import { onStorageFailure } from '@/lib/demo-companies';
 import { isRfdOnly } from '@/lib/users/rfd-only';
 import { onSharedDataError } from '@/lib/shared-data';
 import { LoginPage } from '@/features/auth/LoginPage';
-import { DashboardPage } from '@/features/dashboard/DashboardPage';
-import { OverdueDashboardPage } from '@/features/overdue/OverdueDashboardPage';
-import { CompaniesPage } from '@/features/companies/CompaniesPage'
-import { CoordinatorCompaniesPage } from '@/features/companies/CoordinatorCompaniesPage'
 import { lazy, Suspense, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
@@ -23,6 +19,10 @@ import { Loader2 } from 'lucide-react';
 // page. Each lands in its own chunk the first time someone opens it.
 const lazyPage = <T extends Record<string, unknown>>(load: () => Promise<T>, key: keyof T) =>
   lazy(() => load().then((m) => ({ default: m[key] as React.ComponentType })));
+const DashboardPage = lazyPage(() => import('@/features/dashboard/DashboardPage'), 'DashboardPage');
+const OverdueDashboardPage = lazyPage(() => import('@/features/overdue/OverdueDashboardPage'), 'OverdueDashboardPage');
+const CompaniesPage = lazyPage(() => import('@/features/companies/CompaniesPage'), 'CompaniesPage');
+const CoordinatorCompaniesPage = lazyPage(() => import('@/features/companies/CoordinatorCompaniesPage'), 'CoordinatorCompaniesPage');
 const OtifDashboardPage = lazyPage(() => import('@/features/otif/OtifDashboardPage'), 'OtifDashboardPage');
 const AdminPanelPage = lazyPage(() => import('@/features/admin/AdminPanelPage'), 'AdminPanelPage');
 const SettingsPage = lazyPage(() => import('@/features/settings/SettingsPage'), 'SettingsPage');

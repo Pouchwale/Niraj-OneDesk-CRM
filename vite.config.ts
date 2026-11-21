@@ -41,6 +41,11 @@ export default defineConfig({
           motion: ['motion'],
           data: ['@tanstack/react-query', '@tanstack/react-table'],
           icons: ['lucide-react'],
+          // Vite's small loading helper. Left alone it lands inside the PDF library,
+          // which made every page download the whole PDF library just to get it.
+          'load-helper': ['\0vite/preload-helper.js'],
+          // A tiny helper every page uses; inside the charts library it dragged all of charts along.
+          'ui-helpers': ['clsx'],
         },
       },
     },

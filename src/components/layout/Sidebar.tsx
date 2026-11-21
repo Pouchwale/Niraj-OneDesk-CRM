@@ -41,7 +41,7 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
   ];
 
   const content = (
-    <div className="flex flex-col h-full bg-card/60 backdrop-blur-xl border-r border-border transition-colors">
+    <div className="flex flex-col h-full bg-card/60 [will-change:backdrop-filter] border-r border-border transition-colors">
       <div className="h-16 flex items-center px-4 pt-2 mb-4 justify-between">
         <div className="flex items-center gap-3 overflow-hidden">
           <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 flex items-center justify-center">

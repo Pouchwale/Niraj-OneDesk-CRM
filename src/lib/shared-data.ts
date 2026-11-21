@@ -22,6 +22,7 @@
 
 import { ROUTES } from '@shared/api'
 import { demoCompanyStore, forwardOpsTo, isImporting, type PersistedStore } from './demo-companies'
+import { watchUserActivity, whenUserIsQuiet } from './user-activity'
 
 /** How often to ask whether somebody else has changed something. */
 const WATCH_MS = 5000
@@ -52,6 +53,8 @@ let sending: Promise<void> | null = null
 let version = -1
 let owed = new Set<string>()
 let watcher: number | null = null
+/** A look at the server is already under way. */
+let checking = false
 let onTrouble: ((message: string) => void) | null = null
 
 /** Accounts still owed across the whole book — not only this person's. */
@@ -201,15 +204,23 @@ function enqueue(method: string, args: unknown[]): void {
  */
 function watch(): void {
   if (watcher !== null) return
+  watchUserActivity()
   watcher = window.setInterval(async () => {
     // Never while our own changes are in flight: the answer would be about to
     // change anyway, and the reload would fight the flush.
-    if (sending || queue.length > 0) return
+    if (checking || sending || queue.length > 0) return
+    checking = true
     try {
       const now = await json<{ version: number }>(ROUTES.dataVersion)
-      if (now.version !== version) await loadSharedData()
+      if (now.version !== version) {
+        // Someone else's change can wait a moment for a person mid-scroll or mid-sentence.
+        await whenUserIsQuiet()
+        if (watcher !== null && !sending && queue.length === 0) await loadSharedData()
+      }
     } catch {
       // Server down or asleep: keep the screen as it is and try again.
+    } finally {
+      checking = false
     }
   }, WATCH_MS)
 }

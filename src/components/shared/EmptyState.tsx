@@ -30,7 +30,7 @@ export function EmptyState({
       {...props}
     >
       <div className="mx-auto flex max-w-[420px] flex-col items-center justify-center text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted/50 backdrop-blur-sm mb-4">
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted/50 isolate mb-4">
           <Icon className="h-10 w-10 text-muted-foreground" />
         </div>
         <h3 className="mt-4 text-lg font-semibold">{title}</h3>
