@@ -1,4 +1,4 @@
-/** The two scores (21 Nov 2026): Payments or Operations, on the Final score page and the team dashboard. */
+/** The two scores (21 Nov 2026): Payments or Operations, on the Final score page. */
 
 import { SCORE_GROUPS, type ScoreGroup } from '@/lib/score-history'
 import { cn } from '@/lib/utils'

@@ -17,6 +17,8 @@ export interface KpiCardProps {
   icon: React.ComponentType<{ className?: string }>
   color?: "emerald" | "blue" | "amber" | "rose" | "violet" | "indigo"
   className?: string
+  /** For a long figure in a narrow card. */
+  valueClassName?: string
   /** One line under the figure saying what it means or what to do about it. */
   hint?: string
   /** Turns the card into a link to the page where the number can be acted on. */
@@ -57,6 +59,7 @@ export function KpiCard({
   icon: Icon,
   color = "blue",
   className,
+  valueClassName,
   hint,
   href,
   deltaGood,
@@ -123,7 +126,7 @@ export function KpiCard({
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 sm:mt-4">
-        <h2 className="text-xl font-bold tracking-tight tabular-nums sm:text-2xl lg:text-3xl">
+        <h2 className={cn("text-xl font-bold tracking-tight tabular-nums sm:text-2xl lg:text-3xl", valueClassName)}>
           {prefix}
           {displayValue.toLocaleString()}
           {suffix}

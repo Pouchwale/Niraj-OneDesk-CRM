@@ -9,7 +9,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useRoleKpis } from './hooks/useRoleKpis';
 import { MyScoreCard } from '@/features/assistant/ScoresView';
 import { SetAsideKpis } from './SetAsideKpis';
-import { TeamDashboard } from './TeamDashboard';
+import { LeaderDashboard } from './LeaderDashboard';
 
 // Cute doodle elements for the empty space
 const DOODLES = [
@@ -115,8 +115,8 @@ export function DashboardPage() {
         {/* A coordinator's own score against Robi's daily plan. */}
         {user.role === 'coordinator' && <MyScoreCard userId={user.id} />}
 
-        {/* The team leader and the administrator: the team dashboard (16 Nov 2026, the user's picks). */}
-        {user.role !== 'coordinator' && <TeamDashboard />}
+        {/* The team leader and the administrator: overall figures only (21 Nov 2026, the user's brief). */}
+        {user.role !== 'coordinator' && <LeaderDashboard />}
 
         {/* Money set aside: their own customers for a coordinator. */}
         {user.role === 'coordinator' && <SetAsideKpis teamView={false} />}
