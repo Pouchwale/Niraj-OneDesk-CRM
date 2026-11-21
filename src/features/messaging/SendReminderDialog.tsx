@@ -26,8 +26,8 @@ import { addDaysISO, formatCurrency, todayISO } from '@/lib/utils'
 import type { FollowupEntityType } from '@/lib/types'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import {
-  INVOICE_TABLE_SLOT, copyRich, emailHtml, emailLinkFits, emailText, invoiceTableHtml, invoiceTableText,
-  statementForCode, withoutInvoiceTable,
+  INVOICE_TABLE_SLOT, copyRich, emailLinkFits, emailText, emailWithTableGap, invoiceTableHtml, invoiceTableText,
+  statementForCode, tablePasteHint, withoutInvoiceTable,
 } from '@/lib/customer-statement'
 import { buildInvoiceTablePdf, invoicePdfFileName, loadPdfTools, type PdfTools } from '@/lib/customer-statement-pdf'
 
@@ -88,7 +88,7 @@ export function SendReminderDialog({
   const [isSending, setIsSending] = useState(false)
   /** The channel just opened, waiting for "Did you send it?"; nothing is logged until "Yes, sent". */
   const [opened, setOpened] = useState<'whatsapp' | 'email' | null>(null)
-  /** The whole formatted email is on the clipboard, waiting for Ctrl+V. */
+  /** The lined table is on the clipboard, waiting for Ctrl+V in the email. */
   const [tableToPaste, setTableToPaste] = useState(false)
   /** The invoice PDF just downloaded for the WhatsApp chat. */
   const [pdfName, setPdfName] = useState<string | null>(null)
@@ -217,14 +217,14 @@ export function SendReminderDialog({
           : buildEmailUrl(provider, emailTo, subject, emailBody)
       /*
        * A link can carry only plain text, so the lined table cannot go in it.
-       * The whole formatted email is copied and a new email opens to paste it into.
+       * The email opens with the message in it; the table is copied for Ctrl+V.
        */
       let pasteTable = false
       if (channel === 'email' && hasTable) {
         const plain = emailText(emailBody, invoiceTable)
-        pasteTable = copyRich(emailHtml(emailBody, invoiceHtml), plain)
+        pasteTable = copyRich(invoiceHtml, invoiceTable)
         if (pasteTable) {
-          url = buildEmailUrl(provider, emailTo, subject, '')
+          url = buildEmailUrl(provider, emailTo, subject, emailWithTableGap(emailBody))
         } else {
           url = buildEmailUrl(provider, emailTo, subject, plain)
           const fits = emailLinkFits(provider, url)
@@ -269,7 +269,7 @@ export function SendReminderDialog({
             ? 'PDF downloaded and WhatsApp opened: attach the PDF, send, then come back and say if you sent it.'
             : 'WhatsApp opened: press send there, then come back and say if you sent it.'
           : pasteTable
-            ? `Email opened: ${recipients.length ? '' : "type the customer's address in To, "}click in the message, press Ctrl+V, send it, then come back and say if you sent it.`
+            ? `Email opened with the message: ${recipients.length ? '' : "type the customer's address in To, "}${tablePasteHint(emailBody)}, press Ctrl+V for the table, send it, then come back and say if you sent it.`
             : 'Mail compose opened: press send there, then come back and say if you sent it.'
       )
     } catch (err) {
@@ -334,7 +334,7 @@ export function SendReminderDialog({
             )}
             {opened === 'email' && tableToPaste && (
               <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm font-medium text-amber-800 dark:text-amber-300" data-testid="reminder-paste-table">
-                The full email with the invoice table is copied. In the new email, click in the message and press Ctrl+V, then send.
+                The message is in the email and the lined invoice table is copied. In the email, {tablePasteHint(emailBody)} and press Ctrl+V, then send.
               </p>
             )}
             {composeUrl && (

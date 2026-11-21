@@ -29,11 +29,13 @@ import {
   copyText,
   emailHtml,
   emailLinkFits,
+  emailWithTableGap,
   invoiceTableHtml,
   invoiceTableText,
   splitAtTable,
   statementForCode,
   statementForName,
+  tablePasteHint,
   withInvoiceTable,
   withoutInvoiceTable,
 } from '@/lib/customer-statement'
@@ -146,13 +148,13 @@ export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
     }
   }
   const openEmail = () => {
-    // A link can carry only plain text: the formatted email is copied for Ctrl+V.
-    if (html && copyRich(emailHtml(draft.body, html), body)) {
-      toast.info('The full email with the invoice table is copied.', {
-        description: `In the new email, ${address ? '' : "type the customer's address in To, "}click in the message and press Ctrl+V, then send.`,
-        duration: 15000,
+    // A link can carry only plain text: the message goes in it, the lined table is copied for Ctrl+V.
+    if (html && copyRich(html, table)) {
+      toast.info('The message is in the email and the lined table is copied.', {
+        description: `In the email, ${address ? '' : "type the customer's address in To, "}${tablePasteHint(draft.body)} and press Ctrl+V, then send.`,
+        duration: 20000,
       })
-      const pasteUrl = buildEmailUrl(provider, address ?? '', draft.subject, '')
+      const pasteUrl = buildEmailUrl(provider, address ?? '', draft.subject, emailWithTableGap(draft.body))
       setComposeUrl(pasteUrl)
       openChannel(pasteUrl)
       return

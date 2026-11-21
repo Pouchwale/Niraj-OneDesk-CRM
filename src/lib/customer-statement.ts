@@ -4,8 +4,9 @@
  *
  * The table is added by the CRM rather than typed by Robi: every figure comes
  * from the invoices, in full, with a total. An email link can carry only plain
- * text, so the lined table cannot travel in it: "Open in email" copies the whole
- * formatted email and opens a new email for the coordinator to paste it into.
+ * text, so the lined table cannot travel in it: the email opens with the message
+ * already written and an empty line, and the table is copied for Ctrl+V there.
+ * (It first opened empty, which looked broken and could have gone out blank.)
  * The plain text table is what is left for a program that cannot take that.
  */
 
@@ -110,6 +111,18 @@ export function emailHtml(body: string, tableHtml: string): string {
 export function emailText(body: string, tableText: string): string {
   const { before, after } = splitAtTable(body)
   return [before, tableText, after].filter(Boolean).join('\n\n')
+}
+
+/** The message for the email link, with an empty line where the table will be pasted. */
+export function emailWithTableGap(body: string): string {
+  const { before, after } = splitAtTable(body)
+  return after ? `${before}\n\n\n${after}` : `${before}\n\n`
+}
+
+/** Where to click before pressing Ctrl+V, in words. */
+export function tablePasteHint(body: string): string {
+  const next = splitAtTable(body).after.split('\n')[0]?.trim()
+  return next ? `click the empty line above "${next}"` : 'click below the message'
 }
 
 /** The customer's open invoices by BP code, or null when none is being chased. */

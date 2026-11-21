@@ -8,11 +8,13 @@ import {
   emailHtml,
   emailLinkFits,
   emailText,
+  emailWithTableGap,
   invoiceTableHtml,
   invoiceTableText,
   plainInvoiceNo,
   splitAtTable,
   statementDate,
+  tablePasteHint,
   statementForCode,
   statementForName,
   withInvoiceTable,
@@ -121,6 +123,18 @@ describe('the lined table', () => {
     expect(out.indexOf('<table>')).toBeLessThan(out.indexOf('Warm regards'))
     expect(out).not.toContain(INVOICE_TABLE_SLOT)
     expect(emailText(body, 'TABLE')).toBe('Dear Sir,\n\nPlease pay.\n\nTABLE\n\nThank you.\n\nWarm regards,\nDiya')
+  })
+
+  it('opens the email with the message and an empty line for the table, never blank', () => {
+    const body = `Dear Sir,\n\nPlease pay.\n\n${INVOICE_TABLE_SLOT}\n\nThank you.\n\nWarm regards,\nDiya`
+    const link = emailWithTableGap(body)
+    expect(link).toBe('Dear Sir,\n\nPlease pay.\n\n\nThank you.\n\nWarm regards,\nDiya')
+    expect(link).not.toContain(INVOICE_TABLE_SLOT)
+    expect(tablePasteHint(body)).toBe('click the empty line above "Thank you."')
+    expect(emailWithTableGap('Dear Sir,\n\nWarm regards,\nDiya')).toBe('Dear Sir,\n\n\nWarm regards,\nDiya')
+    expect(tablePasteHint('Dear Sir,\n\nWarm regards,\nDiya')).toBe('click the empty line above "Warm regards,"')
+    expect(emailWithTableGap('Dear Sir,')).toBe('Dear Sir,\n\n')
+    expect(tablePasteHint('Dear Sir,')).toBe('click below the message')
   })
 
   it('escapes what a person typed in the message', () => {
