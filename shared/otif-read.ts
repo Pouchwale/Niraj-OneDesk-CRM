@@ -144,23 +144,43 @@ function findHeaderRow(rows: unknown[][]): { index: number; columns: Partial<Rec
   return best
 }
 
+/**
+ * Orders the CRM counts under someone other than the file's Relation Manager
+ * (21 Nov 2026, the user's rule): Krina Shah's orders closed from 1 Nov 2026
+ * are Disha Acharya's, on the OTIF page and in the Service score, because
+ * Disha handles those customers' service mails. The file is not changed, and
+ * older orders and orders still open stay with Krina.
+ */
+export const OTIF_RELATION_MANAGER_MOVES: readonly { from: string; to: string; closedFrom: string }[] = [
+  { from: 'krina shah', to: 'Disha Acharya', closedFrom: '2026-11-01' },
+]
+
+/** The Relation Manager the CRM uses for an order. */
+export function otifRelationManager(name: string | null, poClosedDate: string | null): string | null {
+  if (!name || !poClosedDate) return name
+  const wanted = name.trim().replace(/\s+/g, ' ').toLowerCase()
+  const move = OTIF_RELATION_MANAGER_MOVES.find((m) => m.from === wanted && poClosedDate >= m.closedFrom)
+  return move ? move.to : name
+}
+
 /** One data row as an OTIF row; null for an empty row or one with no PO number. */
 export function otifRowOf(row: unknown[], columns: Partial<Record<OtifLiveField, number>>, date1904 = false): OtifLiveRow | null {
   const cell = (field: OtifLiveField) => (columns[field] === undefined ? null : row[columns[field]!])
   const poNo = textCell(cell('poNo'))
   if (!poNo) return null
+  const poClosedDate = dateCell(cell('poClosedDate'), date1904)
   return {
     poNo,
     soNo: textCell(cell('soNo')),
     soDate: dateCell(cell('soDate'), date1904),
     poDueDate: dateCell(cell('poDueDate'), date1904),
-    poClosedDate: dateCell(cell('poClosedDate'), date1904),
+    poClosedDate,
     delayDays: numberCell(cell('delayDays')),
     dayCommitted: numberCell(cell('dayCommitted')),
     customerName: textCell(cell('customerName')),
     openOrderQty: numberCell(cell('openOrderQty')),
     otifScore: otifCell(cell('otifScore')),
-    relationManager: textCell(cell('relationManager')),
+    relationManager: otifRelationManager(textCell(cell('relationManager')), poClosedDate),
     department: departmentCell(cell('department')),
   }
 }

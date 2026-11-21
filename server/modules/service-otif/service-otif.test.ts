@@ -22,8 +22,35 @@ import { countOtifCustomers, SERVICE_OTIF_ROUTE, type ServiceOtifResponse } from
 import { serviceScores } from '../../../src/lib/service-records'
 import type { ServiceRecord } from '../../../src/lib/types'
 import { coordinatorMatcher } from '../presales/match'
+import { otifRelationManager, otifRowOf } from '../../../shared/otif-read'
 
 const quiet = createLogger({ level: 'error', write: () => undefined })
+
+describe("Krina Shah's OTIF orders under Disha Acharya (21 Nov 2026)", () => {
+  it('moves orders closed from 1 Nov 2026 only; older and open orders stay with Krina', () => {
+    expect(otifRelationManager('Krina Shah', '2026-11-01')).toBe('Disha Acharya')
+    expect(otifRelationManager('  KRINA   shah ', '2026-11-21')).toBe('Disha Acharya')
+    expect(otifRelationManager('Krina Shah', '2026-10-31')).toBe('Krina Shah')
+    expect(otifRelationManager('Krina Shah', null)).toBe('Krina Shah')
+    expect(otifRelationManager('Pragati Patel', '2026-11-21')).toBe('Pragati Patel')
+    expect(otifRelationManager(null, '2026-11-21')).toBeNull()
+  })
+
+  it('reads a row of the file that way, so the page and the Service count agree', () => {
+    const columns = { poNo: 0, poClosedDate: 1, customerName: 2, relationManager: 3 }
+    expect(otifRowOf(['P1', '2026-11-05', 'Acme', 'Krina Shah'], columns)?.relationManager).toBe('Disha Acharya')
+    expect(otifRowOf(['P2', '2026-10-05', 'Acme', 'Krina Shah'], columns)?.relationManager).toBe('Krina Shah')
+    const match = coordinatorMatcher([{ id: 'k', name: 'Krina Shah' }, { id: 'd', name: 'Disha Acharya' }, { id: 'c', name: 'Disha Chaudhary' }])
+    const rows = [
+      { poClosedDate: '2026-10-30', customerName: 'Old', relationManager: otifRelationManager('Krina Shah', '2026-10-30') },
+      { poClosedDate: '2026-11-16', customerName: 'New', relationManager: otifRelationManager('Krina Shah', '2026-11-16') },
+    ]
+    const { counts, weeks } = countOtifCustomers(rows, match)
+    expect(counts['2026-10']).toEqual({ k: 1 })
+    expect(counts['2026-11']).toEqual({ d: 1 })
+    expect(weeks['2026-11-14']).toEqual({ d: 1 })
+  })
+})
 
 describe('counting the OTIF customers', () => {
   const match = coordinatorMatcher([
