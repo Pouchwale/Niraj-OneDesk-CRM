@@ -389,6 +389,37 @@ export function groupImportRows(rows: MappedCompanyRow[]): MappedCompanyRow[] {
   return merged
 }
 
+const IMPORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * Keeps two different invoices apart when the file gives them one number
+ * (21 Nov 2026): C0945 has an invoice 22 of 13 Jan and another of 16 Sep, and
+ * adding them together put the September money under the January due date.
+ *
+ * The oldest keeps the plain number, so its record and follow-ups stay with it;
+ * a later date gets that date added to its number. Lines of one number on the
+ * same date are still one invoice.
+ */
+export function separateReusedInvoiceNumbers<T extends MappedCompanyRow>(rows: T[]): T[] {
+  const dates = new Map<string, Set<string>>()
+  for (const row of rows) {
+    if (!row.invoice_no || !row.invoice_date) continue
+    const key = invoiceKeyOf(row.sap_bp_code, row.invoice_no, row.company_name)
+    const held = dates.get(key)
+    if (held) held.add(row.invoice_date.slice(0, 10))
+    else dates.set(key, new Set([row.invoice_date.slice(0, 10)]))
+  }
+  return rows.map((row) => {
+    if (!row.invoice_no || !row.invoice_date) return row
+    const seen = dates.get(invoiceKeyOf(row.sap_bp_code, row.invoice_no, row.company_name))
+    if (!seen || seen.size < 2) return row
+    const day = row.invoice_date.slice(0, 10)
+    if (day === [...seen].sort()[0]) return row
+    const [y, m, d] = day.split('-')
+    return { ...row, invoice_no: `${row.invoice_no} (${d}-${IMPORT_MONTHS[Number(m) - 1]}-${y})` }
+  })
+}
+
 /**
  * Persists validated rows, records an upload audit entry, and pushes any
  * failures into the error queue so admins can resolve them later.

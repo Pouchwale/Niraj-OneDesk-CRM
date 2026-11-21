@@ -56,6 +56,15 @@ export async function getFollowupsForCompany(companyId: string): Promise<Followu
   return getFollowupsForEntity(companyId, 'company')
 }
 
+/** Every follow-up on a customer's invoices, newest first: one customer, one history. */
+export async function getFollowupsForInvoices(invoiceIds: readonly string[]): Promise<Followup[]> {
+  const wanted = new Set(invoiceIds)
+  return demoCompanyStore
+    .getAllFollowups()
+    .filter((f) => f.entity_type === 'company' && wanted.has(f.entity_id))
+    .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
+}
+
 /** Every follow-up on record, for the screens that read the whole team. */
 export async function getAllFollowups(): Promise<Followup[]> {
   return demoCompanyStore.getAllFollowups()
@@ -126,7 +135,8 @@ export async function addFollowup(data: NewFollowup): Promise<Followup | undefin
 
   if (data.entity_type === 'company') {
     demoCompanyStore.updateCompany(data.entity_id, {})
-    await syncCompanyStatusFromFollowup(data.entity_id, data.status)
+    // A customer-wide follow-up never closes an invoice: only the Excel file does.
+    if (!data.customer_wide) await syncCompanyStatusFromFollowup(data.entity_id, data.status)
   } else {
     demoCompanyStore.touchOverduePayment(data.entity_id, data.status)
   }
@@ -175,7 +185,7 @@ export async function editFollowup(
   // The same status sync as logging: correcting "paid" to "no response"
   // must reopen the account, and the reverse must settle it.
   if (updated.entity_type === 'company') {
-    await syncCompanyStatusFromFollowup(updated.entity_id, updated.status)
+    if (!updated.customer_wide) await syncCompanyStatusFromFollowup(updated.entity_id, updated.status)
   } else {
     demoCompanyStore.touchOverduePayment(updated.entity_id, updated.status)
   }
@@ -624,7 +634,7 @@ export async function getFollowupCommitments(): Promise<Commitment[]> {
   return demoCompanyStore
     .getAllFollowups()
     .filter((f) => f.committed_amount != null && f.status !== 'paid')
-    .filter((f) => !demoCompanyStore.isEntitySettled(f.entity_type, f.entity_id))
+    .filter((f) => !demoCompanyStore.isFollowupSettled(f))
     .flatMap((f) => {
       const company =
         f.entity_type === 'company' ? demoCompanyStore.getCompanyById(f.entity_id) : undefined

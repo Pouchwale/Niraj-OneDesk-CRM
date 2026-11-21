@@ -3,6 +3,7 @@ import { cleanModulesOff, type AppModuleId, type ModuleAccess } from '../../shar
 import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, RfdMark, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { isSundayISO, todayISO, toLocalISODate } from './utils'
 import { sameBpCode } from './bp-code'
+import { customerStillOpen } from './customer-open'
 import { deriveCompanyStatus } from './status-rules'
 import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, disputedAmountOf, isBankrupt, isNoFollowup, isSetAside, markNoFollowup } from './no-followup'
 import { nextBillingSrNo } from './billing-issues'
@@ -815,7 +816,7 @@ class DemoCompanyStore {
       f.next_reminder_date <= today &&
       f.status !== 'paid' &&
       (!coordinatorId || f.coordinator_id === coordinatorId) &&
-      !this.isEntitySettled(f.entity_type, f.entity_id)
+      !this.isFollowupSettled(f)
     )
   }
 
@@ -970,7 +971,7 @@ class DemoCompanyStore {
       f.committed_date &&
       f.committed_date < today &&
       (!coordinatorId || f.coordinator_id === coordinatorId) &&
-      !this.isEntitySettled(f.entity_type, f.entity_id)
+      !this.isFollowupSettled(f)
     )
   }
 
@@ -1428,6 +1429,15 @@ class DemoCompanyStore {
     }
     const payment = this.getOverduePaymentById(entityId)
     return payment?.status === 'settled' || isSetAside(payment)
+  }
+
+  /** The same for a follow-up: a customer-wide one lasts while any of the customer's invoices is open. */
+  isFollowupSettled(followup: Pick<Followup, 'entity_type' | 'entity_id' | 'customer_wide'>): boolean {
+    if (followup.entity_type === 'company' && followup.customer_wide) {
+      const code = this.getCompanyById(followup.entity_id)?.sap_bp_code
+      if (code) return !customerStillOpen(code, this.companies)
+    }
+    return this.isEntitySettled(followup.entity_type, followup.entity_id)
   }
 
   /**

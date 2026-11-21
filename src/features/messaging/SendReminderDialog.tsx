@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
@@ -15,7 +15,7 @@ import { MessageCircle, Mail, AlertTriangle, Info } from 'lucide-react'
 
 import { addFollowup } from '@/lib/followups-api'
 import {
-  MESSAGE_TEMPLATES, renderMessage, suggestTemplate, type TemplateKey,
+  MESSAGE_TEMPLATES, WHATSAPP_PDF_NOTE, renderMessage, suggestTemplate, type TemplateKey,
 } from '@/lib/message-templates'
 import {
   EMAIL_PROVIDERS, buildEmailUrl, buildWhatsAppUrl, getEmailProvider, getSenderOrg,
@@ -25,6 +25,12 @@ import {
 import { addDaysISO, formatCurrency, todayISO } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { FollowupEntityType } from '@/lib/types'
+import { demoCompanyStore } from '@/lib/demo-companies'
+import {
+  INVOICE_TABLE_SLOT, copyRich, emailHtml, emailLinkFits, emailText, invoiceTableHtml, invoiceTableText,
+  statementForCode, withoutInvoiceTable,
+} from '@/lib/customer-statement'
+import { buildInvoiceTablePdf, invoicePdfFileName, loadPdfTools, type PdfTools } from '@/lib/customer-statement-pdf'
 
 export interface ReminderTarget {
   entityType: FollowupEntityType
@@ -40,6 +46,12 @@ export interface ReminderTarget {
   bpCode?: string | null
   daysOverdue?: number
   isSettled?: boolean
+  /** The reminder covers the whole customer (21 Nov 2026): logged as one customer follow-up. */
+  customerWide?: boolean
+  /** Invoices in the amount; the due date is the oldest of them. */
+  invoiceCount?: number
+  /** Nothing is due yet. */
+  notDueYet?: boolean
 }
 
 interface SendReminderDialogProps {
@@ -77,6 +89,36 @@ export function SendReminderDialog({
   const [isSending, setIsSending] = useState(false)
   /** The channel just opened, waiting for "Did you send it?"; nothing is logged until "Yes, sent". */
   const [opened, setOpened] = useState<'whatsapp' | 'email' | null>(null)
+  /** The whole formatted email is on the clipboard, waiting for Ctrl+V. */
+  const [tableToPaste, setTableToPaste] = useState(false)
+  /** The invoice PDF just downloaded for the WhatsApp chat. */
+  const [pdfName, setPdfName] = useState<string | null>(null)
+  const pdfTools = useRef<PdfTools | null>(null)
+  // The form is long, so what to do next is brought into view once the channel opens.
+  const confirmBox = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (opened) confirmBox.current?.scrollIntoView({ block: 'start' })
+  }, [opened])
+
+  // The customer's open invoices, for the table in the email (21 Nov 2026).
+  const statement = useMemo(
+    () => (open && target && !target.isSettled ? statementForCode(target.bpCode, demoCompanyStore.getAllCompanies()) : null),
+    [open, target?.bpCode, target?.isSettled]
+  )
+  const invoiceTable = useMemo(() => (statement ? invoiceTableText(statement) : ''), [statement])
+  const invoiceHtml = useMemo(() => (statement ? invoiceTableHtml(statement) : ''), [statement])
+  const hasTable = Boolean(statement) && templateKey !== 'payment_thanks'
+
+  // Ready before the click: a download and a new tab must both happen inside it.
+  useEffect(() => {
+    if (!open || !hasTable || pdfTools.current) return
+    loadPdfTools().then((tools) => { pdfTools.current = tools }).catch(() => undefined)
+  }, [open, hasTable])
+  // The ageing sheet and the invoices can disagree; a coordinator should see that before a customer does.
+  const amountDiffers =
+    Boolean(statement && target) &&
+    Math.abs((target?.amount ?? 0) - (statement?.overdue ?? 0)) > 1 &&
+    Math.abs((target?.amount ?? 0) - (statement?.outstanding ?? 0)) > 1
 
   const rendered = useMemo(() => {
     if (!target) return null
@@ -89,11 +131,13 @@ export function SendReminderDialog({
       paymentTerms: target.paymentTerms,
       bpCode: target.bpCode,
       daysOverdue: target.daysOverdue,
+      invoiceCount: target.invoiceCount,
+      invoiceTable: hasTable ? INVOICE_TABLE_SLOT : null,
       coordinatorName,
       coordinatorPhone,
       senderOrg: org,
     })
-  }, [target, templateKey, coordinatorName, coordinatorPhone, org])
+  }, [target, templateKey, coordinatorName, coordinatorPhone, org, hasTable])
 
   // Reset to a sensible template and the record's own contact details each time
   // the dialog is opened for a different account.
@@ -104,6 +148,7 @@ export function SendReminderDialog({
         daysOverdue: target.daysOverdue,
         dueDate: target.dueDate,
         isSettled: target.isSettled,
+        notDueYet: target.notDueYet,
       })
     )
     setPhone(target.contactNumber ?? '')
@@ -114,6 +159,8 @@ export function SendReminderDialog({
   // customer, not the target object, which the page rebuilds on every render (it did when WhatsApp opened).
   useEffect(() => {
     setOpened(null)
+    setTableToPaste(false)
+    setPdfName(null)
   }, [open, target?.entityType, target?.entityId])
 
   // Keep the editable bodies in step with the chosen template.
@@ -137,13 +184,14 @@ export function SendReminderDialog({
       coordinator_id: coordinatorId,
       followup_date: new Date().toISOString(),
       mode: channel,
-      notes: `Payment reminder sent via ${channel === 'whatsapp' ? 'WhatsApp' : 'email'}:\n\n${body}`,
+      notes: `Payment reminder sent via ${channel === 'whatsapp' ? 'WhatsApp' : 'email'}:\n\n${body.replace(INVOICE_TABLE_SLOT, `[Invoice table: ${statement?.invoices.length ?? 0} open invoices]`)}`,
       customer_response: null,
       status: 'pending',
       committed_date: null,
       committed_amount: null,
       next_reminder_date: addDaysISO(todayISO(), 3),
       proof_attachment_url: null,
+      ...(target.customerWide ? { customer_wide: true } : {}),
     })
   }
 
@@ -159,10 +207,51 @@ export function SendReminderDialog({
 
     setIsSending(true)
     try {
-      const url =
+      let url =
         channel === 'whatsapp'
           ? buildWhatsAppUrl(normalizedPhone!, whatsappBody)
           : buildEmailUrl(provider, email, subject, emailBody)
+      /*
+       * A link can carry only plain text, so the lined table cannot go in it.
+       * The whole formatted email is copied and a new email opens to paste it into.
+       */
+      let pasteTable = false
+      if (channel === 'email' && hasTable) {
+        const plain = emailText(emailBody, invoiceTable)
+        pasteTable = copyRich(emailHtml(emailBody, invoiceHtml), plain)
+        if (pasteTable) {
+          url = buildEmailUrl(provider, email, subject, '')
+        } else {
+          url = buildEmailUrl(provider, email, subject, plain)
+          const fits = emailLinkFits(provider, url)
+          if (!fits) url = buildEmailUrl(provider, email, subject, withoutInvoiceTable(plain, invoiceTable))
+          toast.error('The lined table could not be copied.', {
+            description: fits
+              ? 'The email opens with a plain text table instead.'
+              : 'The email opens without the table. Add it before sending.',
+            duration: 15000,
+          })
+        }
+      }
+      setTableToPaste(pasteTable)
+
+      // A WhatsApp link cannot carry a file: the lined PDF is downloaded for attaching.
+      let savedPdf: string | null = null
+      if (channel === 'whatsapp' && hasTable && statement) {
+        try {
+          const tools = pdfTools.current ?? (await loadPdfTools())
+          const name = invoicePdfFileName(statement)
+          buildInvoiceTablePdf(statement, tools).save(name)
+          savedPdf = name
+        } catch {
+          url = buildWhatsAppUrl(normalizedPhone!, whatsappBody.replace(`\n\n${WHATSAPP_PDF_NOTE}`, ''))
+          toast.error('The invoice PDF could not be made.', {
+            description: 'WhatsApp opens without mentioning a PDF.',
+            duration: 15000,
+          })
+        }
+      }
+      setPdfName(savedPdf)
 
       // Open first: browsers only allow this inside the click gesture.
       openChannel(url)
@@ -171,8 +260,12 @@ export function SendReminderDialog({
       setOpened(channel)
       toast.info(
         channel === 'whatsapp'
-          ? 'WhatsApp opened: press send there, then come back and say if you sent it.'
-          : 'Mail compose opened: press send there, then come back and say if you sent it.'
+          ? savedPdf
+            ? 'PDF downloaded and WhatsApp opened: attach the PDF, send, then come back and say if you sent it.'
+            : 'WhatsApp opened: press send there, then come back and say if you sent it.'
+          : pasteTable
+            ? 'Email opened: click in the message, press Ctrl+V, send it, then come back and say if you sent it.'
+            : 'Mail compose opened: press send there, then come back and say if you sent it.'
       )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not open the message.')
@@ -223,10 +316,20 @@ export function SendReminderDialog({
         </DialogHeader>
 
         {opened && (
-          <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3" data-testid="reminder-confirm">
+          <div ref={confirmBox} className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3" data-testid="reminder-confirm">
             <p className="text-sm font-medium">
               Did you send the {opened === 'whatsapp' ? 'WhatsApp message' : 'email'} to {target.customerName}?
             </p>
+            {opened === 'whatsapp' && pdfName && (
+              <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm font-medium text-amber-800 dark:text-amber-300" data-testid="reminder-attach-pdf">
+                The invoice PDF is downloaded as {pdfName}. In the WhatsApp chat, attach it with the paperclip or drag it in from Downloads, then send.
+              </p>
+            )}
+            {opened === 'email' && tableToPaste && (
+              <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm font-medium text-amber-800 dark:text-amber-300" data-testid="reminder-paste-table">
+                The full email with the invoice table is copied. In the new email, click in the message and press Ctrl+V, then send.
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">Only a sent reminder is logged as a follow-up and counts for Robi's task.</p>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button variant="ghost" onClick={notSent} disabled={isSending} data-testid="reminder-not-sent">
@@ -328,6 +431,11 @@ export function SendReminderDialog({
               onChange={(e) => setWhatsappBody(e.target.value)}
               className="min-h-[120px] font-normal"
             />
+            {statement && hasTable && (
+              <p className="text-xs text-muted-foreground" data-testid="reminder-pdf-note">
+                Send on WhatsApp also downloads the lined table of {statement.invoices.length} open invoice{statement.invoices.length === 1 ? '' : 's'} as a PDF to attach in the chat.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -338,8 +446,27 @@ export function SendReminderDialog({
             <Textarea
               value={emailBody}
               onChange={(e) => setEmailBody(e.target.value)}
-              className="min-h-[180px]"
+              className="min-h-[260px]"
+              data-testid="reminder-email-body"
             />
+            {statement && hasTable && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground" data-testid="reminder-table-note">
+                  This table of {statement.invoices.length} open invoice{statement.invoices.length === 1 ? '' : 's'} goes in the email where it says {INVOICE_TABLE_SLOT}.
+                </p>
+                <div
+                  className="max-h-72 overflow-auto rounded border border-border bg-white p-2"
+                  data-testid="reminder-table-preview"
+                  dangerouslySetInnerHTML={{ __html: invoiceHtml }}
+                />
+              </div>
+            )}
+            {amountDiffers && statement && (
+              <p className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400" data-testid="reminder-amount-differs">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                The message says {formatCurrency(target.amount)}, but the invoices show {formatCurrency(statement.overdue)} overdue of {formatCurrency(statement.outstanding)} outstanding. Check before sending.
+              </p>
+            )}
           </div>
 
           <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">

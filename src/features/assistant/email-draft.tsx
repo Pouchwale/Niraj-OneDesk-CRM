@@ -8,6 +8,7 @@
  *
  *   [[EMAIL]]
  *   To: Customer name
+ *   Code: BP code, when known
  *   Subject: ...
  *
  *   Dear ...,
@@ -23,9 +24,25 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { demoCompanyStore } from '@/lib/demo-companies'
+import {
+  copyRich,
+  copyText,
+  emailHtml,
+  emailLinkFits,
+  invoiceTableHtml,
+  invoiceTableText,
+  splitAtTable,
+  statementForCode,
+  statementForName,
+  withInvoiceTable,
+  withoutInvoiceTable,
+} from '@/lib/customer-statement'
+import { buildEmailUrl, getSavedEmailProvider, openChannel } from '@/lib/messaging'
 
 export interface EmailDraft {
   to: string
+  /** The customer's BP code, which finds their invoices for the table. */
+  code?: string
   subject: string
   body: string
 }
@@ -61,13 +78,16 @@ export function splitEmailDrafts(text: string): DraftPart[] {
 export function parseDraft(block: string): EmailDraft {
   const lines = block.replace(/\r\n/g, '\n').replace(/^\n+/, '').split('\n')
   let to = ''
+  let code = ''
   let subject = ''
   let i = 0
   for (; i < lines.length; i++) {
     const line = lines[i].trim()
-    const m = /^(to|subject)\s*:\s*(.*)$/i.exec(line)
+    const m = /^(to|code|subject)\s*:\s*(.*)$/i.exec(line)
     if (m) {
-      if (m[1].toLowerCase() === 'to') to = m[2].trim()
+      const field = m[1].toLowerCase()
+      if (field === 'to') to = m[2].trim()
+      else if (field === 'code') code = m[2].trim()
       else subject = m[2].trim()
       continue
     }
@@ -75,7 +95,7 @@ export function parseDraft(block: string): EmailDraft {
     if (!line) continue
     break
   }
-  return { to, subject, body: lines.slice(i).join('\n').trim() }
+  return { to, ...(code ? { code } : {}), subject, body: lines.slice(i).join('\n').trim() }
 }
 
 /** The customer's email address in the CRM, by name (an invoice's Email field), if one is on record. */
@@ -94,17 +114,53 @@ export function mailtoOf(draft: EmailDraft, address: string | null): string {
   return `mailto:${address ? encodeURIComponent(address).replace(/%40/g, '@') : ''}?${q}`
 }
 
+/** The draft with the customer's invoice table above its sign-off (21 Nov 2026), and that table. */
+export function draftWithTable(draft: EmailDraft, invoices: Parameters<typeof statementForCode>[1]): { body: string; table: string; html: string } {
+  const customer = statementForCode(draft.code, invoices) ?? statementForName(draft.to, invoices)
+  const table = customer ? invoiceTableText(customer) : ''
+  return { body: withInvoiceTable(draft.body, table), table, html: customer ? invoiceTableHtml(customer) : '' }
+}
+
 export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
   const [copied, setCopied] = useState(false)
   const address = emailAddressOf(draft.to)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(`Subject: ${draft.subject}\n\n${draft.body}`)
+  // On by default; a thank-you or a dispatch note may not want it.
+  const [includeTable, setIncludeTable] = useState(true)
+  const prepared = draftWithTable(draft, demoCompanyStore.getAllCompanies())
+  const body = includeTable ? prepared.body : draft.body
+  const table = includeTable ? prepared.table : ''
+  const html = includeTable ? prepared.html : ''
+  const around = splitAtTable(draft.body)
+  const copy = () => {
+    const plain = `Subject: ${draft.subject}\n\n${body}`
+    if (html ? copyRich(emailHtml(draft.body, html), plain) : copyText(plain)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
+    } else {
       toast.error('Could not copy. Select the text and copy it instead.')
     }
+  }
+  const openEmail = () => {
+    const provider = getSavedEmailProvider() ?? 'default'
+    // A link can carry only plain text: the formatted email is copied for Ctrl+V.
+    if (html && copyRich(emailHtml(draft.body, html), body)) {
+      toast.info('The full email with the invoice table is copied.', {
+        description: 'In the new email, click in the message and press Ctrl+V, then send.',
+        duration: 15000,
+      })
+      openChannel(buildEmailUrl(provider, address ?? '', draft.subject, ''))
+      return
+    }
+    let url = buildEmailUrl(provider, address ?? '', draft.subject, body)
+    if (table) {
+      const fits = emailLinkFits(provider, url)
+      if (!fits) url = buildEmailUrl(provider, address ?? '', draft.subject, withoutInvoiceTable(body, table))
+      toast.error('The lined table could not be copied.', {
+        description: fits ? 'The email opens with a plain text table instead.' : 'The email opens without the table. Add it before sending.',
+        duration: 15000,
+      })
+    }
+    openChannel(url)
   }
   return (
     <div className="my-2 overflow-hidden rounded-xl border border-border bg-muted/30 text-foreground" data-testid="robi-email">
@@ -119,19 +175,30 @@ export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
           <span className="font-medium" data-testid="robi-email-subject">{draft.subject || '—'}</span>
         </p>
       </div>
-      <p className="whitespace-pre-wrap px-3 py-2 text-sm leading-relaxed" data-testid="robi-email-body">
-        {draft.body}
-      </p>
+      <div className="px-3 py-2 text-sm leading-relaxed" data-testid="robi-email-body">
+        {html ? (
+          <>
+            <p className="whitespace-pre-wrap">{around.before}</p>
+            <div className="my-2 overflow-x-auto rounded bg-white p-1" data-testid="robi-email-table" dangerouslySetInnerHTML={{ __html: html }} />
+            <p className="whitespace-pre-wrap">{around.after}</p>
+          </>
+        ) : (
+          <p className="whitespace-pre-wrap">{draft.body}</p>
+        )}
+      </div>
       <div className="flex flex-wrap gap-2 border-t border-border/70 px-3 py-2">
-        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void copy()}>
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={copy}>
           {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Copy className="mr-1 h-3.5 w-3.5" />}
           {copied ? 'Copied' : 'Copy'}
         </Button>
-        <Button size="sm" className="h-7 text-xs" asChild>
-          <a href={mailtoOf(draft, address)} data-testid="robi-email-open">
-            <Mail className="mr-1 h-3.5 w-3.5" /> Open in email
-          </a>
+        <Button size="sm" className="h-7 text-xs" onClick={openEmail} data-testid="robi-email-open">
+          <Mail className="mr-1 h-3.5 w-3.5" /> Open in email
         </Button>
+        {prepared.table && (
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setIncludeTable((on) => !on)} data-testid="robi-email-table-toggle">
+            {includeTable ? 'Remove invoice table' : 'Add invoice table'}
+          </Button>
+        )}
       </div>
     </div>
   )

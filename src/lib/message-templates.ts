@@ -21,6 +21,10 @@ export interface MessageContext {
   coordinatorPhone?: string | null
   /** Optional organisation name for the sign-off; omitted when blank. */
   senderOrg?: string | null
+  /** More than one invoice in this amount: the date is the oldest of them (21 Nov 2026). */
+  invoiceCount?: number
+  /** The customer's invoices as a text table, placed above the sign-off of an email. */
+  invoiceTable?: string | null
 }
 
 export interface MessageTemplate {
@@ -48,7 +52,9 @@ This is a gentle reminder that a payment of {{amount}} against {{customer_name}}
 
 If the payment has already been processed, kindly share the transaction reference so we can update our records.
 
-Thank you for your continued business.
+[[{{invoice_table}}
+
+]]Thank you for your continued business.
 
 Warm regards,
 {{signature}}`,
@@ -71,7 +77,9 @@ We would appreciate it if the transfer could be released today. Please share the
 
 Do let me know if anything is pending from our side.
 
-Warm regards,
+[[{{invoice_table}}
+
+]]Warm regards,
 {{signature}}`,
     whatsappBody: `Hello {{greeting_name}}, this is {{coordinator_name}}.
 
@@ -92,7 +100,9 @@ We request you to arrange the release at the earliest, or let us know an expecte
 
 If there is any discrepancy in the invoice or documentation, please let me know and I will get it resolved on priority.
 
-Warm regards,
+[[{{invoice_table}}
+
+]]Warm regards,
 {{signature}}`,
     whatsappBody: `Hello {{greeting_name}}, this is {{coordinator_name}}.
 
@@ -113,7 +123,9 @@ We request you to treat this as urgent and confirm the payment date by return. I
 
 We value our association and would prefer to resolve this amicably.[[ Please do call me on {{coordinator_phone}} if you would like to discuss.]]
 
-Regards,
+[[{{invoice_table}}
+
+]]Regards,
 {{signature}}`,
     whatsappBody: `Hello {{greeting_name}}, this is {{coordinator_name}}.
 
@@ -154,8 +166,11 @@ export function suggestTemplate(context: {
   daysOverdue?: number
   dueDate?: string | null
   isSettled?: boolean
+  /** Nothing is due yet, so it is a courtesy reminder rather than "due today". */
+  notDueYet?: boolean
 }): TemplateKey {
   if (context.isSettled) return 'payment_thanks'
+  if (context.notDueYet) return 'gentle_reminder'
 
   const overdue = context.daysOverdue ?? 0
   if (overdue > 60) return 'final_notice'
@@ -168,19 +183,23 @@ function buildVariables(context: MessageContext): Record<string, string> {
   const signature = context.senderOrg?.trim()
     ? `${context.coordinatorName}\n${context.senderOrg.trim()}`
     : context.coordinatorName
+  const many = (context.invoiceCount ?? 1) > 1
 
   return {
     // Address a named person when we have one; fall back to the business.
     greeting_name: context.contactPerson?.trim() || context.customerName,
     customer_name: context.customerName,
     amount: formatCurrency(context.amount),
-    due_date: context.dueDate ? formatDate(context.dueDate) : 'the agreed date',
+    due_date: context.dueDate
+      ? `${formatDate(context.dueDate)}${many ? ` onwards (${context.invoiceCount} invoices)` : ''}`
+      : 'the agreed date',
     invoice_date: context.invoiceDate ? formatDate(context.invoiceDate) : '-',
     payment_terms: context.paymentTerms?.trim() || 'the agreed credit period',
     bp_code: context.bpCode ?? '-',
-    days_overdue: String(Math.max(0, context.daysOverdue ?? 0)),
+    days_overdue: `${many ? 'up to ' : ''}${Math.max(0, context.daysOverdue ?? 0)}`,
     coordinator_name: context.coordinatorName,
     coordinator_phone: context.coordinatorPhone?.trim() ?? '',
+    invoice_table: context.invoiceTable?.trim() ?? '',
     signature,
   }
 }
@@ -221,6 +240,9 @@ export interface RenderedMessage {
   whatsappBody: string
 }
 
+/** Added to a WhatsApp reminder when the invoice table goes with it as a PDF. */
+export const WHATSAPP_PDF_NOTE = 'Please find the invoice details in the attached PDF.'
+
 export function renderMessage(key: TemplateKey, context: MessageContext): RenderedMessage {
   const template = getTemplate(key)
   const variables = buildVariables(context)
@@ -228,6 +250,6 @@ export function renderMessage(key: TemplateKey, context: MessageContext): Render
   return {
     subject: renderTemplate(template.subject, variables),
     emailBody: renderTemplate(template.emailBody, variables),
-    whatsappBody: renderTemplate(template.whatsappBody, variables),
+    whatsappBody: `${renderTemplate(template.whatsappBody, variables)}${variables.invoice_table ? `\n\n${WHATSAPP_PDF_NOTE}` : ''}`,
   }
 }

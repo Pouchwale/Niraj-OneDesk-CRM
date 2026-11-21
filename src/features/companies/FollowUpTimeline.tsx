@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'motion/react'
 import { Phone, MessageCircle, Mail, Users, FileText, Calendar, Pencil, Plus, Clock, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { getFollowupsForEntity } from '@/lib/followups-api'
+import { getFollowupsForEntity, getFollowupsForInvoices } from '@/lib/followups-api'
+import type { CustomerAccount } from '@/lib/customer-accounts'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { formatCurrency, formatRelativeDate, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -38,6 +39,12 @@ interface FollowUpTimelineProps {
    * history heading: they are made while logging the call that prompts them.
    */
   decisions?: React.ReactNode
+  /** Given, this is the whole customer's history and new follow-ups cover the whole customer. */
+  customer?: CustomerAccount | null
+  /** All the customer's invoices, paid ones too, whose follow-ups make up the history. */
+  customerInvoices?: { id: string; invoice_no?: string | null }[]
+  /** Opened with the Follow-up button: the form is open and in view. */
+  startAdding?: boolean
 }
 
 
@@ -49,16 +56,22 @@ const modeIcons: Record<FollowupMode, React.ReactNode> = {
   other: <FileText className="w-4 h-4" />
 }
 
-export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityType = 'company', coordinatorId, isAdmin, companyTotalAmount, onFollowupSaved, refreshKey = 0, decisions }: FollowUpTimelineProps) {
+export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityType = 'company', coordinatorId, isAdmin, companyTotalAmount, onFollowupSaved, refreshKey = 0, decisions, customer, customerInvoices, startAdding }: FollowUpTimelineProps) {
   const [followups, setFollowups] = useState<Followup[]>([])
   const [loading, setLoading] = useState(true)
-  const [isAdding, setIsAdding] = useState(false)
+  const [isAdding, setIsAdding] = useState(Boolean(startAdding && coordinatorId))
+  const formRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (startAdding) formRef.current?.scrollIntoView({ block: 'start' })
+  }, [startAdding])
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const fetchFollowups = async () => {
     setLoading(true)
     try {
-      const data = await getFollowupsForEntity(entityId, entityType)
+      const data = customer && customerInvoices
+        ? await getFollowupsForInvoices(customerInvoices.map((i) => i.id))
+        : await getFollowupsForEntity(entityId, entityType)
       setFollowups(data)
     } catch (err) {
       console.error(err)
@@ -69,7 +82,7 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
 
   useEffect(() => {
     fetchFollowups()
-  }, [entityId, entityType, refreshKey])
+  }, [entityId, entityType, refreshKey, customer?.key])
 
   const handleSaved = () => {
     setIsAdding(false)
@@ -90,7 +103,7 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
         account is really late should not have to scroll past every call to
         find out what it is due from.
       */}
-      {company && entityType === 'company' && (
+      {company && !customer && entityType === 'company' && (
         <RecalculateDueDate
           company={company}
           actorId={coordinatorId}
@@ -115,15 +128,17 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
 
       {isAdding && coordinatorId && (
         <motion.div
+          ref={formRef}
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="mb-8 scroll-mt-4"
         >
           <AddFollowUpForm
             entityId={entityId}
             entityType={entityType}
             coordinatorId={coordinatorId}
             companyTotalAmount={companyTotalAmount}
+            customer={customer}
             onSaved={handleSaved}
             onCancel={() => setIsAdding(false)}
           />
@@ -152,6 +167,7 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
                       coordinatorId={coordinatorId}
                       companyTotalAmount={companyTotalAmount}
                       editingFollowup={followup}
+                      customer={followup.customer_wide ? customer : null}
                       onSaved={handleSaved}
                       onCancel={() => setEditingId(null)}
                     />
@@ -164,7 +180,7 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
                   key={followup.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
+                  transition={{ delay: Math.min(index, 5) * 0.1 }}
                   className="relative pl-8"
                 >
                   <div className="absolute -left-[17px] top-1 bg-background border border-border p-1.5 rounded-full z-10 text-muted-foreground">
@@ -177,6 +193,13 @@ export function FollowUpTimeline({ company, onCompanyChanged, entityId, entityTy
                         <Badge className={FOLLOWUP_STATUS_STYLE[followup.status]} variant="outline">
                           {FOLLOWUP_STATUS_LABEL[followup.status]}
                         </Badge>
+                        {customer && (
+                          <Badge variant="outline" className="font-normal text-muted-foreground">
+                            {followup.customer_wide
+                              ? 'Whole customer'
+                              : `Invoice ${customerInvoices?.find((i) => i.id === followup.entity_id)?.invoice_no ?? '-'}`}
+                          </Badge>
+                        )}
                         <Tooltip>
                           <TooltipTrigger className="text-sm text-muted-foreground hover:text-foreground">
                             {formatRelativeDate(followup.created_at)}

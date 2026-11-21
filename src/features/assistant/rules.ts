@@ -1,3 +1,4 @@
+import { customerStillOpen } from '@/lib/customer-open'
 import type { Company, Followup, OverduePayment } from '@/lib/types'
 import { formatCurrency, formatDate, todayISO, addDaysISO } from '@/lib/utils'
 import { type AssistantAction, type AssistantTask, TASK_PRIORITY } from './types'
@@ -102,6 +103,8 @@ export function buildAssistantTasks(context: AssistantContext): AssistantTask[] 
   const isSettled = (followup: Followup): boolean => {
     if (followup.entity_type === 'company') {
       const company = companyById.get(followup.entity_id)
+      // A customer-wide follow-up lasts while any of the customer's invoices is open.
+      if (followup.customer_wide && company?.sap_bp_code) return !customerStillOpen(company.sap_bp_code, context.companies)
       return company?.status === 'paid' || isSetAside(company)
     }
     const payment = overdueById.get(followup.entity_id)

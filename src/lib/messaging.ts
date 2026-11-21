@@ -132,6 +132,16 @@ export function getEmailProvider(): EmailProvider {
   return 'gmail'
 }
 
+/** The mail program this person has chosen, if they ever chose one. */
+export function getSavedEmailProvider(): EmailProvider | null {
+  try {
+    const stored = localStorage.getItem(EMAIL_PROVIDER_KEY)
+    return stored === 'gmail' || stored === 'outlook' || stored === 'default' ? stored : null
+  } catch {
+    return null
+  }
+}
+
 export function setEmailProvider(provider: EmailProvider): void {
   try {
     localStorage.setItem(EMAIL_PROVIDER_KEY, provider)

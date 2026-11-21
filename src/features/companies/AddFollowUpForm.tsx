@@ -9,6 +9,8 @@ import { Phone, MessageCircle, Mail, Users, FileText, Save, X } from 'lucide-rea
 import { addFollowup, createFollowupId, editFollowup } from '@/lib/followups-api'
 import { formatCurrency, parseISODate, toLocalISODate } from '@/lib/utils'
 import type { FollowupMode, FollowupStatus, Followup, FollowupEntityType } from '@/lib/types'
+import type { CustomerAccount } from '@/lib/customer-accounts'
+import { CustomerFollowupFigures } from './CustomerMoney'
 
 export interface AddFollowUpFormProps {
   /** Company id or overdue-payment id, depending on entityType. */
@@ -18,6 +20,8 @@ export interface AddFollowUpFormProps {
   /** Outstanding balance, used to cap the committed amount. */
   companyTotalAmount?: number
   editingFollowup?: Followup // if provided, editing mode
+  /** Given, this is one follow-up for the whole customer, with their figures on top. */
+  customer?: CustomerAccount | null
   onSaved: () => void
   onCancel: () => void
 }
@@ -36,6 +40,7 @@ export function AddFollowUpForm({
   coordinatorId,
   companyTotalAmount,
   editingFollowup,
+  customer,
   onSaved,
   onCancel,
 }: AddFollowUpFormProps) {
@@ -100,8 +105,9 @@ export function AddFollowUpForm({
     setLoading(true)
     try {
       const payload = {
-        entity_type: entityType,
-        entity_id: entityId,
+        // An edit stays on the record it was logged on, whichever screen opened it.
+        entity_type: editingFollowup?.entity_type ?? entityType,
+        entity_id: editingFollowup?.entity_id ?? entityId,
         coordinator_id: coordinatorId,
         // Required by the schema; without it the DB default silently wins and
         // back-dated entries are impossible.
@@ -123,7 +129,7 @@ export function AddFollowUpForm({
         // keeps the original author on the record itself.
         await editFollowup(editingFollowup.id, payload, coordinatorId)
       } else {
-        await addFollowup({ ...payload, id: followupId })
+        await addFollowup({ ...payload, id: followupId, ...(customer ? { customer_wide: true } : {}) })
       }
       toast.success(editingFollowup ? 'Follow-up updated successfully' : 'Follow-up added successfully')
       onSaved()
@@ -144,6 +150,7 @@ export function AddFollowUpForm({
   return (
     <div className="bg-background/50 backdrop-blur-md border border-border rounded-xl p-6 shadow-xl">
       <form onSubmit={handleSubmit} className="space-y-6">
+        {customer && <CustomerFollowupFigures customer={customer} />}
         <div>
           <Label className="mb-2 block">Follow-up Mode</Label>
           <div className="flex flex-wrap gap-2">
@@ -205,6 +212,9 @@ export function AddFollowUpForm({
                 <SelectItem value="no_response">No Response</SelectItem>
               </SelectContent>
             </Select>
+            {customer && status === 'paid' && (
+              <p className="text-xs text-muted-foreground">Invoices close only when the Excel file shows them as paid.</p>
+            )}
           </div>
 
           <div className="space-y-2">

@@ -264,6 +264,11 @@ export interface Followup {
   next_reminder_date: string | null
   created_at: string
   edited_at: string | null
+  /**
+   * Logged for the whole customer from Active Payments (21 Nov 2026). Filed on
+   * one of their invoices, but it speaks for all of them and never closes one.
+   */
+  customer_wide?: boolean
 }
 
 /**

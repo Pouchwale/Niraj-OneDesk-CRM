@@ -21,6 +21,10 @@ import { askRobi } from '@/features/assistant/email-draft'
 import { SendReminderDialog } from '@/features/messaging/SendReminderDialog'
 import { AccountDecisions } from '@/components/shared/AccountDecisions'
 import { isBankrupt, isNoFollowup, isSetAside } from '@/lib/no-followup'
+import { customerInvoiceIds, customerOfInvoice, customerReminderAmount } from '@/lib/customer-accounts'
+import { demoCompanyStore } from '@/lib/demo-companies'
+import { todayISO } from '@/lib/utils'
+import { CustomerInvoicesCard } from './CustomerMoney'
 
 interface CompanyDetailPanelProps {
   company: Company | null
@@ -32,6 +36,10 @@ interface CompanyDetailPanelProps {
   onFollowupSaved?: () => void
   /** Called after the account itself changes (reassignment), for the same reason. */
   onChanged?: () => void
+  /** The invoice clicked under the customer, opened on arrival. */
+  focusInvoiceId?: string | null
+  /** Opened with the Follow-up button: goes straight to the form. */
+  startFollowup?: boolean
 }
 
 function getStatusColor(status?: string) {
@@ -59,6 +67,8 @@ export function CompanyDetailPanel({
   currentUserId,
   onFollowupSaved,
   onChanged,
+  focusInvoiceId,
+  startFollowup,
 }: CompanyDetailPanelProps) {
   const [isReassigning, setIsReassigning] = useState(false)
   const [showExtraFields, setShowExtraFields] = useState(false)
@@ -75,11 +85,23 @@ export function CompanyDetailPanel({
 
   if (!company) return null
 
+  /*
+   * One customer, however they were reached (21 Nov 2026). An invoice that is
+   * paid or set aside has no customer view and keeps its own panel, so its
+   * decision can still be read and undone.
+   */
+  const allInvoices = demoCompanyStore.getAllCompanies()
+  const customer = customerOfInvoice(company, allInvoices, { sameOwnerOnly: !isAdmin })
+  const historyIds = customer ? new Set(customerInvoiceIds(company, allInvoices)) : null
+  const customerInvoices = historyIds ? allInvoices.filter((c) => historyIds.has(c.id)).map((c) => ({ id: c.id, invoice_no: c.invoice_no })) : undefined
+
   const handleReassign = async (newCoordinatorId: string) => {
     try {
       setIsReassigning(true)
-      await reassignCompany(company.id, newCoordinatorId, currentUserId ?? "admin")
-      toast.success('Company reassigned successfully')
+      for (const invoice of customer?.invoices ?? [company]) {
+        await reassignCompany(invoice.id, newCoordinatorId, currentUserId ?? "admin")
+      }
+      toast.success(customer ? `All ${customer.invoices.length} open invoices reassigned` : 'Company reassigned successfully')
       onChanged?.()
     } catch (error) {
       console.error('Failed to reassign:', error)
@@ -98,7 +120,7 @@ export function CompanyDetailPanel({
 
   return (
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <SheetContent className="w-full sm:max-w-[40vw] flex flex-col p-0 gap-0">
+      <SheetContent className={cn('w-full flex flex-col p-0 gap-0', customer ? 'sm:max-w-[60vw]' : 'sm:max-w-[40vw]')}>
         <SheetHeader className="p-6 pb-4 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-10">
           <div className="flex items-start justify-between gap-4 mr-6">
             <div className="flex flex-col gap-1">
@@ -107,7 +129,11 @@ export function CompanyDetailPanel({
                 {company.name}
               </SheetTitle>
               <div className="flex flex-wrap items-center gap-2 mt-2">
-                {company.invoice_no && (
+                {customer ? (
+                  <Badge variant="outline" className="text-xs">
+                    {customer.invoices.length} open invoice{customer.invoices.length === 1 ? '' : 's'}
+                  </Badge>
+                ) : company.invoice_no && (
                   <Badge variant="outline" className="font-mono text-xs">
                     Invoice {company.invoice_no}
                   </Badge>
@@ -118,8 +144,8 @@ export function CompanyDetailPanel({
                   </Badge>
                 )}
                 {company.status && (
-                  <Badge className={cn("uppercase text-xs font-bold", getStatusColor(company.status))}>
-                    {company.status}
+                  <Badge className={cn("uppercase text-xs font-bold", getStatusColor(customer?.status ?? company.status))}>
+                    {customer?.status ?? company.status}
                   </Badge>
                 )}
                 {isBankrupt(company) && (
@@ -197,6 +223,7 @@ export function CompanyDetailPanel({
                 <p className="font-medium">{company.payment_terms || 'N/A'}</p>
               </div>
 
+              {!customer && (<>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground flex items-center gap-2">
                   <IndianRupee className="w-4 h-4" /> Total Amount
@@ -233,6 +260,7 @@ export function CompanyDetailPanel({
                 <p className="text-sm text-muted-foreground">Module</p>
                 <p className="font-medium">{company.module || 'N/A'}</p>
               </div>
+              </>)}
 
               {company.remarks && (
                 <div className="space-y-1 md:col-span-2">
@@ -244,7 +272,20 @@ export function CompanyDetailPanel({
               )}
             </div>
 
-            {hasExtraFields && (
+            {customer && (
+              <CustomerInvoicesCard
+                key={`${customer.key}:${focusInvoiceId ?? ''}`}
+                customer={customer}
+                actorId={currentUserId}
+                focusInvoiceId={focusInvoiceId}
+                onChanged={() => {
+                  setTimelineKey((k) => k + 1)
+                  onChanged?.()
+                }}
+              />
+            )}
+
+            {!customer && hasExtraFields && (
               <div className="border border-border/50 rounded-lg overflow-hidden bg-card/50">
                 <button 
                   onClick={() => setShowExtraFields(!showExtraFields)}
@@ -318,11 +359,14 @@ export function CompanyDetailPanel({
                     setTimelineKey((k) => k + 1)
                     onChanged?.()
                   }}
-                  entityId={company.id}
+                  entityId={customer?.lead.id ?? company.id}
                   entityType="company"
                   coordinatorId={currentUserId}
                   isAdmin={isAdmin}
-                  companyTotalAmount={company.total_amount}
+                  companyTotalAmount={customer?.outstanding ?? company.total_amount}
+                  customer={customer}
+                  customerInvoices={customerInvoices}
+                  startAdding={Boolean(customer && startFollowup)}
                   onFollowupSaved={onFollowupSaved}
                   refreshKey={timelineKey}
                   /*
@@ -337,7 +381,7 @@ export function CompanyDetailPanel({
                       entityId={company.id}
                       bpCode={company.sap_bp_code}
                       name={company.name}
-                      amount={company.total_amount || 0}
+                      amount={customer?.outstanding ?? (company.total_amount || 0)}
                       record={company}
                       currentUserId={currentUserId}
                       canManageTeam={isAdmin}
@@ -361,7 +405,24 @@ export function CompanyDetailPanel({
           setTimelineKey((k) => k + 1)
           onFollowupSaved?.()
         }}
-        target={{
+        target={customer ? {
+          entityType: 'company',
+          entityId: customer.lead.id,
+          customerName: company.name,
+          contactPerson: company.contact_person,
+          contactNumber: company.contact_number,
+          email: company.email,
+          amount: customerReminderAmount(customer),
+          dueDate: customer.oldestDueDate,
+          invoiceDate: null,
+          paymentTerms: company.payment_terms,
+          bpCode: company.sap_bp_code,
+          daysOverdue: customer.maxDaysOverdue,
+          isSettled: false,
+          customerWide: true,
+          invoiceCount: customer.overdue > 0 ? customer.overdueInvoices : customer.invoices.length,
+          notDueYet: customer.overdue === 0 && Boolean(customer.oldestDueDate && customer.oldestDueDate > todayISO()),
+        } : {
           entityType: 'company',
           entityId: company.id,
           customerName: company.name,

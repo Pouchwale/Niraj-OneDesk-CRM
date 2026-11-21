@@ -1,5 +1,4 @@
-import { useProgressiveRows, MoreRowsFooter } from '@/components/shared/progressive-rows';
-import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { PageHeader } from '@/components/shared/PageHeader';
@@ -7,15 +6,14 @@ import { KpiCard } from '@/components/shared/KpiCard';
 import { GlassCard } from '@/components/shared/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Building2, AlertTriangle, Calendar, IndianRupee, Search, AlertCircle } from 'lucide-react';
-import { differenceInDays, parseISO } from 'date-fns';
-import { formatCurrency, formatRelativeDate, formatDate } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { getCompanies, getCompanyStats, type CompanyStats } from '@/lib/companies-api';
 import { DueDaysFilter } from '@/components/shared/DueDaysFilter';
-import { AttentionChip, AttentionGroupRow, ViewSwitch, type PaymentsView } from '@/components/shared/attention-ui';
-import { companyAttention, countByReason, groupStartingAt, sortByAttention } from '@/lib/attention';
+import { ViewSwitch, type PaymentsView } from '@/components/shared/attention-ui';
+import { companyAttention, countByReason } from '@/lib/attention';
+import { customerKeyOf } from '@/lib/customer-accounts';
 import { companyRowStats } from '@/lib/row-stats';
 import { matchesDueRange, type DueFilterPreset } from '@/lib/due-filter';
 import {
@@ -28,8 +26,8 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { SetAsideMatches } from '@/components/shared/SetAsideMatches';
 import { CompanyDetailPanel } from './CompanyDetailPanel';
 import { FollowupHistoryView } from './FollowupHistoryView';
+import { CustomerInvoiceTable } from './CustomerInvoiceTable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn } from '@/lib/utils';
 import type { Company, OverduePayment } from '@/lib/types';
 import { demoCompanyStore } from '@/lib/demo-companies';
 import { isSetAside } from '@/lib/no-followup';
@@ -49,6 +47,9 @@ export function CoordinatorCompaniesPage() {
   const [followupSummary, setFollowupSummary] = useState<Map<string, CompanyFollowupSummary>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  /** The invoice clicked under a customer, if one was. */
+  const [focusInvoiceId, setFocusInvoiceId] = useState<string | null>(null);
+  const [startFollowup, setStartFollowup] = useState(false);
   /** Bumped when a follow-up is saved, so the history tab re-reads. */
   const [historyKey, setHistoryKey] = useState(0);
 
@@ -64,6 +65,8 @@ export function CoordinatorCompaniesPage() {
 
   const closePanel = () => {
     setSelectedCompanyId(null);
+    setFocusInvoiceId(null);
+    setStartFollowup(false);
     if (linkedCompanyId) {
       const next = new URLSearchParams(searchParams);
       next.delete('company');
@@ -169,19 +172,15 @@ export function CoordinatorCompaniesPage() {
     });
   }, [companies, searchQuery, statusFilter, dueFilter, view]);
 
-  // In the second window the order is urgency: what needs deciding first sits at the top.
-  const displayRows = useMemo(
-    () => (view === 'attention' ? sortByAttention(filteredCompanies, companyAttention) : filteredCompanies),
-    [view, filteredCompanies]
+  // The table groups these by customer and puts the most urgent first in the second window.
+  const displayRows = filteredCompanies;
+  const customerCount = useMemo(() => new Set(displayRows.map(customerKeyOf)).size, [displayRows]);
+  const brokenPromiseIds = useMemo(
+    () => new Set(overdueCommitments.filter((c) => c.entity_type === 'company').map((c) => c.entity_id as string)),
+    [overdueCommitments]
   );
-
-  // Drawn a batch at a time; every figure still counts displayRows in full.
-  const progressive = useProgressiveRows(displayRows, {
-    resetKey: [view, searchQuery, statusFilter, JSON.stringify(dueFilter)].join('|'),
-  });
   const attentionCounts = useMemo(() => countByReason(companies, companyAttention), [companies]);
   const attentionTotal = attentionCounts.critical + attentionCounts.overdue + attentionCounts.due_soon;
-  const displayCounts = useMemo(() => countByReason(displayRows, companyAttention), [displayRows]);
 
   // Whenever anything narrows the list, the cards describe the list, with the
   // same rules the unfiltered figures use. Follow-ups due is not a row figure.
@@ -266,14 +265,14 @@ export function CoordinatorCompaniesPage() {
         <TabsContent value="accounts" className="space-y-6 outline-none">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="My Accounts"
-          value={shown.total.toString()}
+          title="My Customers"
+          value={customerCount.toString()}
           icon={Building2}
-          delta="Total assigned"
+          delta={`${shown.total} open invoices`}
           deltaType="neutral"
         />
         <KpiCard
-          title="Overdue + Critical"
+          title="Overdue + Critical Invoices"
           value={shown.overdue.toString()}
           icon={AlertTriangle}
           delta="Needs attention"
@@ -318,7 +317,7 @@ export function CoordinatorCompaniesPage() {
         )}
         {isNarrowed && (
           <p className="text-xs text-muted-foreground sm:ml-auto" data-testid="showing-line">
-            Showing {displayRows.length} of {workingCount} accounts · the cards above describe what is shown
+            Showing {customerCount} customers · {displayRows.length} of {workingCount} invoices · the cards above describe what is shown
           </p>
         )}
       </div>
@@ -354,103 +353,22 @@ export function CoordinatorCompaniesPage() {
         {/* A search for one of their customers that is set aside says who did it and why. */}
         <SetAsideMatches query={searchQuery} companies={companies} canResume={false} />
 
-        <div className="overflow-x-auto rounded-md border border-border/50">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
-              <tr>
-                <th className="px-4 py-3 font-medium">Company Name</th>
-                <th className="px-4 py-3 font-medium">Invoice</th>
-                <th className="px-4 py-3 font-medium">Contact</th>
-                <th className="px-4 py-3 font-medium">Payment Terms</th>
-                <th className="px-4 py-3 font-medium">Total Amount</th>
-                <th className="px-4 py-3 font-medium">Due Date</th>
-                <th className="px-4 py-3 font-medium">Days Overdue</th>
-                <th className="px-4 py-3 font-medium">Last Follow-Up</th>
-                <th className="px-4 py-3 font-medium">Next Committed</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50">
-              {progressive.visible.map((company, index) => {
-                const isOverdueCommitment = overdueCommitments.some(c => c.company_id === company.id);
-                const summary = followupSummary.get(company.id);
-                const attention = view === 'attention' ? companyAttention(company) : null;
-                const group = view === 'attention' ? groupStartingAt(displayRows, index, companyAttention) : null;
-
-                // Positive only once the due date has actually passed.
-                const daysOverdue = company.due_date
-                  ? Math.max(0, differenceInDays(new Date(), parseISO(company.due_date)))
-                  : 0;
-
-                let isFollowupToday = false;
-                if (company.due_date) {
-                  const diff = differenceInDays(parseISO(company.due_date), new Date());
-                  isFollowupToday = diff === 0;
-                }
-
-                return (
-                  <Fragment key={company.id}>
-                  {group && <AttentionGroupRow reason={group} count={displayCounts[group]} colSpan={10} />}
-                  <tr
-                    onClick={() => setSelectedCompanyId(company.id)}
-                    className={cn(
-                      "cursor-pointer hover:bg-muted/30 transition-colors",
-                      isOverdueCommitment ? "border-l-4 border-l-rose-500 bg-rose-500/5" : "",
-                      isFollowupToday && !isOverdueCommitment ? "border-l-4 border-l-amber-500 bg-amber-500/5" : ""
-                    )}
-                  >
-                    <td className="px-4 py-3 font-medium text-foreground">
-                      {company.name}
-                      {attention && <AttentionChip attention={attention} className="mt-1 block w-fit" />}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">{company.invoice_no || '-'}</td>
-                    <td className="px-4 py-3">{company.contact_person || '-'}</td>
-                    <td className="px-4 py-3">{company.payment_terms || '-'}</td>
-                    <td className="px-4 py-3">{formatCurrency(company.total_amount || 0)}</td>
-                    <td className="px-4 py-3">
-                      {company.due_date ? new Date(company.due_date).toLocaleDateString() : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {daysOverdue > 0 ? (
-                        <span className="text-rose-500 font-medium">{daysOverdue} days</span>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {summary?.lastFollowupDate ? formatRelativeDate(summary.lastFollowupDate) : 'Never'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {summary?.nextCommittedDate ? (
-                        <span>
-                          {formatDate(summary.nextCommittedDate)}
-                          {summary.nextCommittedAmount
-                            ? ` · ${formatCurrency(summary.nextCommittedAmount)}`
-                            : ''}
-                        </span>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={company.status === 'overdue' ? 'destructive' : 'default'}>
-                        {company.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                  </Fragment>
-                );
-              })}
-              <MoreRowsFooter state={progressive} colSpan={10} />
-              {displayRows.length === 0 && (
-                <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
-                    No companies found matching your criteria.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="rounded-md border border-border/50">
+          <CustomerInvoiceTable
+            invoices={displayRows}
+            allInvoices={companies}
+            view={view}
+            resetKey={[view, searchQuery, statusFilter, JSON.stringify(dueFilter)].join('|')}
+            search={searchQuery}
+            showOwner={false}
+            followupSummary={followupSummary}
+            brokenPromiseIds={brokenPromiseIds}
+            onOpen={(invoice, focus) => {
+              setFocusInvoiceId(focus ? invoice.id : null);
+              setStartFollowup(!focus);
+              setSelectedCompanyId(invoice.id);
+            }}
+          />
         </div>
       </GlassCard>
         </TabsContent>
@@ -459,6 +377,8 @@ export function CoordinatorCompaniesPage() {
       {selectedCompanyId && (
         <CompanyDetailPanel
           company={companies.find(c => c.id === selectedCompanyId) || null}
+          focusInvoiceId={focusInvoiceId}
+          startFollowup={startFollowup}
           open={!!selectedCompanyId}
           onClose={closePanel}
           currentUserId={user?.id}

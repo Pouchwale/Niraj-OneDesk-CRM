@@ -25,6 +25,7 @@ import {
   mapCompanyRows,
   processCompanyUpload,
   validateCompanyRows,
+  separateReusedInvoiceNumbers,
 } from './companies-upload'
 import {
   autoMapOverdueColumns,
@@ -345,7 +346,8 @@ export async function syncBookFromExcel(
     // Filtered per invoice row, before the customer's rows are added together,
     // so an account's balance is the sum of the invoices inside the window
     // rather than the whole relationship trimmed afterwards.
-    const all = mapCompanyRows(parsed.rows, mapping)
+    // Before anything is keyed by invoice: one number on two dates is two invoices.
+    const all = separateReusedInvoiceNumbers(mapCompanyRows(parsed.rows, mapping))
     const wanted = all.filter((row) => keepByDate(row, filter))
 
     /*
