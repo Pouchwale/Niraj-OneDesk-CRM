@@ -209,14 +209,15 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
   router.use('/service-otif', requireSession(accounts, sessions), serviceOtifRoutes(otifCustomers))
   // Service form: one PO's details from Service-AutoPO (the sheet itself is never sent).
   router.use('/service-po', requireSession(accounts, sessions), servicePoRoutes(config.servicePoPath, logger))
-  // Pre Sales Analysis (14 Nov 2026): the server reads the workbook and sends each coordinator only their customers,
-  // matched by customer code to the CRM's Active and Overdue Payments accounts.
+  // Pre Sales Analysis (14 Nov 2026): the server reads the workbook and sends each coordinator only their customers.
+  // The Active Payments file's Coordinator decides the owner (21 Nov 2026), then the CRM account, then the Pre-Sales file.
   router.use(
     '/presales',
     requireSession(accounts, sessions),
     presalesRoutes({
       excel,
       config: config.excel.presales,
+      paymentsConfig: config.excel.companies,
       assigned: () => {
         const map = new Map<string, string | null>()
         const snap = data.snapshot()
@@ -231,7 +232,7 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
         }
         return map
       },
-      coordinators: () => accounts.roster().filter((u) => u.role === 'coordinator').map((u) => ({ id: u.id, name: u.full_name })),
+      coordinators: () => accounts.roster().filter((u) => u.role === 'coordinator').map((u) => ({ id: u.id, name: u.full_name, disabled: Boolean(u.disabled) })),
       switchedOff: (userId) => (data.snapshot().moduleAccess ?? []).some((a) => a.coordinatorId === userId && a.off.includes('pre_sales')),
       snapshotDir: config.snapshotDir,
       logger,

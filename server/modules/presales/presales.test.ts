@@ -19,6 +19,7 @@ import { createLogger } from '../../logger'
 import { AUTH_ROUTES } from '../../../shared/auth'
 import { PRESALES_ROUTE, type PresalesResponse } from '../../../shared/presales'
 import { coordinatorMatcher } from './match'
+import { currentCoordinatorMatcher, readPaymentCoordinators } from './payment-owners'
 import { dayOf, readPresales } from './read'
 
 const root = mkdtempSync(join(tmpdir(), 'presales-'))
@@ -77,6 +78,122 @@ describe('matching the file’s coordinator names', () => {
     expect(match('Praagti')).toBeNull()
     expect(match('Krina Patel')).toBeNull()
     expect(match(null)).toBeNull()
+  })
+})
+
+const PAYMENT_HEADER = ['BP Code', 'Company Name', 'Coordinator', 'Invoice No', 'Invoice Date', 'Balance Due', 'Payment Status', 'Sales Person']
+const paymentBook = (rows: unknown[][]) => {
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Other'], ['x']]), 'Notes')
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([PAYMENT_HEADER, ...rows]), 'CRM ACTIVE PAYMENT')
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+}
+
+describe('the Active Payments coordinator', () => {
+  it('takes the Coordinator on the latest invoice, paid or not, and never the Sales Person', () => {
+    const read = readPaymentCoordinators(
+      paymentBook([
+        ['c0001 ', 'A', 'Krupa Patel', 'I2', 46000, 0, 'Fully Paid', 'Someone'],
+        ['C0001', 'A', 'Diya', 'I3', 46100, 0, 'Fully Paid', 'Someone'],
+        ['C0001', 'A', 'Pragati', 'I1', 45900, 10, 'Unpaid', 'Someone'],
+        ['C0002', 'B', '', 'I4', 46200, 10, 'Unpaid', 'Foram Prajapati'],
+      ]),
+      'CRM ACTIVE PAYMENT'
+    )
+    expect(read.get('C0001')).toBe('Diya')
+    expect(read.has('C0002')).toBe(false)
+  })
+
+  it('refuses a sheet without the three columns', () => {
+    expect(() => readPaymentCoordinators(workbook(ROWS))).toThrow(/BP Code, Coordinator and Invoice Date/)
+  })
+
+  it('counts only a current coordinator, and never one first name for two people', () => {
+    const current = currentCoordinatorMatcher([
+      { id: 'd', name: 'Diya Prajapati' },
+      { id: 'v', name: 'Vishva Vyas', disabled: true },
+      { id: 'k1', name: 'Krupa Patel' },
+      { id: 'k2', name: 'Krupa Shah', disabled: true },
+    ])
+    expect(current('Diya')).toBe('d')
+    expect(current('Vishva Vyas')).toBeNull()
+    expect(current('Vishwa Vyas')).toBeNull()
+    expect(current('Krupa')).toBeNull()
+    expect(current('Krupa Patel')).toBe('k1')
+    expect(current('other')).toBeNull()
+  })
+
+  describe('deciding the owner on the page', () => {
+    let server: ReturnType<typeof createServer>
+    let port = 0
+    const paymentsFile = join(root, 'crm active payments.xlsx')
+
+    beforeAll(async () => {
+      const dataDir = mkdtempSync(join(root, 'owners-'))
+      const presalesFile = join(root, 'owners-presales.xlsx')
+      writeFileSync(presalesFile, workbook(ROWS))
+      writeFileSync(
+        paymentsFile,
+        paymentBook([
+          // The CRM account says Pragati; the file says Krupa.
+          ['C0001', 'Mine Ltd', 'Krupa Patel', 'I1', 46300, 10, 'Unpaid', 'X'],
+          // Someone who is not a coordinator: the CRM account stands.
+          ['C0002', 'Someone Else Ltd', 'Bhakti', 'I2', 46300, 10, 'Unpaid', 'Pragati'],
+          // Fully paid, no CRM account: the file beats the Pre-Sales name (Pragati).
+          ['C0004', 'Paid Up Ltd', 'Krina Shah', 'I3', 46300, 0, 'Fully Paid', 'X'],
+        ])
+      )
+      writeFileSync(
+        join(dataDir, 'store.json'),
+        JSON.stringify({
+          companies: [{ id: 'co1', sap_bp_code: 'C0001', name: 'Mine Ltd', assigned_coordinator_id: 'coord-1' }],
+          overduePayments: [{ id: 'op1', bp_code: 'C0002', customer_name: 'Someone Else Ltd', assigned_coordinator_id: 'coord-2' }],
+        })
+      )
+      const config = loadConfig({
+        AUTH_DIR: mkdtempSync(join(root, 'owners-auth-')),
+        DATA_DIR: dataDir,
+        SNAPSHOT_DIR: mkdtempSync(join(root, 'owners-snap-')),
+        EXCEL_PRESALES_PATH: presalesFile,
+        EXCEL_ACTIVE_PAYMENTS_PATH: paymentsFile,
+        EXCEL_ACTIVE_PAYMENTS_SHEET: 'CRM ACTIVE PAYMENT',
+      })
+      server = createServer(createApp(config, quiet))
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+      port = (server.address() as AddressInfo).port
+    })
+
+    afterAll(async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    })
+
+    const signIn = async (username: string, password: string) => {
+      const res = await fetch(`http://127.0.0.1:${port}${AUTH_ROUTES.login}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
+      return res.headers.get('set-cookie')?.split(';')[0] ?? ''
+    }
+    const owners = async (username: string, password: string) => {
+      const res = await fetch(`http://127.0.0.1:${port}${PRESALES_ROUTE}`, { headers: { cookie: await signIn(username, password) } })
+      const body = (await res.json()) as PresalesResponse
+      return body.customers.map((c) => [c.code, c.coordinatorId, c.assignedFrom]).sort()
+    }
+
+    it('uses Active Payments first, then the CRM account, then the Pre-Sales name', async () => {
+      expect(await owners('niki', 'Niki@123')).toEqual([
+        ['C0001', 'coord-5', 'payments'],
+        ['C0002', 'coord-2', 'crm'],
+        ['C0003', null, null],
+        ['C0004', 'coord-7', 'payments'],
+      ])
+    })
+
+    it('takes the customer off the old coordinator', async () => {
+      expect(await owners('pragati', 'Pragati@123')).toEqual([])
+    })
+
+    it('keeps the last good read when a save leaves the file unreadable', async () => {
+      writeFileSync(paymentsFile, 'half written')
+      expect((await owners('niki', 'Niki@123'))[0]).toEqual(['C0001', 'coord-5', 'payments'])
+    })
   })
 })
 

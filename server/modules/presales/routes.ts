@@ -3,14 +3,14 @@
  *
  * The server reads the Pre-Sales-Order-CRM workbook itself (read again only
  * when it has been saved since) and sends each person only what they may see:
- * a coordinator gets the customers the CRM assigns to them (matched by
- * customer code against Active and Overdue Payments); the team leader and the
- * administrator get everyone, the customers with no CRM account included
- * (shown as "Not assigned"). A customer with no CRM account goes to the
- * coordinator named on its latest order in the file when that name matches
- * one CRM coordinator (match.ts). Follow-ups (which items, how, what the
- * customer said, when next) are kept in presales-followups.json beside the
- * score history.
+ * a coordinator gets only their own customers; the team leader and the
+ * administrator get everyone. A customer's owner (21 Nov 2026) is the current
+ * coordinator on its latest invoice in the Active Payments file; failing that
+ * its CRM account's coordinator; failing that the coordinator named on its
+ * latest order in the Pre-Sales file when that matches one CRM coordinator
+ * (match.ts); otherwise "Not assigned". Follow-ups (which items, how, what
+ * the customer said, when next) are kept in presales-followups.json beside
+ * the score history.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -23,6 +23,7 @@ import type { Logger } from '../../logger'
 import type { ExcelBookConfig } from '../../config'
 import type { ExcelService } from '../excel/service'
 import { coordinatorMatcher } from './match'
+import { currentCoordinatorMatcher, readPaymentCoordinators } from './payment-owners'
 import { readPresales, type PresalesRead } from './read'
 
 export const PRESALES_FOLLOWUPS_FILE = 'presales-followups.json'
@@ -33,10 +34,12 @@ const dayOrNull = (v: unknown): string | null => (typeof v === 'string' && ISO_D
 interface Deps {
   excel: ExcelService
   config: ExcelBookConfig | undefined
+  /** The Active Payments workbook, whose Coordinator column decides a customer's owner. */
+  paymentsConfig?: ExcelBookConfig
   /** Customer code (upper case) → the CRM coordinator assigned to it. */
   assigned: () => Map<string, string | null>
-  /** The CRM's coordinators, to match the file's coordinator names for customers with no CRM account. */
-  coordinators: () => { id: string; name: string }[]
+  /** The CRM's coordinators, to match the names in the Excel files. */
+  coordinators: () => { id: string; name: string; disabled?: boolean }[]
   /** True when the administrator switched Pre Sales Analysis off for this coordinator (Admin Panel). */
   switchedOff?: (userId: string) => boolean
   snapshotDir: string
@@ -85,11 +88,34 @@ export function presalesRoutes(deps: Deps): Router {
     renameSync(`${followupsPath}.tmp`, followupsPath)
   }
 
-  /** Whose customer each code is: the CRM account's coordinator, else the file's name when it matches one coordinator. */
+  let paymentsCache: { modifiedAt: string; coordinators: Map<string, string> } | null = null
+  /** The Active Payments file's coordinator per customer; the last good read stands while a save is in progress. */
+  const paymentCoordinators = (): Map<string, string> => {
+    const status = deps.excel.status('companies')
+    if (!status.configured || !deps.paymentsConfig) return new Map()
+    if (!status.exists || !status.modifiedAt) return paymentsCache?.coordinators ?? new Map()
+    if (paymentsCache?.modifiedAt === status.modifiedAt) return paymentsCache.coordinators
+    try {
+      const coordinators = readPaymentCoordinators(readFileSync(deps.paymentsConfig.path), deps.paymentsConfig.sheet)
+      paymentsCache = { modifiedAt: status.modifiedAt, coordinators }
+      deps.logger.info('presales: active payments coordinators read', { customers: coordinators.size })
+      return coordinators
+    } catch (err) {
+      deps.logger.warn('presales: active payments not read', { error: err instanceof Error ? err.message : 'Could not read the workbook.' })
+      return paymentsCache?.coordinators ?? new Map()
+    }
+  }
+
+  /** Whose customer each code is: Active Payments' current coordinator, else the CRM account's, else the Pre-Sales file's name. */
   const ownerOf = (read: PresalesRead) => {
     const assigned = deps.assigned()
-    const match = coordinatorMatcher(deps.coordinators())
-    return (code: string): { id: string | null; from: 'crm' | 'file' | null } => {
+    const people = deps.coordinators()
+    const match = coordinatorMatcher(people)
+    const current = currentCoordinatorMatcher(people)
+    const payments = paymentCoordinators()
+    return (code: string): { id: string | null; from: PresalesCustomer['assignedFrom'] } => {
+      const named = current(payments.get(code))
+      if (named) return { id: named, from: 'payments' }
       const crm = assigned.get(code)
       if (crm) return { id: crm, from: 'crm' }
       const byName = match(read.fileCoordinator.get(code))

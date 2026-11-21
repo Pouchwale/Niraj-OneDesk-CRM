@@ -283,9 +283,9 @@ export function PreSalesPage() {
                               {c.assignedFrom === 'file' && (
                                 <span
                                   className="block text-[11px] text-muted-foreground"
-                                  title="This customer has no account in Active or Overdue Payments, so the coordinator is the one named on its latest order in the Pre-Sales file."
+                                  title="Active Payments names no current coordinator for this customer and it has no CRM account, so the coordinator is the one named on its latest order in the Pre-Sales file."
                                 >
-                                  as per Pre-Sales file (customer has no Active/Overdue account)
+                                  as per Pre-Sales file (no current coordinator in Active Payments)
                                 </span>
                               )}
                               {!c.coordinatorId && c.fileCoordinator && <span className="block text-[11px] text-muted-foreground">file names: {c.fileCoordinator} (not a CRM coordinator)</span>}

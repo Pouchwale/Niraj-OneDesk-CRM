@@ -33,13 +33,14 @@ export interface PresalesCustomer {
   code: string
   name: string
   /**
-   * Whose customer this is: the coordinator the CRM assigns its customer code
-   * to, or (no CRM account) the coordinator named on its latest order in the
-   * file, when that name matches exactly one CRM coordinator; null otherwise.
+   * Whose customer this is (21 Nov 2026): the current coordinator on its latest
+   * invoice in the Active Payments file; else its CRM account's coordinator;
+   * else the coordinator named on its latest order in the Pre-Sales file, when
+   * that name matches exactly one CRM coordinator; null otherwise.
    */
   coordinatorId: string | null
-  /** Where the coordinator came from: the CRM account, the file's name, or nowhere. */
-  assignedFrom: 'crm' | 'file' | null
+  /** Where the coordinator came from: the Active Payments file, the CRM account, the Pre-Sales file, or nowhere. */
+  assignedFrom: 'payments' | 'crm' | 'file' | null
   /** The coordinator name on the customer's latest order in the file (shown for customers not in the CRM). */
   fileCoordinator: string | null
 }
