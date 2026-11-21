@@ -26,9 +26,16 @@ import {
   periodRange,
   recentKeys,
   ratioOn,
+  checkGroupShares,
   checkPersonRatio,
+  checkScoreGroups,
+  DEFAULT_SCORE_GROUPS,
+  personGroupWeightsOf,
   personWeightsOf,
+  SCORE_GROUPS,
   type PersonRatio,
+  type ScoreGroup,
+  type ScoreGroupMap,
   type FinalRatio,
   type FinalWeights,
   type FinalWeightsSetting,
@@ -63,12 +70,29 @@ interface HistoryFile {
   leadTargets?: LeadTarget[]
   /** The administrator's ratios for particular coordinators (20 Nov 2026). */
   personRatios?: PersonRatio[]
+  /** Which of the two scores each module counts in (21 Nov 2026); absent: the default. */
+  scoreGroups?: ScoreGroupMap
 }
 
-/** The per-person ratios as a period carries them; absent when there are none. */
-const personPart = (file: HistoryFile): { personWeights?: Record<string, FinalWeights> } => {
-  const weights = personWeightsOf(file.personRatios ?? [])
-  return Object.keys(weights).length ? { personWeights: weights } : {}
+const groupsOf = (file: HistoryFile): ScoreGroupMap => file.scoreGroups ?? DEFAULT_SCORE_GROUPS
+
+/** What a period is scored with: the ratios in force on its first day, the groups and the people's own ratios. */
+function ratioPart(file: HistoryFile, start: string): Pick<PeriodScores, 'finalWeights' | 'personWeights' | 'scoreGroups' | 'groupWeights' | 'personGroupWeights'> {
+  const ratios = ratiosOf(file)
+  const groupWeights: Partial<Record<ScoreGroup, FinalWeights>> = {}
+  for (const g of SCORE_GROUPS) {
+    const weights = ratioOn(ratios.filter((r) => r.group === g.id), start)?.weights
+    if (weights) groupWeights[g.id] = weights
+  }
+  const personWeights = personWeightsOf(file.personRatios ?? [])
+  const personGroupWeights = personGroupWeightsOf(file.personRatios ?? [])
+  return {
+    finalWeights: ratioOn(ratios.filter((r) => !r.group), start)?.weights ?? null,
+    scoreGroups: groupsOf(file),
+    ...(Object.keys(groupWeights).length ? { groupWeights } : {}),
+    ...(Object.keys(personWeights).length ? { personWeights } : {}),
+    ...(Object.keys(personGroupWeights).length ? { personGroupWeights } : {}),
+  }
 }
 
 const leadTargetsOf = (file: HistoryFile): LeadTarget[] => [...(file.leadTargets ?? [])].sort((a, b) => a.from.localeCompare(b.from))
@@ -98,6 +122,10 @@ export interface ScoreHistoryStore {
   savePersonRatio(input: unknown, by: string, id?: string): PersonRatio
   /** Removes a per-person ratio; false when there was none. */
   deletePersonRatio(id: string): boolean
+  /** Which score each module counts in now. */
+  scoreGroups(): ScoreGroupMap
+  /** Moves modules between the two scores. Throws a message for the screen. */
+  saveScoreGroups(input: unknown): ScoreGroupMap
 }
 
 /**
@@ -167,10 +195,9 @@ export function createScoreHistoryStore(
     }
     data ??= freshInputs()
     const at = now().toISOString()
-    // Each period locks with the ratio in force on its first day, as it stands now.
-    const ratios = ratiosOf(file)
+    // Each period locks with the ratios in force on its first day, as they stand now.
     for (const [kind, key] of due) {
-      file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', finalWeights: ratioOn(ratios, periodRange(kind, key).start)?.weights ?? null, ...personPart(file) }
+      file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', ...ratioPart(file, periodRange(kind, key).start) }
     }
     write(file)
     return due.map(([kind, key]) => periodId(kind, key))
@@ -187,7 +214,7 @@ export function createScoreHistoryStore(
       const locked = file.periods[periodId(kind, key)]
       if (locked) return locked
       // Still open, or ended within the grace days: worked out live.
-      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, finalWeights: ratioOn(ratiosOf(file), periodRange(kind, key).start)?.weights ?? null, ...personPart(file) }
+      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, ...ratioPart(file, periodRange(kind, key).start) }
     })
   }
 
@@ -199,7 +226,7 @@ export function createScoreHistoryStore(
     const { start } = periodRange(held.kind, held.key)
     if (start > today) return null
     // Worked out again from today's records, with the ratio it was locked with.
-    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by, finalWeights: held.finalWeights ?? null, ...(held.personWeights ? { personWeights: held.personWeights } : {}) }
+    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by, finalWeights: held.finalWeights ?? null, ...(held.personWeights ? { personWeights: held.personWeights } : {}), ...(held.scoreGroups ? { scoreGroups: held.scoreGroups } : {}), ...(held.groupWeights ? { groupWeights: held.groupWeights } : {}), ...(held.personGroupWeights ? { personGroupWeights: held.personGroupWeights } : {}) }
     file.periods[id] = again
     write(file)
     return again
@@ -212,7 +239,8 @@ export function createScoreHistoryStore(
     const file = read()
     const list = ratiosOf(file)
     if (id && !list.some((r) => r.id === id)) throw new Error('That ratio is not there any more.')
-    if (list.some((r) => r.id !== id && r.from === checked.from)) throw new Error('Another ratio already starts on that date; change that one instead.')
+    if (checked.group) checkGroupShares(checked.weights, checked.group, groupsOf(file))
+    if (list.some((r) => r.id !== id && r.from === checked.from && (r.group ?? null) === (checked.group ?? null))) throw new Error('Another ratio already starts on that date; change that one instead.')
     const ratio: FinalRatio = { id: id ?? randomUUID(), ...checked, updatedAt: now().toISOString(), updatedBy: by }
     file.finalRatios = [...list.filter((r) => r.id !== ratio.id), ratio].sort((a, b) => a.from.localeCompare(b.from))
     delete file.finalWeights
@@ -262,7 +290,9 @@ export function createScoreHistoryStore(
     const file = read()
     const list = file.personRatios ?? []
     if (id && !list.some((r) => r.id === id)) throw new Error('That ratio is not there any more.')
-    const taken = checked.coordinatorIds.filter((c) => list.some((r) => r.id !== id && r.coordinatorIds.includes(c)))
+    if (checked.group) checkGroupShares(checked.weights, checked.group, groupsOf(file))
+    // One ratio per person for each score; one with no score covers both.
+    const taken = checked.coordinatorIds.filter((c) => list.some((r) => r.id !== id && r.coordinatorIds.includes(c) && (!r.group || !checked.group || r.group === checked.group)))
     if (taken.length) throw new Error(`${taken.length === 1 ? 'One person already has' : `${taken.length} people already have`} a ratio of their own; change that one, or take them off it first.`)
     const ratio: PersonRatio = { id: id ?? randomUUID(), ...checked, updatedAt: now().toISOString(), updatedBy: by }
     file.personRatios = id ? list.map((r) => (r.id === id ? ratio : r)) : [...list, ratio]
@@ -279,7 +309,17 @@ export function createScoreHistoryStore(
     return true
   }
 
-  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio, leadTargets, saveLeadTarget, deleteLeadTarget, personRatios, savePersonRatio, deletePersonRatio }
+  const scoreGroups = (): ScoreGroupMap => groupsOf(read())
+
+  const saveScoreGroups = (input: unknown): ScoreGroupMap => {
+    const checked = checkScoreGroups(input)
+    const file = read()
+    file.scoreGroups = checked
+    write(file)
+    return checked
+  }
+
+  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio, leadTargets, saveLeadTarget, deleteLeadTarget, personRatios, savePersonRatio, deletePersonRatio, scoreGroups, saveScoreGroups }
 }
 
 /** A minute and a half after start (the data is loaded by then), and every half hour after, lock what has ended. */

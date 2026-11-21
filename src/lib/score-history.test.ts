@@ -327,3 +327,64 @@ describe('a ratio of their own', () => {
     expect(() => checkPersonRatio({ coordinatorIds: ['a'], weights: { robi: 40 } })).toThrow()
   })
 })
+
+describe('the two scores, Payments and Operations', () => {
+  const entries = [
+    { coordinatorId: 'c1', name: 'A', module: 'robi' as const, score: -40, detail: {} },
+    { coordinatorId: 'c1', name: 'A', module: 'kpi' as const, score: 80, detail: {} },
+    { coordinatorId: 'c1', name: 'A', module: 'quotations' as const, score: 50, detail: {} },
+    { coordinatorId: 'c1', name: 'A', module: 'service' as const, score: 100, detail: {} },
+  ]
+  const period = (extra = {}) => ({ id: 'week:2026-11-21', kind: 'week' as const, key: '2026-11-21', start: '2026-11-21', end: '2026-11-27', lockedAt: null, lockedBy: null, entries, ...extra })
+
+  it('scales the all-module ratio to 100% within each score until it has its own', async () => {
+    const { groupFinalOf } = await import('./score-history')
+    const p = period({ finalWeights: { robi: 10, kpi: 30, quotations: 20, service: 40 } })
+    // Robi 60 × 25% + Regular 80 × 75%.
+    expect(groupFinalOf(p, 'c1', 'payments').score).toBe(75)
+    // Quotations 50 × 33.33% + Service 100 × 66.67%.
+    expect(groupFinalOf(p, 'c1', 'operations').score).toBeCloseTo(83.3, 1)
+  })
+
+  it("uses a score's own ratio, then a person's own for that score, and leaves the other score alone", async () => {
+    const { groupFinalOf } = await import('./score-history')
+    const p = period({
+      finalWeights: { robi: 10, kpi: 30, quotations: 20, service: 40 },
+      groupWeights: { payments: { robi: 50, kpi: 50 } },
+      personGroupWeights: { operations: { c1: { quotations: 100 } } },
+    })
+    expect(groupFinalOf(p, 'c1', 'payments').score).toBe(70)
+    expect(groupFinalOf(p, 'c1', 'operations').score).toBe(50)
+    expect(groupFinalOf(p, 'c2', 'operations').score).toBeNull()
+  })
+
+  it('is the plain average of its own modules without a ratio, and follows the groups the period holds', async () => {
+    const { DEFAULT_SCORE_GROUPS, groupFinalOf } = await import('./score-history')
+    expect(groupFinalOf(period(), 'c1', 'payments').score).toBe(70)
+    expect(groupFinalOf(period(), 'c1', 'operations').score).toBe(75)
+    const moved = period({ scoreGroups: { ...DEFAULT_SCORE_GROUPS, service: 'payments' } })
+    expect(groupFinalOf(moved, 'c1', 'payments').score).toBe(80)
+    expect(groupFinalOf(moved, 'c1', 'operations').score).toBe(50)
+  })
+
+  it('leaves a module switched off out of its score only', async () => {
+    const { groupFinalOf } = await import('./score-history')
+    const off = entries.map((e) => (e.module === 'quotations' ? { ...e, score: null, na: true } : e))
+    const p = period({ entries: off, finalWeights: { robi: 10, kpi: 30, quotations: 20, service: 40 } })
+    expect(groupFinalOf(p, 'c1', 'operations').score).toBe(100)
+    expect(groupFinalOf(p, 'c1', 'payments').score).toBe(75)
+  })
+
+  it('scales shares to exactly 100, and checks the groups and shares', async () => {
+    const { checkGroupShares, checkScoreGroups, DEFAULT_SCORE_GROUPS, SCORE_MODULES, sharesWithin } = await import('./score-history')
+    const operations = SCORE_MODULES.filter((m) => DEFAULT_SCORE_GROUPS[m.id] === 'operations')
+    const shares = sharesWithin({ robi: 10, kpi: 25, kpi_dispute: 10, quotations: 15, billing: 10, service: 20, self_leads: 10 }, operations)
+    expect(Object.values(shares).reduce((a, n) => a + (n ?? 0), 0)).toBeCloseTo(100, 6)
+    expect(sharesWithin({ robi: 100 }, operations)).toEqual({})
+    expect(checkScoreGroups(DEFAULT_SCORE_GROUPS)).toEqual(DEFAULT_SCORE_GROUPS)
+    expect(() => checkScoreGroups({ ...DEFAULT_SCORE_GROUPS, robi: 'other' })).toThrow(/Robi tasks/)
+    const allPayments = Object.fromEntries(SCORE_MODULES.map((m) => [m.id, 'payments']))
+    expect(() => checkScoreGroups(allPayments)).toThrow(/Operations needs at least one/)
+    expect(() => checkGroupShares({ robi: 50, service: 50 }, 'payments', DEFAULT_SCORE_GROUPS)).toThrow(/Service is not in the Payments score/)
+  })
+})

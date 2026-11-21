@@ -15,6 +15,10 @@
  * share of the final score, by dates (FinalRatioCard): a period uses the ratio
  * in force on its first day, as it stood when it locked (an open one: now).
  *
+ * Two scores (21 Nov 2026): Payments and Operations, one tab each, every one
+ * with its own modules (Admin Panel) and its own ratio. There is no combined
+ * score.
+ *
  * Every table is fixed to the page width, so no desktop screen needs a
  * sideways scroll; the final score sits next to the name, where Robi's
  * button can never cover it.
@@ -39,12 +43,17 @@ import {
   addDays,
   FINAL_HINT,
   FINAL_WEIGHTED_HINT,
+  DEFAULT_SCORE_GROUPS,
   finalScoreOf,
-  weightsFor,
+  groupFinalOf,
+  groupWeightsFor,
   LOCK_GRACE_DAYS,
   lockGraceDays,
+  modulesInGroup,
   periodLabel,
   SCORE_MODULES,
+  scoreGroupLabel,
+  sharesWithin,
   type FinalWeights,
   ratioEnd,
   ratioOn,
@@ -52,6 +61,8 @@ import {
   type PeriodKind,
   type PeriodScores,
   type ScoreEntry,
+  type ScoreGroup,
+  type ScoreGroupMap,
   type ScoreHistoryResponse,
   type ScoreModule,
 } from '@/lib/score-history'
@@ -59,6 +70,7 @@ import { deleteFinalRatio, getScoreHistory, recalculatePeriod, saveFinalRatio } 
 import { markSwitchedOff } from '@/lib/score-history'
 import { useModuleAccess } from '@/features/auth/module-access'
 import { LeadTargetCard } from './LeadTargetCard'
+import { ScoreGroupTabs } from './ScoreGroupTabs'
 import { scoreModulesOff } from '../../../shared/module-access'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { formatFinal, formatPart, formatScore } from './format'
@@ -191,6 +203,7 @@ export function ScoreHistoryPage() {
   const { user, isAdmin, canManageTeam } = useAuth()
   const [kind, setKind] = useState<PeriodKind>('week')
   const [view, setView] = useState<View>('all')
+  const [group, setGroup] = useState<ScoreGroup>('payments')
   const [data, setData] = useState<ScoreHistoryResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -243,12 +256,22 @@ export function ScoreHistoryPage() {
     return [...names.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [canManageTeam, user, periods])
 
+  // The score on screen: its name and its modules, as the period on screen has them.
+  const currentGroups = data?.scoreGroups ?? DEFAULT_SCORE_GROUPS
+  const shownModules = modulesInGroup(selected?.scoreGroups ?? currentGroups, group)
+  const scoreName = `${scoreGroupLabel(group)} score`
+  const chooseGroup = (next: ScoreGroup) => {
+    setGroup(next)
+    // A module over time stays only if it counts in the score chosen.
+    if (view !== 'all' && currentGroups[view] !== next) setView('all')
+  }
+
   const entryOf = (period: PeriodScores | null, personId: string, m: ScoreModule) =>
     period?.entries.find((e) => e.coordinatorId === personId && e.module === m)
   const finalOf = (period: PeriodScores | null, personId: string) =>
-    finalScoreOf(period?.entries.filter((e) => e.coordinatorId === personId) ?? [], weightsFor(period, personId))
+    groupFinalOf(period, personId, group, currentGroups)
   // The hint follows the period on screen: worked out by a ratio (the team's or someone's own), or the plain average.
-  const ratio = selected?.finalWeights ?? (selected?.personWeights && Object.keys(selected.personWeights).length ? selected.personWeights : null)
+  const ratio = Boolean(selected && people.some((p) => groupWeightsFor(selected, p.id, group, selected.scoreGroups ?? currentGroups)))
   const finalHint = ratio ? FINAL_WEIGHTED_HINT : FINAL_HINT
 
   const workOutAgain = async () => {
@@ -274,24 +297,24 @@ export function ScoreHistoryPage() {
     const me = user?.id ?? ''
     if (!canManageTeam) {
       rows.push(['', ...periods.map((p) => periodLabel(p.kind, p.key))])
-      for (const m of SCORE_MODULES) rows.push([m.label, ...periods.map((p) => cellText(entryOf(p, me, m.id), kind))])
-      rows.push(['Final score', ...periods.map((p) => formatFinal(finalOf(p, me).score))])
+      for (const m of shownModules) rows.push([m.label, ...periods.map((p) => cellText(entryOf(p, me, m.id), kind))])
+      rows.push([scoreName, ...periods.map((p) => formatFinal(finalOf(p, me).score))])
     } else if (view === 'all' && selected) {
-      rows.push(['Coordinator', ...SCORE_MODULES.map((m) => m.label), 'Final score'])
+      rows.push(['Coordinator', ...shownModules.map((m) => m.label), scoreName])
       for (const person of people) {
-        rows.push([person.name, ...SCORE_MODULES.map((m) => cellText(entryOf(selected, person.id, m.id), kind)), formatFinal(finalOf(selected, person.id).score)])
+        rows.push([person.name, ...shownModules.map((m) => cellText(entryOf(selected, person.id, m.id), kind)), formatFinal(finalOf(selected, person.id).score)])
       }
       rows.push([])
       rows.push(['Details'])
       for (const person of people) {
-        for (const m of SCORE_MODULES) {
+        for (const m of shownModules) {
           const e = entryOf(selected, person.id, m.id)
           if (e) rows.push([person.name, m.label, detailText(e, kind)])
         }
-        rows.push([person.name, 'Final score', finalDetail(finalOf(selected, person.id))])
+        rows.push([person.name, scoreName, finalDetail(finalOf(selected, person.id))])
       }
     } else if (view !== 'all') {
-      rows.push(['Coordinator', ...periods.map((p) => periodLabel(p.kind, p.key)), 'Average', `Final score (average of ${periods.length} ${kind}s)`])
+      rows.push(['Coordinator', ...periods.map((p) => periodLabel(p.kind, p.key)), 'Average', `${scoreName} (average of ${periods.length} ${kind}s)`])
       for (const person of people) {
         const scores = periods.map((p) => entryOf(p, person.id, view)?.score ?? null)
         const final = averageOf(periods.map((p) => finalOf(p, person.id).score))
@@ -299,11 +322,11 @@ export function ScoreHistoryPage() {
       }
     }
     const what = view === 'all' ? (selected ? periodLabel(selected.kind, selected.key) : kind) : moduleLabel(view)
-    downloadWorkbook(`Final score - ${what}.xlsx`, [{ name: 'Scores', rows }])
+    downloadWorkbook(`${scoreName} - ${what}.xlsx`, [{ name: 'Scores', rows }])
   }
 
   const header = (
-    <PageHeader title="Final score" subtitle="Each coordinator’s final score and every module’s score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
+    <PageHeader title="Final score" subtitle="Each coordinator’s Payments and Operations scores and every module’s score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
       <Button variant="outline" onClick={() => void download()} disabled={!periods.length}>
         <Download className="mr-2 h-4 w-4" /> Excel
       </Button>
@@ -312,6 +335,10 @@ export function ScoreHistoryPage() {
 
   const controls = (
     <GlassCard className="flex flex-wrap items-end gap-4 p-4">
+      <div className="space-y-1">
+        <p className="text-xs text-muted-foreground">Score</p>
+        <ScoreGroupTabs value={group} onChange={chooseGroup} />
+      </div>
       <div className="space-y-1">
         <p className="text-xs text-muted-foreground">Period</p>
         <div className="flex rounded-full bg-muted p-0.5" role="radiogroup" aria-label="Week, month or year">
@@ -337,8 +364,8 @@ export function ScoreHistoryPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All modules, one period</SelectItem>
-              {SCORE_MODULES.map((m) => (
+              <SelectItem value="all">{scoreGroupLabel(group)} modules, one period</SelectItem>
+              {shownModules.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
                   {m.label} over time
                 </SelectItem>
@@ -356,7 +383,7 @@ export function ScoreHistoryPage() {
 
   const finalNote = (
     <p className="text-xs text-muted-foreground">
-      <span className="font-semibold text-foreground">Final score:</span> {finalHint}{' '}
+      <span className="font-semibold text-foreground">{scoreName}:</span> {finalHint} It counts only the {scoreGroupLabel(group)} modules.{' '}
       {!ratio && (
         <>
           <span className="text-foreground">*</span> only one module had a score that period.{' '}
@@ -396,7 +423,7 @@ export function ScoreHistoryPage() {
               </tr>
             </thead>
             <tbody>
-              {SCORE_MODULES.map((m) => (
+              {shownModules.map((m) => (
                 <tr key={m.id} className="border-t border-border/50">
                   <td className={NAME_TD} title={m.hint}>
                     {m.label}
@@ -413,7 +440,7 @@ export function ScoreHistoryPage() {
               ))}
               <tr className="border-t-2 border-border bg-primary/5">
                 <td className={cn(NAME_TD, 'font-semibold')} title={finalHint}>
-                  Final score
+                  {scoreName}
                 </td>
                 {visible.map((p) => {
                   const f = finalOf(p, me)
@@ -473,7 +500,7 @@ export function ScoreHistoryPage() {
           <table className="w-full min-w-[720px] table-fixed lg:min-w-0" data-testid="score-table">
             <colgroup>
               <col className="w-[19%]" />
-              {SCORE_MODULES.map((m) => (
+              {shownModules.map((m) => (
                 <col key={m.id} />
               ))}
               <col className="w-[10%]" />
@@ -481,13 +508,13 @@ export function ScoreHistoryPage() {
             <thead className="bg-muted/50 text-muted-foreground">
               <tr>
                 <th className={cn(TH, 'text-left')}>Coordinator</th>
-                {SCORE_MODULES.map((m) => (
+                {shownModules.map((m) => (
                   <th key={m.id} className={TH} title={m.hint}>
                     {m.short}
                   </th>
                 ))}
                 <th className={cn(TH, FINAL_COL, 'text-foreground')} title={finalHint}>
-                  Final score
+                  {scoreName}
                 </th>
               </tr>
             </thead>
@@ -497,7 +524,7 @@ export function ScoreHistoryPage() {
                   <td className={NAME_TD} title={person.name}>
                     {person.name}
                   </td>
-                  {SCORE_MODULES.map((m) => {
+                  {shownModules.map((m) => {
                     const e = entryOf(selected, person.id, m.id)
                     return (
                       <td key={m.id} className={cn(TD, e ? toneOf(m.id, e.score) : 'text-muted-foreground')} title={e ? detailText(e, kind) : 'Nothing to score'}>
@@ -513,7 +540,7 @@ export function ScoreHistoryPage() {
               ))}
               <tr className="border-t-2 border-border bg-muted/30 font-semibold">
                 <td className={NAME_TD}>Team average</td>
-                {SCORE_MODULES.map((m) => {
+                {shownModules.map((m) => {
                   const avg = averageOf(selected.entries.filter((e) => e.module === m.id).map((e) => e.score))
                   return (
                     <td key={m.id} className={cn(TD, toneOf(m.id, avg))}>
@@ -559,8 +586,8 @@ export function ScoreHistoryPage() {
                 <th className={cn(TH, 'border-l border-border/60 text-foreground')} title={`Average of the last ${span}`}>
                   Average
                 </th>
-                <th className={cn(TH, FINAL_COL, 'text-foreground')} title={`The average of each ${kind}’s final score over the last ${span}`}>
-                  Final score
+                <th className={cn(TH, FINAL_COL, 'text-foreground')} title={`The average of each ${kind}’s ${scoreName} over the last ${span}`}>
+                  {scoreName}
                 </th>
               </tr>
             </thead>
@@ -584,7 +611,7 @@ export function ScoreHistoryPage() {
                       )
                     })}
                     <td className={cn(TD, 'border-l border-border/60 font-semibold', toneOf(m.id, avg))}>{m.id === 'service' && kind === 'week' && avg === null ? '—' : formatScore(m.id, avg)}</td>
-                    <td className={cn(TD, FINAL_COL, finalTone(final))} title={`Average final score over the last ${span}`}>
+                    <td className={cn(TD, FINAL_COL, finalTone(final))} title={`Average ${scoreName} over the last ${span}`}>
                       {formatFinal(final === null ? null : round1(final))}
                       {onlyOne && (
                         <span className="ml-0.5 text-muted-foreground" title="Only one module had a score in these periods">
@@ -599,7 +626,7 @@ export function ScoreHistoryPage() {
           </table>
         </div>
         <p className="text-xs text-muted-foreground">
-          <span className="font-semibold text-foreground">Final score:</span> the average of each {kind}’s final score (as in All modules) over the last {span}.{' '}
+          <span className="font-semibold text-foreground">{scoreName}:</span> the average of each {kind}’s {scoreName} over the last {span}.{' '}
           <span className="text-foreground">*</span> only one module had a score in those {kind}s.
         </p>
       </GlassCard>
@@ -611,7 +638,7 @@ export function ScoreHistoryPage() {
     <div className="space-y-6 pb-24">
       {header}
       {controls}
-      <FinalRatioCard ratios={data?.finalRatios ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
+      <FinalRatioCard key={group} group={group} groups={currentGroups} ratios={data?.finalRatios ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
       <LeadTargetCard targets={data?.leadTargets ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
       {body}
     </div>
@@ -626,23 +653,28 @@ export function ScoreHistoryPage() {
  * force on its first day; dates no ratio covers use the nearest earlier one.
  * A period already locked keeps the ratio it locked with.
  */
-function FinalRatioCard({ ratios, today, isAdmin, loaded, onSaved }: { ratios: FinalRatio[]; today: string; isAdmin: boolean; loaded: boolean; onSaved: () => Promise<void> }) {
+function FinalRatioCard({ group, groups, ratios: allRatios, today, isAdmin, loaded, onSaved }: { group: ScoreGroup; groups: ScoreGroupMap; ratios: FinalRatio[]; today: string; isAdmin: boolean; loaded: boolean; onSaved: () => Promise<void> }) {
   const [editing, setEditing] = useState<FinalRatio | 'new' | null>(null)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  if (!loaded || (!ratios.length && !isAdmin)) return null
+  // This score's ratios; until it has one, the all-module ratio's shares for its modules, scaled to 100%.
+  const ratios = allRatios.filter((r) => r.group === group)
+  const modules = modulesInGroup(groups, group)
+  const carried = sharesWithin(ratioOn(allRatios.filter((r) => !r.group), today)?.weights ?? {}, modules)
+  const carriedText = modules.filter((m) => (carried[m.id] ?? 0) > 0).map((m) => `${m.label} ${carried[m.id]}%`).join(' · ')
+  if (!loaded || (!ratios.length && !carriedText && !isAdmin)) return null
 
   const inForce = ratioOn(ratios, today)
   const start = (ratio: FinalRatio | 'new') => {
-    const base = ratio === 'new' ? ratios[ratios.length - 1] : ratio
+    const base = ratio === 'new' ? ratios[ratios.length - 1]?.weights ?? carried : ratio.weights
     setFrom(ratio === 'new' ? today : ratio.from)
     setTo(ratio === 'new' ? '' : ratio.to ?? '')
-    setDraft(Object.fromEntries(SCORE_MODULES.map((m) => [m.id, String(base?.weights[m.id] ?? 0)])))
+    setDraft(Object.fromEntries(modules.map((m) => [m.id, String(base[m.id] ?? 0)])))
     setEditing(ratio)
   }
-  const numbers = SCORE_MODULES.map((m) => ((draft[m.id] ?? '').trim() === '' ? 0 : Number(draft[m.id])))
+  const numbers = modules.map((m) => ((draft[m.id] ?? '').trim() === '' ? 0 : Number(draft[m.id])))
   const valid = numbers.every((n) => Number.isFinite(n) && n >= 0 && n <= 100)
   const total = Math.round(numbers.reduce((a, n) => a + (Number.isFinite(n) ? n : 0), 0) * 100) / 100
   const datesOk = Boolean(from) && (!to || to >= from)
@@ -653,10 +685,10 @@ function FinalRatioCard({ ratios, today, isAdmin, loaded, onSaved }: { ratios: F
     setSaving(true)
     try {
       await saveFinalRatio(
-        { from, to: to || null, weights: Object.fromEntries(SCORE_MODULES.map((m, i) => [m.id, numbers[i]])) as FinalWeights },
+        { from, to: to || null, group, weights: Object.fromEntries(modules.map((m, i) => [m.id, numbers[i]])) as FinalWeights },
         editing === 'new' ? undefined : editing.id
       )
-      toast.success('Final score ratio saved.', { description: 'Weeks, months and years from these dates that are still open use it; locked ones keep theirs.' })
+      toast.success(`${scoreGroupLabel(group)} ratio saved.`, { description: 'Weeks, months and years from these dates that are still open use it; locked ones keep theirs.' })
       setEditing(null)
       await onSaved()
     } catch (err) {
@@ -684,11 +716,13 @@ function FinalRatioCard({ ratios, today, isAdmin, loaded, onSaved }: { ratios: F
     <GlassCard className="space-y-3 p-4" data-testid="final-ratio">
       <div className="flex flex-wrap items-center gap-3">
         <Scale className="h-4 w-4 text-muted-foreground" />
-        <p className="text-sm font-semibold">Final score ratio</p>
+        <p className="text-sm font-semibold">{scoreGroupLabel(group)} ratio</p>
         <p className="text-xs text-muted-foreground">
           {ratios.length
             ? 'A week, month or year uses the ratio in force on its first day; dates no ratio covers use the nearest earlier one. Locked periods keep theirs.'
-            : 'Not set: the final score is the plain average of the modules that have a score.'}
+            : carriedText
+              ? `Not set yet: uses the team ratio's shares scaled to 100%: ${carriedText}.`
+              : 'Not set: the score is the plain average of the modules that have a score.'}
         </p>
         {isAdmin && !editing && (
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => start('new')} data-testid="final-ratio-add">
@@ -744,7 +778,7 @@ function FinalRatioCard({ ratios, today, isAdmin, loaded, onSaved }: { ratios: F
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {SCORE_MODULES.map((m) => (
+            {modules.map((m) => (
               <label key={m.id} className="space-y-1">
                 <span className="text-xs text-muted-foreground">{m.label}</span>
                 <div className="flex items-center gap-1.5">

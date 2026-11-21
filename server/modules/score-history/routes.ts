@@ -9,7 +9,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { ApiError } from '../../http/errors'
 import type { Logger } from '../../logger'
 import { requireRole } from '../auth/middleware'
-import { lockGraceDays, type PeriodKind, type PeriodScores, type ScoreHistoryResponse } from '../../../src/lib/score-history'
+import { lockGraceDays, type FinalWeights, type PeriodKind, type PeriodScores, type ScoreGroup, type ScoreHistoryResponse } from '../../../src/lib/score-history'
 import { toLocalISODate } from '../../../src/lib/utils'
 import type { ScoreHistoryStore } from './store'
 
@@ -17,9 +17,18 @@ const KINDS: PeriodKind[] = ['week', 'month', 'year']
 
 /** A coordinator sees only their own lines, and only their own ratio. */
 function ownLines(p: PeriodScores, userId: string): PeriodScores {
-  const { personWeights, ...rest } = p
+  const { personWeights, personGroupWeights, ...rest } = p
   const mine = personWeights?.[userId]
-  return { ...rest, entries: p.entries.filter((e) => e.coordinatorId === userId), ...(mine ? { personWeights: { [userId]: mine } } : {}) }
+  const mineByGroup: NonNullable<PeriodScores['personGroupWeights']> = {}
+  for (const [group, people] of Object.entries(personGroupWeights ?? {}) as [ScoreGroup, Record<string, FinalWeights>][]) {
+    if (people[userId]) mineByGroup[group] = { [userId]: people[userId] }
+  }
+  return {
+    ...rest,
+    entries: p.entries.filter((e) => e.coordinatorId === userId),
+    ...(mine ? { personWeights: { [userId]: mine } } : {}),
+    ...(Object.keys(mineByGroup).length ? { personGroupWeights: mineByGroup } : {}),
+  }
 }
 const DEFAULT_COUNT: Record<PeriodKind, number> = { week: 12, month: 12, year: 10 }
 
@@ -38,6 +47,7 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
         graceDays: lockGraceDays(kind),
         periods: store.periods(kind, count).map((p) => (seesTeam ? p : ownLines(p, user.id))),
         finalRatios: store.finalRatios(),
+        scoreGroups: store.scoreGroups(),
         // Who has a ratio of their own is for the team leader and the administrator.
         ...(seesTeam ? { personRatios: store.personRatios() } : {}),
         leadTargets: store.leadTargets(),
@@ -100,6 +110,19 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
     }
     logger.info('score history: self leads target removed', { id: req.params.id, by: req.user!.id })
     res.json({ leadTargets: store.leadTargets() })
+  })
+
+  // Which of the two scores each module counts in (21 Nov 2026): the administrator's.
+  router.put('/groups', requireRole(), (req, res, next) => {
+    let scoreGroups
+    try {
+      scoreGroups = store.saveScoreGroups((req.body as { groups?: unknown } | undefined)?.groups)
+    } catch (err) {
+      next(ApiError.badRequest(err instanceof Error ? err.message : 'Those groups cannot be used.'))
+      return
+    }
+    logger.info('score history: score groups saved', { scoreGroups, by: req.user!.id })
+    res.json({ scoreGroups })
   })
 
   // Ratios for particular coordinators (20 Nov 2026): the administrator adds, changes and removes them.

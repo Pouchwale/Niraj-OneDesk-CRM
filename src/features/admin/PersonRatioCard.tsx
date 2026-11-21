@@ -4,8 +4,11 @@
  * every module's share, adding up to 100% - instead of the team ratio set on
  * the Final score page. Tick people one by one, or a whole team at once and
  * untick some. No dates: it counts from now until it is removed. Open weeks,
- * months and years use it; locked ones keep the ratio they locked with. A
- * person is on one such ratio at most.
+ * months and years use it; locked ones keep the ratio they locked with.
+ *
+ * Since 21 Nov 2026 a ratio is for one of the two scores, Payments or
+ * Operations, with shares for that score's modules; a person may have one for
+ * each score.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -17,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { getAllCoordinators } from '@/features/auth/AuthContext'
 import { deletePersonRatio, getScoreHistory, savePersonRatio } from '@/lib/score-history-api'
-import { ratioOn, SCORE_MODULES, type FinalRatio, type FinalWeights, type PersonRatio } from '@/lib/score-history'
+import { DEFAULT_SCORE_GROUPS, modulesInGroup, ratioOn, SCORE_GROUPS, SCORE_MODULES, scoreGroupLabel, sharesWithin, type FinalRatio, type FinalWeights, type PersonRatio, type ScoreGroup, type ScoreGroupMap } from '@/lib/score-history'
 import { cn } from '@/lib/utils'
 
 const sharesText = (weights: FinalWeights) =>
@@ -25,7 +28,9 @@ const sharesText = (weights: FinalWeights) =>
     .map((m) => `${m.short} ${weights[m.id]}%`)
     .join(' · ') || 'No shares'
 
-export function PersonRatioCard() {
+export function PersonRatioCard({ version = 0 }: { version?: number }) {
+  const [group, setGroup] = useState<ScoreGroup>('payments')
+  const [groups, setGroups] = useState<ScoreGroupMap>(DEFAULT_SCORE_GROUPS)
   const [ratios, setRatios] = useState<PersonRatio[] | null>(null)
   const [teamRatios, setTeamRatios] = useState<FinalRatio[]>([])
   const [today, setToday] = useState('')
@@ -43,6 +48,7 @@ export function PersonRatioCard() {
       const data = await getScoreHistory('week', 1)
       setRatios(data.personRatios ?? [])
       setTeamRatios(data.finalRatios)
+      setGroups(data.scoreGroups ?? DEFAULT_SCORE_GROUPS)
       setToday(data.today)
     } catch (err) {
       toast.error('Could not load the ratios.', { description: err instanceof Error ? err.message : 'Try again.' })
@@ -50,17 +56,33 @@ export function PersonRatioCard() {
   }, [])
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, version])
 
-  // People already on another ratio of their own cannot be ticked here.
+  const editingId = editing && editing !== 'new' ? editing.id : null
+  const onOtherRatio = (r: PersonRatio, g: ScoreGroup) => r.id !== editingId && (!r.group || r.group === g)
+  // People already on another ratio of their own for this score cannot be ticked here.
   const elsewhere = new Map<string, PersonRatio>()
-  for (const r of ratios ?? []) if (editing === 'new' || r.id !== (editing as PersonRatio | null)?.id) for (const id of r.coordinatorIds) elsewhere.set(id, r)
+  for (const r of ratios ?? []) if (onOtherRatio(r, group)) for (const id of r.coordinatorIds) elsewhere.set(id, r)
 
+  const modules = modulesInGroup(groups, group)
+  /** The team's shares for a score: its own ratio, or the all-module ratio's scaled to 100%. */
+  const teamShares = (g: ScoreGroup): FinalWeights =>
+    ratioOn(teamRatios.filter((r) => r.group === g), today)?.weights ?? sharesWithin(ratioOn(teamRatios.filter((r) => !r.group), today)?.weights ?? {}, modulesInGroup(groups, g))
+  const fill = (g: ScoreGroup, weights: FinalWeights | null) => {
+    const base = weights ?? teamShares(g)
+    setDraft(Object.fromEntries(modulesInGroup(groups, g).map((m) => [m.id, String(base[m.id] ?? 0)])))
+  }
   const start = (ratio: PersonRatio | 'new') => {
-    const base = ratio === 'new' ? ratioOn(teamRatios, today)?.weights ?? {} : ratio.weights
+    const g = ratio === 'new' ? group : ratio.group ?? 'payments'
+    setGroup(g)
     setPicked(new Set(ratio === 'new' ? [] : ratio.coordinatorIds))
-    setDraft(Object.fromEntries(SCORE_MODULES.map((m) => [m.id, String(base[m.id] ?? 0)])))
+    fill(g, ratio === 'new' ? null : ratio.weights)
     setEditing(ratio)
+  }
+  const chooseGroup = (g: ScoreGroup) => {
+    setGroup(g)
+    fill(g, null)
+    setPicked((prev) => new Set([...prev].filter((id) => !(ratios ?? []).some((r) => onOtherRatio(r, g) && r.coordinatorIds.includes(id)))))
   }
   const toggle = (id: string, on: boolean) =>
     setPicked((prev) => {
@@ -72,7 +94,7 @@ export function PersonRatioCard() {
   const pickTeam = (team: string) =>
     setPicked((prev) => new Set([...prev, ...coordinators.filter((c) => c.module === team && !elsewhere.has(c.id)).map((c) => c.id)]))
 
-  const numbers = SCORE_MODULES.map((m) => ((draft[m.id] ?? '').trim() === '' ? 0 : Number(draft[m.id])))
+  const numbers = modules.map((m) => ((draft[m.id] ?? '').trim() === '' ? 0 : Number(draft[m.id])))
   const valid = numbers.every((n) => Number.isFinite(n) && n >= 0 && n <= 100)
   const total = Math.round(numbers.reduce((a, n) => a + (Number.isFinite(n) ? n : 0), 0) * 100) / 100
   const totalOk = valid && Math.abs(total - 100) < 0.001
@@ -82,10 +104,10 @@ export function PersonRatioCard() {
     if (!editing) return
     setSaving(true)
     try {
-      const weights = Object.fromEntries(SCORE_MODULES.map((m, i) => [m.id, numbers[i]])) as FinalWeights
-      const result = await savePersonRatio({ coordinatorIds: [...picked], weights }, editing === 'new' ? undefined : editing.id)
+      const weights = Object.fromEntries(modules.map((m, i) => [m.id, numbers[i]])) as FinalWeights
+      const result = await savePersonRatio({ coordinatorIds: [...picked], weights, group }, editing === 'new' ? undefined : editing.id)
       setRatios(result.personRatios)
-      toast.success(`Ratio saved for ${picked.size} ${picked.size === 1 ? 'person' : 'people'}.`, {
+      toast.success(`${scoreGroupLabel(group)} ratio saved for ${picked.size} ${picked.size === 1 ? 'person' : 'people'}.`, {
         description: 'Their open weeks, months and years use it from now on; locked ones keep theirs.',
       })
       setEditing(null)
@@ -107,7 +129,7 @@ export function PersonRatioCard() {
     }
   }
 
-  const teamNow = ratioOn(teamRatios, today)
+  const teamNow = teamShares(group)
 
   return (
     <GlassCard className="space-y-4 p-4 sm:p-6" data-testid="person-ratio">
@@ -116,8 +138,8 @@ export function PersonRatioCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-base font-semibold">Final score ratio per person</h3>
           <p className="text-xs text-muted-foreground">
-            Give some coordinators their own share for each module (adding up to 100%) instead of the team ratio
-            {teamNow ? ` (now: ${sharesText(teamNow.weights)})` : ' (none set yet: the plain average)'}. It counts from now until you remove
+            Give some coordinators their own shares for the Payments or Operations score (adding up to 100%) instead of the team's
+            {Object.keys(teamNow).length ? ` (${scoreGroupLabel(group)} now: ${sharesText(teamNow)})` : ' (none set yet: the plain average)'}. It counts from now until you remove
             it: open weeks, months and years use it; locked ones keep theirs.
           </p>
         </div>
@@ -134,7 +156,9 @@ export function PersonRatioCard() {
             <div key={r.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm" data-testid="person-ratio-row">
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{r.coordinatorIds.map(nameOf).join(', ')}</p>
-                <p className="text-xs text-muted-foreground">{sharesText(r.weights)}</p>
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{r.group ? scoreGroupLabel(r.group) : 'Both scores'}</span> · {sharesText(r.weights)}
+                </p>
               </div>
               {!editing && (
                 <div className="flex gap-2">
@@ -154,6 +178,24 @@ export function PersonRatioCard() {
 
       {editing && (
         <div className="space-y-4 rounded-md border border-primary/30 bg-primary/5 p-3" data-testid="person-ratio-form">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">Score</p>
+            <div className="flex rounded-full bg-muted p-0.5" role="radiogroup" aria-label="Which score this ratio is for">
+              {SCORE_GROUPS.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={group === g.id}
+                  onClick={() => chooseGroup(g.id)}
+                  className={cn('rounded-full px-4 py-1 text-sm font-medium', group === g.id ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+                  data-testid={`person-ratio-group-${g.id}`}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium">People</p>
@@ -186,9 +228,9 @@ export function PersonRatioCard() {
           </div>
 
           <div className="space-y-2">
-            <p className="text-sm font-medium">Share of each module</p>
+            <p className="text-sm font-medium">Share of each {scoreGroupLabel(group)} module</p>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {SCORE_MODULES.map((m) => (
+              {modules.map((m) => (
                 <label key={m.id} className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-2.5 py-1.5 text-sm">
                   <span className="truncate">{m.label}</span>
                   <span className="flex items-center gap-1">

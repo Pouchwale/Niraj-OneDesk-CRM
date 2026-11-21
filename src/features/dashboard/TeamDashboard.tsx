@@ -17,10 +17,11 @@ import { Button } from '@/components/ui/button'
 import { getAllCoordinators } from '@/features/auth/AuthContext'
 import { useModuleAccess } from '@/features/auth/module-access'
 import { formatFinal } from '@/features/score-history/format'
+import { ScoreGroupTabs } from '@/features/score-history/ScoreGroupTabs'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { openRfdRows } from '@/lib/rfd-marks'
 import { getFollowupCommitments, type Commitment } from '@/lib/followups-api'
-import { markSwitchedOff, periodLabel, weekOf, type PeriodScores } from '@/lib/score-history'
+import { markSwitchedOff, periodLabel, scoreGroupLabel, weekOf, type PeriodScores, type ScoreGroup, type ScoreGroupMap } from '@/lib/score-history'
 import { getScoreHistory } from '@/lib/score-history-api'
 import { getSavedDay, listSavedDays } from '@/lib/snapshots-api'
 import { cn, formatCurrency, todayISO } from '@/lib/utils'
@@ -45,6 +46,9 @@ export function TeamDashboard() {
   const today = todayISO()
   const thisWeek = weekOf(today)
   const [weekStart, setWeekStart] = useState(thisWeek)
+  // The two scores (21 Nov 2026): the score columns show one at a time.
+  const [group, setGroup] = useState<ScoreGroup>('payments')
+  const [scoreGroups, setScoreGroups] = useState<ScoreGroupMap | undefined>()
   const access = useModuleAccess()
   const quotations = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.quotations)
   const rfdSheet = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.rfdRows)
@@ -67,6 +71,7 @@ export function TeamDashboard() {
       .then(([w, m, d]) => {
         if (!live) return
         setWeeks(w.periods)
+        setScoreGroups(w.scoreGroups)
         setMonths(m.periods)
         setDays(d.days)
       })
@@ -122,8 +127,10 @@ export function TeamDashboard() {
         rfdRows,
         billingIssues,
         modulesOff: (id) => modulesOff(access, id),
+        group,
+        scoreGroups,
       }),
-    [weekStart, today, coordinators, weekPeriods, monthPeriods, atStart, atEnd, commitments, quotations, rfdRows, billingIssues, access]
+    [weekStart, today, coordinators, weekPeriods, monthPeriods, atStart, atEnd, commitments, quotations, rfdRows, billingIssues, access, group, scoreGroups]
   )
   const t = teamTotals(rows)
   const collectedNote = !startDay ? 'No Overdue day was saved on that Saturday' : !atEnd ? 'No day saved after the week yet' : null
@@ -144,6 +151,7 @@ export function TeamDashboard() {
     <div className="space-y-5" data-testid="team-dashboard">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold tracking-tight">Team performance</h2>
+        <ScoreGroupTabs value={group} onChange={setGroup} />
         <div className="flex items-center gap-2">
           <Button size="icon" variant="outline" className="h-8 w-8" aria-label="Previous week" disabled={weekStart <= firstWeek} onClick={() => setWeekStart(addDaysISO(weekStart, -7))}>
             <ChevronLeft className="h-4 w-4" />
@@ -159,7 +167,7 @@ export function TeamDashboard() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
-          title="Team final score"
+          title={`Team ${scoreGroupLabel(group)} score`}
           value={formatFinal(t.final)}
           hint={`Month ${formatFinal(t.monthFinal)}${t.change !== null ? ` · ${t.change >= 0 ? '+' : ''}${t.change} vs last week` : ''}`}
           icon={Gauge}
@@ -199,7 +207,7 @@ export function TeamDashboard() {
           <thead className="bg-muted/50 text-xs text-muted-foreground">
             <tr>
               <th className="px-4 py-2.5 text-left font-medium">Coordinator</th>
-              <th className="px-3 py-2.5 text-right font-medium">Final score</th>
+              <th className="px-3 py-2.5 text-right font-medium">{scoreGroupLabel(group)} score</th>
               <th className="px-3 py-2.5 text-right font-medium">vs last week</th>
               <th className="px-3 py-2.5 text-right font-medium">Month</th>
               <th className="px-3 py-2.5 text-left font-medium">Losing most on</th>
@@ -221,7 +229,7 @@ export function TeamDashboard() {
                 <td className={cn('px-3 py-2.5 text-right tabular-nums', tone(r.monthFinal))}>{formatFinal(r.monthFinal)}</td>
                 <td className="whitespace-nowrap px-3 py-2.5 text-left">
                   {r.weakest ? (
-                    <span title={`${r.weakest.lost} points of the final score lost here`}>
+                    <span title={`${r.weakest.lost} points of the ${scoreGroupLabel(group)} score lost here`}>
                       {r.weakest.label} <span className="text-xs text-rose-600 dark:text-rose-400">-{r.weakest.lost}</span>
                     </span>
                   ) : (

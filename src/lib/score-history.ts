@@ -81,19 +81,102 @@ export interface FinalRatio extends FinalWeightsSetting {
   id: string
   from: string
   to: string | null
+  /** The score it is for (21 Nov 2026). Absent: a ratio over all modules, from before there were two scores. */
+  group?: ScoreGroup
+}
+
+/* ===================== The two scores (21 Nov 2026) ===================== */
+
+/**
+ * The user's rule: each coordinator has two separate scores, Payments and
+ * Operations, with no combined score. The administrator chooses which modules
+ * count in which (Admin Panel), and each score has its own ratio adding up to
+ * 100%. Until a score has a ratio of its own, it uses the all-module ratio's
+ * shares for its modules, scaled up to 100%.
+ */
+export type ScoreGroup = 'payments' | 'operations'
+export const SCORE_GROUPS: { id: ScoreGroup; label: string }[] = [
+  { id: 'payments', label: 'Payments' },
+  { id: 'operations', label: 'Operations' },
+]
+export type ScoreGroupMap = Record<ScoreModule, ScoreGroup>
+export const DEFAULT_SCORE_GROUPS: ScoreGroupMap = {
+  robi: 'payments',
+  kpi: 'payments',
+  kpi_dispute: 'payments',
+  quotations: 'operations',
+  billing: 'operations',
+  service: 'operations',
+  self_leads: 'operations',
+}
+export const scoreGroupLabel = (group: ScoreGroup) => SCORE_GROUPS.find((g) => g.id === group)?.label ?? group
+const isScoreGroup = (v: unknown): v is ScoreGroup => SCORE_GROUPS.some((g) => g.id === v)
+export const modulesInGroup = (groups: ScoreGroupMap, group: ScoreGroup) => SCORE_MODULES.filter((m) => groups[m.id] === group)
+
+/** Which score each module counts in, as given, checked. Throws a message for the screen. */
+export function checkScoreGroups(value: unknown): ScoreGroupMap {
+  const v = (value ?? {}) as Record<string, unknown>
+  const out = {} as ScoreGroupMap
+  for (const m of SCORE_MODULES) {
+    if (!isScoreGroup(v[m.id])) throw new Error(`Choose Payments or Operations for ${m.label}.`)
+    out[m.id] = v[m.id] as ScoreGroup
+  }
+  for (const g of SCORE_GROUPS) if (!modulesInGroup(out, g.id).length) throw new Error(`${g.label} needs at least one module.`)
+  return out
+}
+
+/** A ratio for one score may only give shares to that score's modules. Throws a message for the screen. */
+export function checkGroupShares(weights: FinalWeights, group: ScoreGroup, groups: ScoreGroupMap): void {
+  const outside = SCORE_MODULES.filter((m) => (weights[m.id] ?? 0) > 0 && groups[m.id] !== group)
+  if (outside.length) throw new Error(`${outside.map((m) => m.label).join(', ')} ${outside.length === 1 ? 'is' : 'are'} not in the ${scoreGroupLabel(group)} score.`)
+}
+
+/** A ratio's shares for these modules only, scaled to add up to exactly 100; empty when it gives them none. */
+export function sharesWithin(weights: FinalWeights, modules: readonly { id: ScoreModule }[]): FinalWeights {
+  const kept = modules.filter((m) => (weights[m.id] ?? 0) > 0)
+  const total = kept.reduce((a, m) => a + (weights[m.id] ?? 0), 0)
+  if (total <= 0) return {}
+  if (Math.abs(total - 100) < 0.001) return Object.fromEntries(kept.map((m) => [m.id, weights[m.id]!])) as FinalWeights
+  const out: FinalWeights = {}
+  for (const m of kept) out[m.id] = Math.round(((weights[m.id] ?? 0) / total) * 10000) / 100
+  // Rounding can leave 99.99: the largest share takes the difference.
+  const largest = kept.reduce((a, m) => ((out[m.id] ?? 0) > (out[a.id] ?? 0) ? m : a), kept[0])
+  const left = 100 - kept.reduce((a, m) => a + (out[m.id] ?? 0), 0)
+  out[largest.id] = Math.round(((out[largest.id] ?? 0) + left) * 100) / 100
+  return out
+}
+
+/** The ratio a coordinator's score uses in a period: their own for it, their own overall, the team's for it, the team's overall; null: the plain average. */
+export function groupWeightsFor(
+  period: Pick<PeriodScores, 'finalWeights' | 'personWeights' | 'groupWeights' | 'personGroupWeights'> | null | undefined,
+  coordinatorId: string,
+  group: ScoreGroup,
+  groups: ScoreGroupMap
+): FinalWeights | null {
+  const picked = period?.personGroupWeights?.[group]?.[coordinatorId] ?? period?.personWeights?.[coordinatorId] ?? period?.groupWeights?.[group] ?? period?.finalWeights ?? null
+  return picked ? sharesWithin(picked, modulesInGroup(groups, group)) : null
+}
+
+/** One coordinator's Payments or Operations score for a period. */
+export function groupFinalOf(period: PeriodScores | null | undefined, coordinatorId: string, group: ScoreGroup, fallback: ScoreGroupMap = DEFAULT_SCORE_GROUPS) {
+  const groups = period?.scoreGroups ?? fallback
+  const modules = new Set(modulesInGroup(groups, group).map((m) => m.id))
+  const entries = (period?.entries ?? []).filter((e) => e.coordinatorId === coordinatorId && modules.has(e.module))
+  return finalScoreOf(entries, groupWeightsFor(period, coordinatorId, group, groups))
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 const isDay = (v: unknown): v is string => typeof v === 'string' && DAY.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
 
 /** A dated ratio as given, checked. Throws a message for the screen. */
-export function checkFinalRatio(value: unknown): { from: string; to: string | null; weights: FinalWeights } {
-  const v = (value ?? {}) as { from?: unknown; to?: unknown; weights?: unknown }
+export function checkFinalRatio(value: unknown): { from: string; to: string | null; weights: FinalWeights; group?: ScoreGroup } {
+  const v = (value ?? {}) as { from?: unknown; to?: unknown; weights?: unknown; group?: unknown }
+  if (v.group !== undefined && v.group !== null && !isScoreGroup(v.group)) throw new Error('Choose Payments or Operations.')
   if (!isDay(v.from)) throw new Error('Give the date the ratio starts from.')
   const to = v.to === null || v.to === undefined || v.to === '' ? null : v.to
   if (to !== null && !isDay(to)) throw new Error('The To date is not a date.')
   if (to !== null && to < v.from) throw new Error('The To date is before the From date.')
-  return { from: v.from, to, weights: checkFinalWeights(v.weights) }
+  return { from: v.from, to, weights: checkFinalWeights(v.weights), ...(isScoreGroup(v.group) ? { group: v.group } : {}) }
 }
 
 /**
@@ -106,22 +189,32 @@ export interface PersonRatio {
   id: string
   coordinatorIds: string[]
   weights: FinalWeights
+  /** The score it is for (21 Nov 2026): a person may have one for each. Absent: a ratio over all modules. */
+  group?: ScoreGroup
   updatedAt?: string
   updatedBy?: string
 }
 
 /** A per-person ratio as given, checked. Throws a message for the screen. */
-export function checkPersonRatio(value: unknown): { coordinatorIds: string[]; weights: FinalWeights } {
-  const v = (value ?? {}) as { coordinatorIds?: unknown; weights?: unknown }
+export function checkPersonRatio(value: unknown): { coordinatorIds: string[]; weights: FinalWeights; group?: ScoreGroup } {
+  const v = (value ?? {}) as { coordinatorIds?: unknown; weights?: unknown; group?: unknown }
+  if (v.group !== undefined && v.group !== null && !isScoreGroup(v.group)) throw new Error('Choose Payments or Operations.')
   const ids = Array.isArray(v.coordinatorIds) ? [...new Set(v.coordinatorIds.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map((id) => id.trim()))] : []
   if (!ids.length) throw new Error('Choose at least one coordinator.')
-  return { coordinatorIds: ids, weights: checkFinalWeights(v.weights) }
+  return { coordinatorIds: ids, weights: checkFinalWeights(v.weights), ...(isScoreGroup(v.group) ? { group: v.group } : {}) }
 }
 
 /** Each coordinator's own ratio, by id. */
-export function personWeightsOf(ratios: readonly Pick<PersonRatio, 'coordinatorIds' | 'weights'>[]): Record<string, FinalWeights> {
+export function personWeightsOf(ratios: readonly (Pick<PersonRatio, 'coordinatorIds' | 'weights'> & { group?: ScoreGroup })[]): Record<string, FinalWeights> {
   const out: Record<string, FinalWeights> = {}
-  for (const r of ratios) for (const id of r.coordinatorIds) out[id] ??= r.weights
+  for (const r of ratios) if (!r.group) for (const id of r.coordinatorIds) out[id] ??= r.weights
+  return out
+}
+
+/** Each coordinator's own ratio for each score. */
+export function personGroupWeightsOf(ratios: readonly Pick<PersonRatio, 'coordinatorIds' | 'weights' | 'group'>[]): Partial<Record<ScoreGroup, Record<string, FinalWeights>>> {
+  const out: Partial<Record<ScoreGroup, Record<string, FinalWeights>>> = {}
+  for (const r of ratios) if (r.group) for (const id of r.coordinatorIds) (out[r.group] ??= {})[id] ??= r.weights
   return out
 }
 
@@ -315,6 +408,12 @@ export interface PeriodScores {
   finalWeights?: FinalWeights | null
   /** Coordinators scored by a ratio of their own (PersonRatio), by id: as it stood when the period locked (open: as it stands now). */
   personWeights?: Record<string, FinalWeights>
+  /** Which score each module counts in, as it stood when the period locked (open: now). Absent: today's. */
+  scoreGroups?: ScoreGroupMap
+  /** Each score's own ratio in force on its first day. */
+  groupWeights?: Partial<Record<ScoreGroup, FinalWeights>>
+  /** Coordinators' own ratios for each score. */
+  personGroupWeights?: Partial<Record<ScoreGroup, Record<string, FinalWeights>>>
   entries: ScoreEntry[]
 }
 
@@ -327,6 +426,8 @@ export interface ScoreHistoryResponse {
   finalRatios: FinalRatio[]
   /** The administrator's ratios for particular coordinators (20 Nov 2026). */
   personRatios?: PersonRatio[]
+  /** Which score (Payments or Operations) each module counts in now. */
+  scoreGroups?: ScoreGroupMap
   /** The administrator's Self Leads targets by dates, oldest first; empty: the default (3 leads, 30%). */
   leadTargets?: LeadTarget[]
 }

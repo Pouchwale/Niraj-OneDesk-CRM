@@ -156,6 +156,47 @@ describe('ratios for particular coordinators', () => {
   })
 })
 
+describe('the two scores', () => {
+  it('keeps ratios per score, one per person per score, and locks each period with what it had', () => {
+    const dir = mkdtempSync(join(root, 'groups-'))
+    let clock = new Date('2026-11-06T10:00:00')
+    const store = createScoreHistoryStore(dir, () => baseInputs([quote('a', 'c1', '2026-10-01', 'closed')]), () => clock)
+    store.lockDue()
+    expect(store.scoreGroups().service).toBe('operations')
+
+    // The same From date is fine for the two scores; shares only for a score's own modules.
+    store.saveFinalRatio({ from: '2026-10-31', to: null, group: 'payments', weights: { robi: 40, kpi: 60 } }, 'admin-0')
+    store.saveFinalRatio({ from: '2026-10-31', to: null, group: 'operations', weights: { quotations: 50, service: 50 } }, 'admin-0')
+    expect(() => store.saveFinalRatio({ from: '2026-10-31', to: null, group: 'payments', weights: { robi: 100 } }, 'admin-0')).toThrow(/already starts/)
+    expect(() => store.saveFinalRatio({ from: '2026-12-01', to: null, group: 'payments', weights: { service: 100 } }, 'admin-0')).toThrow(/not in the Payments score/)
+
+    // A person may have one for each score, not two for one.
+    store.savePersonRatio({ coordinatorIds: ['c1'], group: 'payments', weights: { robi: 100 } }, 'admin-0')
+    store.savePersonRatio({ coordinatorIds: ['c1'], group: 'operations', weights: { service: 100 } }, 'admin-0')
+    expect(() => store.savePersonRatio({ coordinatorIds: ['c1'], group: 'payments', weights: { kpi: 100 } }, 'admin-0')).toThrow(/already has/)
+    expect(() => store.savePersonRatio({ coordinatorIds: ['c1'], weights: { robi: 100 } }, 'admin-0')).toThrow(/already has/)
+
+    const open = store.periods('week', 1)[0]
+    expect(open.groupWeights).toEqual({ payments: { robi: 40, kpi: 60 }, operations: { quotations: 50, service: 50 } })
+    expect(open.personGroupWeights).toEqual({ payments: { c1: { robi: 100 } }, operations: { c1: { service: 100 } } })
+    expect(open.finalWeights).toBeNull()
+
+    // Locks with them; a later move and a work-out-again keep what it locked with.
+    clock = new Date('2026-11-12T10:00:00')
+    expect(store.lockDue()).toEqual(['week:2026-10-31'])
+    const groups = store.scoreGroups()
+    expect(() => store.saveScoreGroups({ ...groups, service: 'nowhere' })).toThrow(/Service/)
+    expect(store.saveScoreGroups({ ...groups, service: 'payments' }).service).toBe('payments')
+    const locked = store.periods('week', 3).find((p) => p.key === '2026-10-31')!
+    expect(locked.scoreGroups?.service).toBe('operations')
+    const again = store.relock('week:2026-10-31', 'admin-0')!
+    expect(again.scoreGroups?.service).toBe('operations')
+    expect(again.groupWeights?.payments).toEqual({ robi: 40, kpi: 60 })
+    expect(again.personGroupWeights?.operations).toEqual({ c1: { service: 100 } })
+    expect(store.periods('week', 1)[0].scoreGroups?.service).toBe('payments')
+  })
+})
+
 describe('the route', () => {
   let server: ReturnType<typeof createServer>
   let port = 0
@@ -249,6 +290,26 @@ describe('the route', () => {
     expect((await send(admin, 'DELETE', `/person-ratios/${saved.id}`)).status).toBe(200)
     expect((await send(admin, 'DELETE', `/person-ratios/${saved.id}`)).status).toBe(404)
     expect(((await (await get(admin)).json()) as ScoreHistoryResponse).personRatios).toEqual([])
+  })
+
+  it('lets only the administrator move modules; a coordinator sees only their own ratio for each score', async () => {
+    const send = async (cookie: string, method: string, path: string, body?: unknown) =>
+      fetch(`http://127.0.0.1:${port}${SCORE_HISTORY_ROUTE}${path}`, { method, headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) })
+    const admin = await signIn('admin', 'Admin@123')
+    const { scoreGroups } = (await (await get(admin)).json()) as ScoreHistoryResponse
+    const moved = { ...scoreGroups!, billing: 'payments' }
+    expect((await send(await signIn('niki', 'Niki@123'), 'PUT', '/groups', { groups: moved })).status).toBe(403)
+    expect((await send(admin, 'PUT', '/groups', { groups: { ...moved, billing: 'x' } })).status).toBe(400)
+    expect((await send(admin, 'PUT', '/groups', { groups: moved })).status).toBe(200)
+    expect(((await (await get(await signIn('pragati', 'Pragati@123'))).json()) as ScoreHistoryResponse).scoreGroups?.billing).toBe('payments')
+    expect((await send(admin, 'PUT', '/groups', { groups: scoreGroups })).status).toBe(200)
+
+    const made = await send(admin, 'POST', '/person-ratios', { coordinatorIds: ['coord-1', 'coord-2'], group: 'operations', weights: { service: 100 } })
+    expect(made.status).toBe(200)
+    const { ratio } = (await made.json()) as { ratio: { id: string } }
+    const mine = (await (await get(await signIn('pragati', 'Pragati@123'))).json()) as ScoreHistoryResponse
+    expect(mine.periods[1].personGroupWeights).toEqual({ operations: { 'coord-1': { service: 100 } } })
+    expect((await send(admin, 'DELETE', `/person-ratios/${ratio.id}`)).status).toBe(200)
   })
 
   it('lets only the administrator work a period out again', async () => {

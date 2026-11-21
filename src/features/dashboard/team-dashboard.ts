@@ -8,7 +8,7 @@
  */
 
 import type { Commitment } from '@/lib/followups-api'
-import { finalScoreOf, SCORE_MODULES, weightsFor, type PeriodScores, type ScoreModule } from '@/lib/score-history'
+import { finalScoreOf, groupFinalOf, SCORE_MODULES, weightsFor, type PeriodScores, type ScoreGroup, type ScoreGroupMap, type ScoreModule } from '@/lib/score-history'
 import { performanceOf, quotationDay } from '@/lib/quotation-stats'
 import type { BillingIssue, OverduePayment, Quotation, RfdRow } from '@/lib/types'
 import type { AppModuleId } from '../../../shared/module-access'
@@ -31,6 +31,9 @@ export interface TeamWeekInput {
   billingIssues: readonly Pick<BillingIssue, 'date' | 'responsible_1'>[]
   /** The modules switched off for a coordinator (Admin Panel): those columns show N/A. */
   modulesOff: (coordinatorId: string) => ReadonlySet<AppModuleId>
+  /** Which of the two scores the score columns show (21 Nov 2026), and which modules count in it. */
+  group?: ScoreGroup
+  scoreGroups?: ScoreGroupMap
 }
 
 export interface TeamWeekRow {
@@ -94,7 +97,8 @@ export function teamWeek(input: TeamWeekInput): TeamWeekRow[] {
   const end = addDaysISO(input.weekStart, 6)
   const inWeek = (day: string | null | undefined) => Boolean(day) && day! >= input.weekStart && day! <= end
   const collected = collectedSince(input.overdueAtStart, input.overdueAtEnd)
-  const finalOf = (p: PeriodScores | null, id: string) => (p ? finalScoreOf(p.entries.filter((e) => e.coordinatorId === id), weightsFor(p, id)) : null)
+  const finalOf = (p: PeriodScores | null, id: string) =>
+    !p ? null : input.group ? groupFinalOf(p, id, input.group, input.scoreGroups) : finalScoreOf(p.entries.filter((e) => e.coordinatorId === id), weightsFor(p, id))
 
   return input.coordinators.map((c) => {
     const off = input.modulesOff(c.id)

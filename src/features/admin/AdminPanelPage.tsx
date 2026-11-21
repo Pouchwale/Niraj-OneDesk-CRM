@@ -32,6 +32,7 @@ import { Switch } from '@/components/ui/switch'
 import { RobiOffDaysCard } from './RobiOffDaysCard'
 import { ModuleAccessCard } from './ModuleAccessCard'
 import { PersonRatioCard } from './PersonRatioCard'
+import { ScoreGroupsCard } from './ScoreGroupsCard'
 import { FestivalAdminCard } from '@/features/festivals/FestivalAdminCard'
 import {
   blockedFromDisabling,
@@ -85,6 +86,8 @@ function useOwnedCounts(): Record<string, number> {
 }
 
 export function AdminPanelPage() {
+  // Moving a module between the two scores changes what the per-person ratios can give shares to.
+  const [scoreGroupsVersion, setScoreGroupsVersion] = React.useState(0)
   const { user: signedIn } = useAuth()
   const users = useUsers()
   const owned = useOwnedCounts()
@@ -220,7 +223,9 @@ export function AdminPanelPage() {
 
       <ModuleAccessCard userId={signedIn?.id ?? 'admin-0'} />
 
-      <PersonRatioCard />
+      <ScoreGroupsCard onChanged={() => setScoreGroupsVersion((v) => v + 1)} />
+
+      <PersonRatioCard version={scoreGroupsVersion} />
 
       <RobiOffDaysCard userId={signedIn?.id ?? 'admin-0'} />
 
