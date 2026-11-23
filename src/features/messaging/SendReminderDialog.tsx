@@ -31,6 +31,7 @@ import {
   plainInvoiceNo, statementDate, statementForCode, tablePasteHint, withoutInvoiceTable,
 } from '@/lib/customer-statement'
 import { buildInvoiceTablePdf, invoicePdfFileName, loadPdfTools, type PdfTools } from '@/lib/customer-statement-pdf'
+import { CopyTableButton } from './CopyTableButton'
 
 export interface ReminderTarget {
   entityType: FollowupEntityType
@@ -628,9 +629,12 @@ export function SendReminderDialog({
             />
             {chosen && hasTable && (
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground" data-testid="reminder-table-note">
-                  This table of {chosen.invoices.length} invoice{chosen.invoices.length === 1 ? '' : 's'} goes in the email where it says {INVOICE_TABLE_SLOT}.
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground" data-testid="reminder-table-note">
+                    This table of {chosen.invoices.length} invoice{chosen.invoices.length === 1 ? '' : 's'} goes in the email where it says {INVOICE_TABLE_SLOT}.
+                  </p>
+                  <CopyTableButton html={invoiceHtml} text={invoiceTable} className="h-7 text-xs" testId="reminder-copy-table" />
+                </div>
                 <div
                   className="max-h-72 overflow-auto rounded border border-border bg-white p-2"
                   data-testid="reminder-table-preview"

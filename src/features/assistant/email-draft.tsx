@@ -40,6 +40,7 @@ import {
   withoutInvoiceTable,
 } from '@/lib/customer-statement'
 import { buildEmailUrl, emailProviderName, emailRecipients, getEmailProvider, openChannel } from '@/lib/messaging'
+import { CopyTableButton } from '@/features/messaging/CopyTableButton'
 
 export interface EmailDraft {
   to: string
@@ -203,6 +204,7 @@ export function EmailDraftCard({ draft }: { draft: EmailDraft }) {
         <Button size="sm" className="h-7 text-xs" onClick={openEmail} data-testid="robi-email-open">
           <Mail className="mr-1 h-3.5 w-3.5" /> Open in {providerName}
         </Button>
+        {html && <CopyTableButton html={html} text={table} className="h-7 text-xs" testId="robi-email-copy-table" />}
         {prepared.table && (
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setIncludeTable((on) => !on)} data-testid="robi-email-table-toggle">
             {includeTable ? 'Remove invoice table' : 'Add invoice table'}
