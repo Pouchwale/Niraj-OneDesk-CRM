@@ -38,6 +38,7 @@ import {
   serviceDateDiff,
   serviceRowScore,
   serviceScores,
+  serviceTeamScores,
   SERVICE_SCORE_CAP,
 } from '@/lib/service-records'
 import { whenSaved } from '@/lib/shared-data'
@@ -168,6 +169,13 @@ export function ServicePage() {
     () => serviceScores(all, targets, coordinators.map((c) => c.id), range.from, range.to, otif.data?.counts ?? null),
     [all, targets, coordinators, range.from, range.to, otif.data]
   )
+  // Pouchwale and GP3: their people with Service switched on (Admin Panel).
+  const moduleAccess = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.moduleAccess)
+  const teamScores = useMemo(
+    () => serviceTeamScores(scores, coordinators, (id) => demoCompanyStore.isModuleOff(id, 'service')),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scores, coordinators, moduleAccess]
+  )
   // One month in view, before November 2026: its Total Customers can be typed. Longer: the months are added up.
   // From November 2026 the number comes from the OTIF file and is not typed.
   const months = useMemo(() => monthsInPeriod(range.from, range.to, all), [range.from, range.to, all])
@@ -207,6 +215,12 @@ export function ServicePage() {
                 s.mailRatio === null ? '' : Math.round(s.mailRatio * 10000) / 100, s.sumOfScore,
                 // Minus scoring: the gap from 100, rounded to two decimals as before (85 → -15).
                 s.finalScore === null ? '' : minusScore(Math.round(s.finalScore * 100) / 100, 2),
+              ]),
+              [],
+              ['Team', 'Total Customers', 'No. of Mails', 'People scored', 'Sum of Points', 'Final Score (average of its people)'],
+              ...teamScores.map((t) => [
+                t.team, t.customers, t.mails, `${t.scored} of ${t.memberIds.length}`, t.sumOfScore,
+                t.finalScore === null ? '' : minusScore(Math.round(t.finalScore * 100) / 100, 2),
               ]),
             ],
           }]
@@ -336,6 +350,37 @@ export function ServicePage() {
               </p>
             )}
           </div>
+          <div className="grid gap-3 md:grid-cols-2" data-testid="service-team-scores">
+            {teamScores.map((t) => (
+              <div key={t.team} className="min-w-0 rounded-lg border border-border/50 bg-background/40 px-4 py-3" data-testid={`service-team-${t.team}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{t.team}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t.memberIds.length ? t.memberIds.map((id) => getCoordinatorDisplayName(id)).join(', ') : 'Nobody with Service on'}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className={cn('text-2xl font-semibold tabular-nums', finalClass(t.finalScore))}>{minusFixed(t.finalScore, 2)}</p>
+                    <p className="text-xs text-muted-foreground">Team score</p>
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-4 gap-2 border-t border-border/50 pt-2">
+                  {([
+                    ['Customers', t.customers.toLocaleString('en-IN')],
+                    ['Mails', t.mails.toLocaleString('en-IN')],
+                    ['Points', t.sumOfScore.toLocaleString('en-IN')],
+                    ['People scored', `${t.scored} of ${t.memberIds.length}`],
+                  ] as const).map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <p className="truncate text-xs text-muted-foreground">{label}</p>
+                      <p className="font-medium tabular-nums">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
           <div className="overflow-x-auto rounded-md border border-border/50">
             <table className="w-full text-sm" data-testid="service-scores">
               <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
@@ -406,6 +451,7 @@ export function ServicePage() {
             (sum of points ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}, in minus scoring: the gap from 100, so 0 is full marks and 85 shows
             as -15. Total customers comes from the OTIF file: the coordinator's different customers (as Relation Manager) with a PO closed in
             the month, added up over the months of the period. A coordinator with no customers for the period shows —.
+            Team score = the average of the final scores of its people with Service switched on; anyone showing — is left out of that average.
           </p>
         </GlassCard>
       ) : (

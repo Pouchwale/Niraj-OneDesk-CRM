@@ -146,6 +146,48 @@ export function serviceScores(
     .sort((a, b) => (b.finalScore ?? -1) - (a.finalScore ?? -1) || b.mails - a.mails)
 }
 
+export const SERVICE_TEAMS = ['Pouchwale', 'GP3'] as const
+export type ServiceTeam = (typeof SERVICE_TEAMS)[number]
+
+export interface ServiceTeamScore {
+  team: ServiceTeam
+  /** The team's people with the Service module switched on. */
+  memberIds: string[]
+  /** Those of them with a final score this period. */
+  scored: number
+  customers: number
+  mails: number
+  sumOfScore: number
+  /** The average of its people's final scores, as on the leader Dashboard; null when none has one. */
+  finalScore: number | null
+}
+
+/**
+ * Each team's Service score (23 Nov 2026). A team is its people in the Admin
+ * Panel with Service switched on (today Pouchwale is Disha Acharya alone). A
+ * person with no customers in the period has no score and is left out of the average.
+ */
+export function serviceTeamScores(
+  scores: readonly ServiceScore[],
+  people: readonly { id: string; module?: string | null }[],
+  isServiceOff: (id: string) => boolean
+): ServiceTeamScore[] {
+  return SERVICE_TEAMS.map((team) => {
+    const ids = new Set(people.filter((p) => p.module === team && !isServiceOff(p.id)).map((p) => p.id))
+    const lines = scores.filter((s) => ids.has(s.coordinatorId))
+    const finals = lines.map((s) => s.finalScore).filter((v): v is number => v !== null)
+    return {
+      team,
+      memberIds: lines.map((s) => s.coordinatorId),
+      scored: finals.length,
+      customers: lines.reduce((a, s) => a + (s.totalCustomers ?? 0), 0),
+      mails: lines.reduce((a, s) => a + s.mails, 0),
+      sumOfScore: lines.reduce((a, s) => a + s.sumOfScore, 0),
+      finalScore: finals.length ? finals.reduce((a, v) => a + v, 0) / finals.length : null,
+    }
+  })
+}
+
 /* ===================== The old SERVICE sheet, imported once (5 Nov 2026) ===================== */
 
 /** A dispatch date this far from the Information Date is taken as a day/month mix-up, if the other reading is near. */

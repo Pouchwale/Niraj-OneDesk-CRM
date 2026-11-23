@@ -1,8 +1,42 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { demoCompanyStore } from './demo-companies'
-import { serviceDateDiff, serviceRecordsFromSheet, serviceRowScore, serviceScores } from './service-records'
+import { serviceDateDiff, serviceRecordsFromSheet, serviceRowScore, serviceScores, serviceTeamScores, type ServiceScore } from './service-records'
 import type { ServiceCustomerTarget, ServiceRecord } from './types'
+
+describe('Service scores by team', () => {
+  const line = (coordinatorId: string, finalScore: number | null, totalCustomers: number | null, mails: number): ServiceScore => ({
+    coordinatorId, finalScore, totalCustomers, mails, sumOfScore: mails * 10, mailRatio: null, missingMonths: [],
+  })
+  const people = [
+    { id: 'disha', module: 'Pouchwale' },
+    { id: 'krina', module: 'Pouchwale' },
+    { id: 'a', module: 'GP3' },
+    { id: 'b', module: 'GP3' },
+    { id: 'c', module: 'GP3' },
+    { id: 'leader', module: null },
+  ]
+  const scores = [line('disha', 40, 10, 4), line('krina', 90, 10, 9), line('a', 80, 10, 8), line('b', 50, 20, 10), line('c', null, 0, 3), line('leader', 100, 1, 1)]
+  const [pouchwale, gp3] = serviceTeamScores(scores, people, (id) => id === 'krina')
+
+  it('leaves out people with Service switched off', () => {
+    expect(pouchwale.memberIds).toEqual(['disha'])
+    expect(pouchwale.finalScore).toBe(40)
+    expect([pouchwale.customers, pouchwale.mails, pouchwale.sumOfScore]).toEqual([10, 4, 40])
+  })
+
+  it('averages the people who have a score, and still counts the others\' mails', () => {
+    expect(gp3.memberIds).toEqual(['a', 'b', 'c'])
+    expect(gp3.scored).toBe(2)
+    expect(gp3.finalScore).toBe(65)
+    expect([gp3.customers, gp3.mails, gp3.sumOfScore]).toEqual([30, 21, 210])
+  })
+
+  it('has no score when nobody has one', () => {
+    const [none] = serviceTeamScores([line('disha', null, null, 0)], people, () => false)
+    expect(none.finalScore).toBeNull()
+  })
+})
 
 function record(overrides: Partial<ServiceRecord> = {}): ServiceRecord {
   return {
