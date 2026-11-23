@@ -25,7 +25,7 @@ import type { Quotation, QuotationStatus } from '@/lib/types'
 import { cardScope, matchesQuotationFilter, performanceOf, quotationDay, quotationScore } from '@/lib/quotation-stats'
 import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { QuotationDialog } from './QuotationDialog'
-import { DEFAULT_FILTERS, QuotationFilters, toQuotationFilter, type FilterState } from './QuotationFilters'
+import { DEFAULT_FILTERS, QuotationFilters, describeFilter, toQuotationFilter, type FilterState } from './QuotationFilters'
 import { QuotationPerformance } from './QuotationPerformance'
 import { QuotationConversions } from './QuotationConversions'
 
@@ -200,6 +200,13 @@ export function QuotationsPage() {
           people={quotingPeople}
           onPickPerson={canManageTeam ? (id) => setFilters({ ...filters, owner: id }) : undefined}
           scope={cards}
+          pdf={{
+            who: canManageTeam ? ownerName ?? 'Whole team' : user?.full_name ?? 'My quotations',
+            // The dates and the person have their own place on the PDF.
+            filters: [...describeFilter({ ...filter, from: null, to: null }, null), ...(search.trim() ? [`Search: ${search.trim()}`] : [])],
+            generatedBy: user?.full_name ?? 'OneDesk',
+            today,
+          }}
         />
       )}
 

@@ -10,10 +10,13 @@
  * formula adds them up.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { Download, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
 import { GlassCard } from '@/components/shared/GlassCard'
+import { Button } from '@/components/ui/button'
 import { minusFixed } from '@/lib/minus-score'
 import { conversionsByPerson, conversionsOf, QUOTATION_SCORE, type ConversionSummary, type CountScope } from '@/lib/quotation-stats'
 import type { Quotation } from '@/lib/types'
@@ -84,17 +87,43 @@ interface QuotationConversionsProps {
   onPickPerson?: (personId: string) => void
   /** Count like the cards: totals from the quotations made in the dates, conversions from those closed in them. */
   scope?: CountScope
+  /** For the PDF: whose quotations, any other filter in words, who downloads it, and today's date. */
+  pdf: { who: string; filters: string[]; generatedBy: string; today: string }
 }
 
-export function QuotationConversions({ list, period, showPeople, people, onPickPerson, scope }: QuotationConversionsProps) {
+export function QuotationConversions({ list, period, showPeople, people, onPickPerson, scope, pdf }: QuotationConversionsProps) {
   const team = useMemo(() => conversionsOf(list, scope), [list, scope])
   const rows = useMemo(() => conversionsByPerson(list, people, scope), [list, people, scope])
+  const [saving, setSaving] = useState(false)
+
+  const downloadPdf = async () => {
+    setSaving(true)
+    try {
+      const { downloadConversionsPdf } = await import('./quotation-conversions-pdf')
+      await downloadConversionsPdf({
+        ...pdf,
+        period,
+        team,
+        people: showPeople ? rows.map((r) => ({ name: personName(r.personId), summary: r.summary })) : [],
+      })
+    } catch {
+      toast.error('Could not make the PDF. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <GlassCard className="space-y-4 p-4 sm:p-6" data-testid="quotation-conversions">
-      <div>
-        <h3 className="text-base font-medium">Conversions and score</h3>
-        <p className="text-xs text-muted-foreground">{period}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-medium">Conversions and score</h3>
+          <p className="text-xs text-muted-foreground">{period}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={downloadPdf} disabled={saving || list.length === 0} data-testid="quotation-conversions-pdf">
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+          PDF
+        </Button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
