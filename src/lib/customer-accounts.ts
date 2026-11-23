@@ -163,6 +163,22 @@ export function customerAttention(customer: CustomerAccount, today: string = tod
   return best
 }
 
+/**
+ * The customer with only the ticked invoices, every total worked again from
+ * them (23 Nov 2026). No list (null) is all of them; nothing ticked is null.
+ */
+export function pickedInvoices(
+  customer: CustomerAccount,
+  ids: readonly string[] | null,
+  today: string = todayISO()
+): CustomerAccount | null {
+  if (!ids) return customer
+  const wanted = new Set(ids)
+  const kept = customer.invoices.filter((i) => wanted.has(i.id))
+  if (!kept.length) return null
+  return kept.length === customer.invoices.length ? customer : accountOf(customer.key, kept, today)
+}
+
 /** What a reminder to the whole customer asks for: the overdue money, or all of it when nothing is overdue yet. */
 export function customerReminderAmount(customer: CustomerAccount): number {
   return customer.overdue > 0 ? customer.overdue : customer.outstanding

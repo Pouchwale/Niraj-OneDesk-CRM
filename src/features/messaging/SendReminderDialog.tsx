@@ -15,7 +15,7 @@ import { MessageCircle, Mail, AlertTriangle, Info } from 'lucide-react'
 
 import { addFollowup } from '@/lib/followups-api'
 import {
-  MESSAGE_TEMPLATES, WHATSAPP_PDF_NOTE, renderMessage, suggestTemplate, type TemplateKey,
+  MESSAGE_TEMPLATES, WHATSAPP_PDF_NOTE, renderMessage, suggestTemplate, type RenderedMessage, type TemplateKey,
 } from '@/lib/message-templates'
 import {
   EMAIL_PROVIDERS, buildEmailUrl, buildWhatsAppUrl, emailProviderName, emailRecipients, getEmailProvider, getSenderOrg,
@@ -23,11 +23,12 @@ import {
   type EmailProvider,
 } from '@/lib/messaging'
 import { addDaysISO, formatCurrency, todayISO } from '@/lib/utils'
+import { customerReminderAmount, daysPastDue, pickedInvoices, type CustomerAccount } from '@/lib/customer-accounts'
 import type { FollowupEntityType } from '@/lib/types'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import {
   INVOICE_TABLE_SLOT, copyRich, emailLinkFits, emailText, emailWithTableGap, invoiceTableHtml, invoiceTableText,
-  statementForCode, tablePasteHint, withoutInvoiceTable,
+  plainInvoiceNo, statementDate, statementForCode, tablePasteHint, withoutInvoiceTable,
 } from '@/lib/customer-statement'
 import { buildInvoiceTablePdf, invoicePdfFileName, loadPdfTools, type PdfTools } from '@/lib/customer-statement-pdf'
 
@@ -62,6 +63,20 @@ interface SendReminderDialogProps {
   coordinatorPhone?: string | null
   /** Called after a reminder is logged so the parent can refresh. */
   onSent?: () => void
+  /** The invoices already ticked on the customer; null is all of them. */
+  pickedInvoiceIds?: string[] | null
+  onPickInvoices?: (ids: string[] | null) => void
+}
+
+/** What the message says when only some invoices are ticked, worked out from those invoices. */
+function pickedTerms(picked: CustomerAccount) {
+  return {
+    amount: customerReminderAmount(picked),
+    dueDate: picked.oldestDueDate,
+    daysOverdue: picked.maxDaysOverdue,
+    invoiceCount: picked.overdue > 0 ? picked.overdueInvoices : picked.invoices.length,
+    notDueYet: picked.overdue === 0 && Boolean(picked.oldestDueDate && picked.oldestDueDate > todayISO()),
+  }
 }
 
 /**
@@ -75,7 +90,7 @@ interface SendReminderDialogProps {
  * proof of a message never sent (Krupa, Rudradeo, 20 Nov 2026).
  */
 export function SendReminderDialog({
-  target, open, onClose, coordinatorId, coordinatorName, coordinatorPhone, onSent,
+  target, open, onClose, coordinatorId, coordinatorName, coordinatorPhone, onSent, pickedInvoiceIds = null, onPickInvoices,
 }: SendReminderDialogProps) {
   const [templateKey, setTemplateKey] = useState<TemplateKey>('gentle_reminder')
   const [phone, setPhone] = useState('')
@@ -106,9 +121,23 @@ export function SendReminderDialog({
     () => (open && target && !target.isSettled ? statementForCode(target.bpCode, demoCompanyStore.getAllCompanies()) : null),
     [open, target?.bpCode, target?.isSettled]
   )
-  const invoiceTable = useMemo(() => (statement ? invoiceTableText(statement) : ''), [statement])
-  const invoiceHtml = useMemo(() => (statement ? invoiceTableHtml(statement) : ''), [statement])
-  const hasTable = Boolean(statement) && templateKey !== 'payment_thanks'
+  // Which of them go to the customer (23 Nov 2026); null is all. The table and its totals follow the ticks.
+  const [picked, setPicked] = useState<string[] | null>(null)
+  const chosen = useMemo(() => (statement ? pickedInvoices(statement, picked) : null), [statement, picked])
+  const partial = chosen && statement && chosen.invoices.length < statement.invoices.length ? chosen : null
+  const terms = partial ? pickedTerms(partial) : null
+  const invoiceTable = useMemo(() => (chosen ? invoiceTableText(chosen) : ''), [chosen])
+  const invoiceHtml = useMemo(() => (chosen ? invoiceTableHtml(chosen) : ''), [chosen])
+  const hasTable = Boolean(chosen) && templateKey !== 'payment_thanks'
+  const showPicker = Boolean(statement) && templateKey !== 'payment_thanks'
+  const nothingTicked = showPicker && !chosen
+  const messageAmount = terms?.amount ?? target?.amount ?? 0
+  /** The template was chosen by hand: ticking invoices must not change it. */
+  const templateChosen = useRef(false)
+  /** What was last written into the boxes, to tell a typed change from a tick. */
+  const written = useRef<{ message: RenderedMessage; base: string; ticks: string } | null>(null)
+  /** The ticks changed but the message was typed in: kept, with an offer to update it. */
+  const [messageBehind, setMessageBehind] = useState<RenderedMessage | null>(null)
 
   // Ready before the click: a download and a new tab must both happen inside it.
   useEffect(() => {
@@ -118,6 +147,7 @@ export function SendReminderDialog({
   // The ageing sheet and the invoices can disagree; a coordinator should see that before a customer does.
   const amountDiffers =
     Boolean(statement && target) &&
+    !partial &&
     Math.abs((target?.amount ?? 0) - (statement?.overdue ?? 0)) > 1 &&
     Math.abs((target?.amount ?? 0) - (statement?.outstanding ?? 0)) > 1
 
@@ -129,30 +159,33 @@ export function SendReminderDialog({
     return renderMessage(templateKey, {
       customerName: target.customerName,
       contactPerson: target.contactPerson,
-      amount: target.amount,
-      dueDate: target.dueDate,
+      amount: messageAmount,
+      dueDate: terms ? terms.dueDate : target.dueDate,
       invoiceDate: target.invoiceDate,
       paymentTerms: target.paymentTerms,
       bpCode: target.bpCode,
-      daysOverdue: target.daysOverdue,
-      invoiceCount: target.invoiceCount,
+      daysOverdue: terms ? terms.daysOverdue : target.daysOverdue,
+      invoiceCount: terms ? terms.invoiceCount : target.invoiceCount,
       invoiceTable: hasTable ? INVOICE_TABLE_SLOT : null,
       coordinatorName,
       coordinatorPhone,
       senderOrg: org,
     })
-  }, [targetKey, templateKey, coordinatorName, coordinatorPhone, org, hasTable])
+  }, [targetKey, templateKey, coordinatorName, coordinatorPhone, org, hasTable, JSON.stringify(terms)])
 
   // Reset to a sensible template and the record's own contact details each time
   // the dialog is opened for a different account.
   useEffect(() => {
     if (!open || !target) return
+    templateChosen.current = false
+    const first = statement ? pickedInvoices(statement, pickedInvoiceIds) : null
+    const firstTerms = first && statement && first.invoices.length < statement.invoices.length ? pickedTerms(first) : null
     setTemplateKey(
       suggestTemplate({
-        daysOverdue: target.daysOverdue,
-        dueDate: target.dueDate,
+        daysOverdue: firstTerms ? firstTerms.daysOverdue : target.daysOverdue,
+        dueDate: firstTerms ? firstTerms.dueDate : target.dueDate,
         isSettled: target.isSettled,
-        notDueYet: target.notDueYet,
+        notDueYet: firstTerms ? firstTerms.notDueYet : target.notDueYet,
       })
     )
     setPhone(target.contactNumber ?? '')
@@ -166,15 +199,52 @@ export function SendReminderDialog({
     setTableToPaste(false)
     setPdfName(null)
     setComposeUrl(null)
+    setPicked(pickedInvoiceIds)
+    setMessageBehind(null)
   }, [open, target?.entityType, target?.entityId])
 
-  // Keep the editable bodies in step with the chosen template.
+  const writeMessage = (message: RenderedMessage, base: string, ticks: string) => {
+    written.current = { message, base, ticks }
+    setSubject(message.subject)
+    setWhatsappBody(message.whatsappBody)
+    setEmailBody(message.emailBody)
+    setMessageBehind(null)
+  }
+  const messageWasTyped = () => {
+    const last = written.current?.message
+    return Boolean(last && (subject !== last.subject || whatsappBody !== last.whatsappBody || emailBody !== last.emailBody))
+  }
+  const baseKey = [targetKey, templateKey, coordinatorName, coordinatorPhone, org, hasTable].join('|')
+  const ticksKey = JSON.stringify(terms)
+
+  // Keep the editable bodies in step with the chosen template. A tick never wipes what was typed.
   useEffect(() => {
     if (!rendered) return
-    setSubject(rendered.subject)
-    setWhatsappBody(rendered.whatsappBody)
-    setEmailBody(rendered.emailBody)
+    const last = written.current
+    if (last && last.base === baseKey && last.ticks !== ticksKey && messageWasTyped()) {
+      setMessageBehind(rendered)
+      return
+    }
+    writeMessage(rendered, baseKey, ticksKey)
   }, [rendered])
+
+  /** Applies the ticks; the template follows them unless one was chosen by hand or the message was typed in. */
+  const pick = (ids: string[] | null) => {
+    setPicked(ids)
+    onPickInvoices?.(ids)
+    const next = statement && ids ? pickedInvoices(statement, ids) : statement
+    if (!target || !next || templateChosen.current || messageWasTyped()) return
+    const whole = next.invoices.length === statement?.invoices.length
+    const nextTerms = whole ? null : pickedTerms(next)
+    setTemplateKey(
+      suggestTemplate({
+        daysOverdue: nextTerms ? nextTerms.daysOverdue : target.daysOverdue,
+        dueDate: nextTerms ? nextTerms.dueDate : target.dueDate,
+        isSettled: target.isSettled,
+        notDueYet: nextTerms ? nextTerms.notDueYet : target.notDueYet,
+      })
+    )
+  }
 
   if (!target) return null
 
@@ -192,7 +262,7 @@ export function SendReminderDialog({
       coordinator_id: coordinatorId,
       followup_date: new Date().toISOString(),
       mode: channel,
-      notes: `Payment reminder sent via ${channel === 'whatsapp' ? 'WhatsApp' : 'email'}:\n\n${body.replace(INVOICE_TABLE_SLOT, `[Invoice table: ${statement?.invoices.length ?? 0} open invoices]`)}`,
+      notes: `Payment reminder sent via ${channel === 'whatsapp' ? 'WhatsApp' : 'email'}:\n\n${body.replace(INVOICE_TABLE_SLOT, partial ? `[Invoice table: ${partial.invoices.length} of ${statement?.invoices.length ?? 0} open invoices: ${partial.invoices.map((i) => plainInvoiceNo(i.invoice_no)).join(', ')}]` : `[Invoice table: ${statement?.invoices.length ?? 0} open invoices]`)}`,
       customer_response: null,
       status: 'pending',
       committed_date: null,
@@ -204,6 +274,10 @@ export function SendReminderDialog({
   }
 
   const handleSend = async (channel: 'whatsapp' | 'email') => {
+    if (nothingTicked) {
+      toast.error('Tick at least one invoice to send.')
+      return
+    }
     if (channel === 'whatsapp' && !normalizedPhone) {
       toast.error('Enter a valid mobile number with country code.')
       return
@@ -241,11 +315,11 @@ export function SendReminderDialog({
 
       // A WhatsApp link cannot carry a file: the lined PDF is downloaded for attaching.
       let savedPdf: string | null = null
-      if (channel === 'whatsapp' && hasTable && statement) {
+      if (channel === 'whatsapp' && hasTable && chosen) {
         try {
           const tools = pdfTools.current ?? (await loadPdfTools())
-          const name = invoicePdfFileName(statement)
-          buildInvoiceTablePdf(statement, tools).save(name)
+          const name = invoicePdfFileName(chosen)
+          buildInvoiceTablePdf(chosen, tools).save(name)
           savedPdf = name
         } catch {
           url = buildWhatsAppUrl(normalizedPhone!, whatsappBody.replace(`\n\n${WHATSAPP_PDF_NOTE}`, ''))
@@ -309,7 +383,7 @@ export function SendReminderDialog({
         <DialogHeader>
           <DialogTitle>Send payment reminder</DialogTitle>
           <DialogDescription>
-            {target.customerName} · {formatCurrency(target.amount)}
+            {target.customerName} · {formatCurrency(messageAmount)}
           </DialogDescription>
           {/* Kept outside DialogDescription, which renders a <p> and cannot
               legally contain the Badge's <div>. */}
@@ -363,7 +437,7 @@ export function SendReminderDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Template</Label>
-            <Select value={templateKey} onValueChange={(v) => setTemplateKey(v as TemplateKey)}>
+            <Select value={templateKey} onValueChange={(v) => { templateChosen.current = true; setTemplateKey(v as TemplateKey) }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {MESSAGE_TEMPLATES.map((t) => (
@@ -441,6 +515,90 @@ export function SendReminderDialog({
             </div>
           </div>
 
+          {showPicker && statement && (
+            <div className="space-y-2" data-testid="reminder-invoice-picker">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <Label>Invoices to send</Label>
+                <span className="text-xs font-medium tabular-nums" data-testid="reminder-picked-count">
+                  {chosen?.invoices.length ?? 0} of {statement.invoices.length} ticked · {formatCurrency(chosen?.outstanding ?? 0)} pending
+                </span>
+              </div>
+              <div className="max-h-52 overflow-auto rounded-lg border border-border">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
+                    <tr>
+                      <th className="w-8 py-1.5 pl-3">
+                        <input
+                          type="checkbox"
+                          aria-label="Tick all invoices"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={!picked || chosen?.invoices.length === statement.invoices.length}
+                          ref={(box) => {
+                            if (box) box.indeterminate = Boolean(partial)
+                          }}
+                          onChange={() => pick(chosen?.invoices.length === statement.invoices.length ? [] : null)}
+                          data-testid="reminder-tick-all"
+                        />
+                      </th>
+                      <th className="px-2 py-1.5 font-medium">Ref No.</th>
+                      <th className="px-2 py-1.5 font-medium">Due on</th>
+                      <th className="px-2 py-1.5 font-medium">Overdue</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Pending</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {statement.invoices.map((invoice) => {
+                      const on = chosen?.invoices.some((i) => i.id === invoice.id) ?? false
+                      const days = daysPastDue(invoice.due_date)
+                      const toggle = () => {
+                        const now = (chosen?.invoices ?? []).map((i) => i.id)
+                        const next = on ? now.filter((id) => id !== invoice.id) : [...now, invoice.id]
+                        pick(next.length === statement.invoices.length ? null : next)
+                      }
+                      return (
+                        <tr key={invoice.id} className="cursor-pointer hover:bg-muted/30" onClick={toggle} data-testid="reminder-invoice-row">
+                          <td className="py-1.5 pl-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`Send invoice ${plainInvoiceNo(invoice.invoice_no)}`}
+                              className="h-4 w-4 cursor-pointer accent-primary"
+                              checked={on}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={toggle}
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 font-mono">{plainInvoiceNo(invoice.invoice_no)}</td>
+                          <td className="whitespace-nowrap px-2 py-1.5">{statementDate(invoice.due_date)}</td>
+                          <td className={days > 0 ? 'whitespace-nowrap px-2 py-1.5 font-medium text-rose-600 dark:text-rose-400' : 'px-2 py-1.5'}>{days > 0 ? `${days} days` : '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{formatCurrency(invoice.total_amount || 0)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {nothingTicked && (
+                <p className="flex items-center gap-1 text-xs font-medium text-rose-600 dark:text-rose-400" data-testid="reminder-none-ticked">
+                  <AlertTriangle className="h-3 w-3" /> Tick at least one invoice to send.
+                </p>
+              )}
+              {messageBehind && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300" data-testid="reminder-message-behind">
+                  <span>You changed the message by hand, so it was kept. Its amount may not match the ticked invoices.</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => writeMessage(messageBehind, baseKey, ticksKey)}
+                    data-testid="reminder-update-message"
+                  >
+                    Update message
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <MessageCircle className="h-4 w-4 text-emerald-500" /> WhatsApp message
@@ -450,9 +608,9 @@ export function SendReminderDialog({
               onChange={(e) => setWhatsappBody(e.target.value)}
               className="min-h-[120px] font-normal"
             />
-            {statement && hasTable && (
+            {chosen && hasTable && (
               <p className="text-xs text-muted-foreground" data-testid="reminder-pdf-note">
-                Send on WhatsApp also downloads the lined table of {statement.invoices.length} open invoice{statement.invoices.length === 1 ? '' : 's'} as a PDF to attach in the chat.
+                Send on WhatsApp also downloads the lined table of {chosen.invoices.length} invoice{chosen.invoices.length === 1 ? '' : 's'} as a PDF to attach in the chat.
               </p>
             )}
           </div>
@@ -468,10 +626,10 @@ export function SendReminderDialog({
               className="min-h-[260px]"
               data-testid="reminder-email-body"
             />
-            {statement && hasTable && (
+            {chosen && hasTable && (
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground" data-testid="reminder-table-note">
-                  This table of {statement.invoices.length} open invoice{statement.invoices.length === 1 ? '' : 's'} goes in the email where it says {INVOICE_TABLE_SLOT}.
+                  This table of {chosen.invoices.length} invoice{chosen.invoices.length === 1 ? '' : 's'} goes in the email where it says {INVOICE_TABLE_SLOT}.
                 </p>
                 <div
                   className="max-h-72 overflow-auto rounded border border-border bg-white p-2"
@@ -506,13 +664,13 @@ export function SendReminderDialog({
           <Button
             variant="outline"
             onClick={() => handleSend('email')}
-            disabled={isSending}
+            disabled={isSending || nothingTicked}
           >
             <Mail className="mr-2 h-4 w-4" /> Open in {providerName}
           </Button>
           <Button
             onClick={() => handleSend('whatsapp')}
-            disabled={isSending || !normalizedPhone}
+            disabled={isSending || !normalizedPhone || nothingTicked}
             className="bg-emerald-600 text-white hover:bg-emerald-700"
           >
             <MessageCircle className="mr-2 h-4 w-4" /> Send on WhatsApp

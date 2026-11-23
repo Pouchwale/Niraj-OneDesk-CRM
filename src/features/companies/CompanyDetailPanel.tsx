@@ -74,7 +74,12 @@ export function CompanyDetailPanel({
   const [showExtraFields, setShowExtraFields] = useState(false)
   const [isReminderOpen, setIsReminderOpen] = useState(false)
   const [timelineKey, setTimelineKey] = useState(0)
+  /** The invoices ticked for the reminder's table; null is all of them. */
+  const [pickedIds, setPickedIds] = useState<string[] | null>(null)
   const coordinators = getAssignableOwners()
+
+  // Every customer opens with all their invoices ticked.
+  useEffect(() => setPickedIds(null), [open, company?.id])
 
   // Tell the robot which account is on screen, so it can speak to it.
   useEffect(() => {
@@ -278,6 +283,8 @@ export function CompanyDetailPanel({
                 customer={customer}
                 actorId={currentUserId}
                 focusInvoiceId={focusInvoiceId}
+                pickedIds={pickedIds}
+                onPick={setPickedIds}
                 onChanged={() => {
                   setTimelineKey((k) => k + 1)
                   onChanged?.()
@@ -399,6 +406,8 @@ export function CompanyDetailPanel({
       <SendReminderDialog
         open={isReminderOpen}
         onClose={() => setIsReminderOpen(false)}
+        pickedInvoiceIds={customer ? pickedIds : null}
+        onPickInvoices={setPickedIds}
         coordinatorId={currentUserId ?? ''}
         coordinatorName={currentUserId ? getCoordinatorDisplayName(currentUserId) : 'the team'}
         onSent={() => {

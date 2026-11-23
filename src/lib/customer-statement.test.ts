@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { draftWithTable, parseDraft } from '@/features/assistant/email-draft'
 import { groupImportRows, separateReusedInvoiceNumbers, type MappedCompanyRow } from './companies-upload'
-import { groupCustomers } from './customer-accounts'
+import { customerReminderAmount, groupCustomers, pickedInvoices } from './customer-accounts'
 import {
   INVOICE_TABLE_SLOT,
   emailHtml,
@@ -53,7 +53,7 @@ describe('the invoice table', () => {
 
   it('is the user’s columns, every invoice, and the totals', () => {
     expect(invoiceTableText(customer, TODAY).split('\n')).toEqual([
-      'Isha Agro Developer Pvt.Ltd (Label & Pouch)',
+      'Isha Agro Developer Pvt.Ltd',
       'Ref No. | Date | Due on | Overdue by days | Gross Amount | Pending Amount',
       '3758 | 17-Oct-2026 | 17-Oct-2026 | 35 | 52919.00 | 5645.00',
       '3818 | 27-Oct-2026 | 27-Dec-2026 | - | 72299.50 | 72299.50',
@@ -87,6 +87,44 @@ describe('the invoice table', () => {
   })
 })
 
+describe('choosing the invoices', () => {
+  const [customer] = groupCustomers(
+    [
+      invoice('1', 1000, 100, '2026-09-01', '2026-10-01'),
+      invoice('2', 2000, 200, '2026-10-01', '2026-11-01'),
+      invoice('3', 4000, 400, '2026-11-01', '2026-12-30', { status: 'current' }),
+    ],
+    TODAY
+  )
+
+  it('keeps everyone with no choice, and nothing when none is ticked', () => {
+    expect(pickedInvoices(customer, null, TODAY)).toBe(customer)
+    expect(pickedInvoices(customer, ['id-1', 'id-2', 'id-3'], TODAY)).toBe(customer)
+    expect(pickedInvoices(customer, [], TODAY)).toBeNull()
+    expect(pickedInvoices(customer, ['gone'], TODAY)).toBeNull()
+  })
+
+  it('works every total from the ticked invoices only', () => {
+    const some = pickedInvoices(customer, ['id-2', 'id-3'], TODAY)!
+    expect(some.invoices.map((i) => i.invoice_no)).toEqual(['2', '3'])
+    expect([some.totalAmount, some.outstanding, some.overdue, some.overdueInvoices]).toEqual([6000, 600, 200, 1])
+    expect(some.oldestDueDate).toBe('2026-11-01')
+    expect(some.maxDaysOverdue).toBe(20)
+    expect(customerReminderAmount(some)).toBe(200)
+    const text = invoiceTableText(some, TODAY)
+    expect(text).not.toContain('1 | 01-Sep-2026')
+    expect(text).toContain('Total | - | - | - | 6000.00 | 600.00')
+    expect(text).toContain('Total Overdue: 200.00')
+  })
+
+  it('has no overdue line when only invoices not yet due are ticked', () => {
+    const later = pickedInvoices(customer, ['id-3'], TODAY)!
+    expect(later.overdue).toBe(0)
+    expect(customerReminderAmount(later)).toBe(400)
+    expect(invoiceTableHtml(later, TODAY)).not.toContain('Total Overdue')
+  })
+})
+
 describe('the lined table', () => {
   const [customer] = groupCustomers(
     [
@@ -105,7 +143,8 @@ describe('the lined table', () => {
 
   it('has the user’s title, columns, alignment and figures', () => {
     expect(html).toContain('colspan="6"')
-    expect(html).toContain('Isha &lt;Agro&gt; &amp; Co (Label &amp; Pouch)')
+    expect(html).toContain('>Isha &lt;Agro&gt; &amp; Co</td>')
+    expect(html).not.toContain('Pouch')
     for (const heading of ['Ref No.', 'Date', 'Due on', 'Overdue<br>by days', 'Gross Amount', 'Pending Amount']) expect(html).toContain(`>${heading}</td>`)
     expect(html).toMatch(/text-align:right;">17-Oct-2026<\/td>/)
     expect(html).toMatch(/text-align:left;">17-Oct-2026<\/td>/)
@@ -151,7 +190,8 @@ describe('the WhatsApp PDF', () => {
     const raw = doc.output()
     expect(doc.getNumberOfPages()).toBeGreaterThan(1)
     expect(raw.match(/Pending Amount/g)?.length).toBe(doc.getNumberOfPages())
-    expect(raw).toContain('Isha Agro Developer Pvt.Ltd \\(Label & Pouch\\)')
+    expect(raw).toContain('(Isha Agro Developer Pvt.Ltd)')
+    expect(raw).not.toContain('Pouch')
     for (const r of rows) expect(raw).toContain(`(${r.invoice_no})`)
     expect(raw).toContain('(Total)')
     expect(raw).toContain(`(${customer.outstanding.toFixed(2)})`)

@@ -31,8 +31,8 @@ export const plainInvoiceNo = (invoiceNo: string | null | undefined) =>
 const money = (n: number) => (Math.round((n || 0) * 100) / 100).toFixed(2)
 export { money as statementAmount }
 
-/** The table's title: the customer and, for every customer, the user's "(Label & Pouch)". */
-export const invoiceTableTitle = (name: string) => `${name} (Label & Pouch)`
+/** The table's title: the customer's name alone (the "(Label & Pouch)" was removed on 23 Nov 2026). */
+export const invoiceTableTitle = (name: string) => name
 
 /** One row per invoice: Ref No., Date, Due on, Overdue by days, Gross Amount, Pending Amount. */
 export function invoiceTableRows(customer: CustomerAccount, today: string = todayISO()): string[][] {

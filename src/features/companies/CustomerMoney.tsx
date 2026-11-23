@@ -50,14 +50,26 @@ export function CustomerInvoicesCard({
   actorId,
   focusInvoiceId,
   onChanged,
+  pickedIds = null,
+  onPick,
 }: {
   customer: CustomerAccount
   actorId?: string
   /** The invoice the person clicked, opened on arrival. */
   focusInvoiceId?: string | null
   onChanged?: () => void
+  /** The invoices ticked for the reminder's table; null is all of them. */
+  pickedIds?: string[] | null
+  onPick?: (ids: string[] | null) => void
 }) {
   const [openId, setOpenId] = useState<string | null>(focusInvoiceId ?? null)
+  const allIds = customer.invoices.map((i) => i.id)
+  const ticked = new Set(pickedIds ?? allIds)
+  const tickedCount = allIds.filter((id) => ticked.has(id)).length
+  const toggle = (id: string) => {
+    const next = ticked.has(id) ? allIds.filter((x) => ticked.has(x) && x !== id) : allIds.filter((x) => ticked.has(x) || x === id)
+    onPick?.(next.length === allIds.length ? null : next)
+  }
   return (
     <div className="space-y-4" data-testid="customer-invoices">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -66,10 +78,30 @@ export function CustomerInvoicesCard({
         <Figure label="Overdue" value={customer.overdue} note={count(customer.overdueInvoices)} tone="rose" />
         <Figure label="Overdue in 7 days" value={customer.overdueIn7Days} note={count(customer.overdueIn7DaysInvoices)} tone="amber" />
       </div>
+      {onPick && (
+        <p className="text-xs text-muted-foreground" data-testid="customer-invoices-picked">
+          Tick the invoices to send in the reminder table: {tickedCount} of {allIds.length} ticked.
+        </p>
+      )}
       <div className="max-h-72 overflow-auto rounded-lg border border-border/60">
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 z-10 bg-muted uppercase text-muted-foreground">
             <tr>
+              {onPick && (
+                <th className="w-8 py-2 pl-3">
+                  <input
+                    type="checkbox"
+                    aria-label="Tick all invoices"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={tickedCount === allIds.length}
+                    ref={(box) => {
+                      if (box) box.indeterminate = tickedCount > 0 && tickedCount < allIds.length
+                    }}
+                    onChange={() => onPick(tickedCount === allIds.length ? [] : null)}
+                    data-testid="customer-invoice-tick-all"
+                  />
+                </th>
+              )}
               <th className="px-3 py-2 font-medium">Invoice</th>
               <th className="px-3 py-2 font-medium">Invoice date</th>
               <th className="px-3 py-2 font-medium">Due date</th>
@@ -91,6 +123,18 @@ export function CustomerInvoicesCard({
                     onClick={() => setOpenId(isOpen ? null : invoice.id)}
                     data-testid="customer-invoice-row"
                   >
+                    {onPick && (
+                      <td className="py-2 pl-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Send invoice ${invoice.invoice_no || ''}`}
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={ticked.has(invoice.id)}
+                          onChange={() => toggle(invoice.id)}
+                          data-testid="customer-invoice-tick"
+                        />
+                      </td>
+                    )}
                     <td className="whitespace-nowrap px-3 py-2 font-mono">
                       {isOpen ? <ChevronDown className="mr-1 inline h-3 w-3" /> : <ChevronRight className="mr-1 inline h-3 w-3" />}
                       {invoice.invoice_no || '-'}
@@ -104,7 +148,7 @@ export function CustomerInvoicesCard({
                   </tr>
                   {isOpen && (
                     <tr>
-                      <td colSpan={7} className="space-y-3 bg-muted/20 p-3">
+                      <td colSpan={onPick ? 8 : 7} className="space-y-3 bg-muted/20 p-3">
                         <RecalculateDueDate company={invoice} actorId={actorId} onChanged={() => onChanged?.()} />
                         {extra.length > 0 && (
                           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
