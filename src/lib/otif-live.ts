@@ -203,6 +203,24 @@ export function rowsInRange(rows: readonly OtifLiveRow[], basis: WeekBasis, from
 }
 
 /** "1 Nov 2026 – 14 Nov 2026" */
+/**
+ * The From-To dates after one of them is chosen (23 Nov 2026). The calendars no
+ * longer grey out days beyond the other date, so remembered October dates cannot
+ * block November: a From after the To moves the To to that month's end (today at
+ * most), and a To before the From moves the From to that month's first day.
+ */
+export function pickRangeDay(range: { from: string; to: string }, edge: 'from' | 'to', day: string, today: string): { from: string; to: string } {
+  // A year still being typed (0202) is left alone rather than dragging the other date with it.
+  if (day < '2000-01-01') return { ...range, [edge]: day }
+  if (edge === 'from') {
+    if (day <= range.to) return { from: day, to: range.to }
+    const monthEnd = new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).toISOString().slice(0, 10)
+    return { from: day, to: day <= today && today < monthEnd ? today : monthEnd }
+  }
+  if (day >= range.from) return { from: range.from, to: day }
+  return { from: `${day.slice(0, 8)}01`, to: day }
+}
+
 export function otifRangeLabel(from: string, to: string): string {
   const fmt = (d: string) => {
     const [y, m, day] = d.split('-').map(Number)

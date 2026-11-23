@@ -12,7 +12,7 @@
  * sheet marks OTIF Score YES ÷ all orders. Nothing is imported into the records.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode, useRef } from 'react'
 import { AlertTriangle, FileDown, FileSpreadsheet, FolderOpen, Loader2, Save, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -44,6 +44,7 @@ import {
   type OtifLiveRow,
   type OtifSavedReport,
   type OtifSavedReportSummary,
+  pickRangeDay,
   type WeekBasis,
 } from '@/lib/otif-live'
 import { isIsoDay } from '../../../../shared/otif-reports'
@@ -223,6 +224,53 @@ function saveRange(range: { from: string; to: string }): void {
 const weeksTouched = (from: string, to: string) =>
   Math.min(8, Math.round((Date.parse(`${weekStartOf(to)}T00:00:00Z`) - Date.parse(`${weekStartOf(from)}T00:00:00Z`)) / (7 * 86_400_000)) + 1)
 
+/**
+ * One date box. It holds what is being typed itself: the browser reports a day
+ * or month of "0" as an empty date, and handing the old date straight back
+ * reset the box, so 01-11-2026 could not be typed.
+ */
+function DateBox({ id, label, value, disabled, onDay, onFinish }: {
+  id: string
+  label: string
+  value: string
+  disabled: boolean
+  onDay: (day: string, typing: boolean) => void
+  onFinish: () => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const focused = useRef(false)
+  const typing = useRef(false)
+  useEffect(() => {
+    if (!focused.current) setDraft(value)
+  }, [value])
+  return (
+    <Input
+      id={id}
+      type="date"
+      aria-label={label}
+      className="h-9 w-[150px]"
+      value={draft}
+      disabled={disabled}
+      onFocus={() => (focused.current = true)}
+      onPointerDown={() => (typing.current = false)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === 'Tab') onFinish()
+        else typing.current = true
+      }}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        if (e.target.value) onDay(e.target.value, typing.current)
+      }}
+      onBlur={() => {
+        focused.current = false
+        typing.current = false
+        setDraft(value)
+        onFinish()
+      }}
+    />
+  )
+}
+
 const savedWhen = (iso: string) =>
   new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -237,6 +285,12 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
   const setRange = (next: { from: string; to: string }) => {
     setRangeState(next)
     saveRange(next)
+  }
+  // While a date is typed, each keystroke is a passing value (month "1" of "11"): the other date only follows once it is finished.
+  const chooseDay = (edge: 'from' | 'to', day: string, typing: boolean) =>
+    setRange(typing ? { ...range, [edge]: day } : pickRangeDay(range, edge, day, today))
+  const finishDay = (edge: 'from' | 'to') => {
+    if (range.from > range.to) setRange(pickRangeDay(range, edge, range[edge], today))
   }
   const [filters, setFilters] = useState<OtifLiveFilters>(NO_LIVE_FILTERS)
   const [search, setSearch] = useState('')
@@ -446,27 +500,9 @@ export function OtifLiveView({ sourceSwitch }: { sourceSwitch?: ReactNode }) {
           <div className="space-y-1.5">
             <Label htmlFor="otif-from">Dates</Label>
             <div className="flex items-center gap-2">
-              <Input
-                id="otif-from"
-                type="date"
-                aria-label="From"
-                className="h-9 w-[150px]"
-                value={from}
-                max={to || undefined}
-                disabled={Boolean(opened)}
-                onChange={(e) => e.target.value && setRange({ from: e.target.value, to: range.to })}
-              />
+              <DateBox id="otif-from" label="From" value={from} disabled={Boolean(opened)} onDay={(day, typing) => chooseDay('from', day, typing)} onFinish={() => finishDay('from')} />
               <span className="text-xs text-muted-foreground">to</span>
-              <Input
-                id="otif-to"
-                type="date"
-                aria-label="To"
-                className="h-9 w-[150px]"
-                value={to}
-                min={from || undefined}
-                disabled={Boolean(opened)}
-                onChange={(e) => e.target.value && setRange({ from: range.from, to: e.target.value })}
-              />
+              <DateBox id="otif-to" label="To" value={to} disabled={Boolean(opened)} onDay={(day, typing) => chooseDay('to', day, typing)} onFinish={() => finishDay('to')} />
             </div>
             <p className="text-xs font-medium text-muted-foreground" data-testid="otif-week-label">
               {validRange ? datesLabel : 'The From date is after the To date'}
