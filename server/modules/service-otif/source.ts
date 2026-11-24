@@ -1,7 +1,7 @@
 /**
  * The OTIF file as the Service score reads it (16 Nov 2026): each
- * coordinator's different customers per month by PO Closed Date, from
- * November 2026 (shared/service-otif.ts). The server opens the workbook with
+ * coordinator's different POs closed per month by PO Closed Date (customers
+ * until 24 Nov 2026; shared/service-otif.ts). The server opens the workbook with
  * the same reading the OTIF page uses (shared/otif-read.ts), only again after
  * the file has been saved (about 4 seconds for the whole file), and keeps
  * just the three columns it counts. The file's Relation Manager is matched to
@@ -18,7 +18,7 @@ import type { Logger } from '../../logger'
 import type { ExcelService } from '../excel/service'
 import { coordinatorMatcher } from '../presales/match'
 
-type Row = Pick<OtifLiveRow, 'poClosedDate' | 'customerName' | 'relationManager'>
+type Row = Pick<OtifLiveRow, 'poNo' | 'poClosedDate' | 'relationManager'>
 
 interface Deps {
   excel: ExcelService
@@ -42,7 +42,7 @@ export function readOtifRows(buffer: Buffer, sheet: string | null | undefined): 
   }))
   const read = readOtifSheets(sheets, { wantedSheet: sheet ?? null, date1904: Boolean(workbook.Workbook?.WBProps?.date1904) })
   if (!read.ok) throw new Error(read.error)
-  return read.rows.map((r) => ({ poClosedDate: r.poClosedDate, customerName: r.customerName, relationManager: r.relationManager }))
+  return read.rows.map((r) => ({ poNo: r.poNo, poClosedDate: r.poClosedDate, relationManager: r.relationManager }))
 }
 
 export function createOtifCustomerSource(deps: Deps): OtifCustomerSource {

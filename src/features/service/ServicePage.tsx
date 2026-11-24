@@ -209,7 +209,7 @@ export function ServicePage() {
         ? [{
             name: 'Scores',
             rows: [
-              ['Coordinator Name', 'Total Customers', 'No. of Mails', 'Customer Mail Ratio', 'Sum of Points', 'Final Score'],
+              ['Coordinator Name', 'Total POs', 'No. of Mails', 'PO Mail Ratio', 'Sum of Points', 'Final Score'],
               ...scores.map((s) => [
                 getCoordinatorDisplayName(s.coordinatorId), s.totalCustomers ?? '', s.mails,
                 s.mailRatio === null ? '' : Math.round(s.mailRatio * 10000) / 100, s.sumOfScore,
@@ -217,7 +217,7 @@ export function ServicePage() {
                 s.finalScore === null ? '' : minusScore(Math.round(s.finalScore * 100) / 100, 2),
               ]),
               [],
-              ['Team', 'Total Customers', 'No. of Mails', 'People scored', 'Sum of Points', 'Final Score (average of its people)'],
+              ['Team', 'Total POs', 'No. of Mails', 'People scored', 'Sum of Points', 'Final Score (average of its people)'],
               ...teamScores.map((t) => [
                 t.team, t.customers, t.mails, `${t.scored} of ${t.memberIds.length}`, t.sumOfScore,
                 t.finalScore === null ? '' : minusScore(Math.round(t.finalScore * 100) / 100, 2),
@@ -333,7 +333,7 @@ export function ServicePage() {
               {editableMonth
                 ? `type each coordinator's Total Customers for ${monthLabel(editableMonth)} (last month's number shows greyed)`
                 : otifMonths.length === months.length && months.length > 0
-                  ? `Total Customers = each coordinator's different customers in the OTIF file with a PO closed in ${months.length === 1 ? monthLabel(months[0]) : 'each month'} (Relation Manager)${months.length > 1 ? ', added up' : ''}`
+                  ? `Total POs = each coordinator's POs in the OTIF file closed in ${months.length === 1 ? monthLabel(months[0]) : 'each month'} (Relation Manager)${months.length > 1 ? ', added up' : ''}`
                   : otifMonths.length > 0
                     ? `Total Customers is the months' numbers added up: typed before Nov 2026, from the OTIF file from Nov 2026`
                     : `Total Customers is the months' numbers added up (${months.length} months); choose a single month to type them`}
@@ -367,7 +367,7 @@ export function ServicePage() {
                 </div>
                 <div className="mt-2 grid grid-cols-4 gap-2 border-t border-border/50 pt-2">
                   {([
-                    ['Customers', t.customers.toLocaleString('en-IN')],
+                    ['POs', t.customers.toLocaleString('en-IN')],
                     ['Mails', t.mails.toLocaleString('en-IN')],
                     ['Points', t.sumOfScore.toLocaleString('en-IN')],
                     ['People scored', `${t.scored} of ${t.memberIds.length}`],
@@ -386,9 +386,9 @@ export function ServicePage() {
               <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium">Coordinator</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Total customers</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Total POs</th>
                   <th className="px-3 py-2.5 text-right font-medium">No. of mails</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Customer mail ratio</th>
+                  <th className="px-3 py-2.5 text-right font-medium">PO mail ratio</th>
                   <th className="px-3 py-2.5 text-right font-medium">Sum of points</th>
                   <th className="px-3 py-2.5 text-right font-medium" title="Minus scoring: the gap from 100, so 0 is full marks">
                     Final score
@@ -423,7 +423,7 @@ export function ServicePage() {
                             s.missingMonths.length
                               ? `No number for ${s.missingMonths.map(monthLabel).join(', ')}`
                               : otifMonths.length
-                                ? 'From the OTIF file: different customers with a PO closed in the month'
+                                ? 'From the OTIF file: POs closed in the month'
                                 : undefined
                           }
                           data-testid="service-total-customers"
@@ -447,10 +447,10 @@ export function ServicePage() {
             </table>
           </div>
           <p className="text-xs text-muted-foreground">
-            Each record earns 10 points when it has an Information Date, otherwise 0. Customer mail ratio = mails ÷ total customers. Final score =
-            (sum of points ÷ total customers) × 10, at most {SERVICE_SCORE_CAP}, in minus scoring: the gap from 100, so 0 is full marks and 85 shows
-            as -15. Total customers comes from the OTIF file: the coordinator's different customers (as Relation Manager) with a PO closed in
-            the month, added up over the months of the period. A coordinator with no customers for the period shows —.
+            Each record earns 10 points when it has an Information Date, otherwise 0. PO mail ratio = mails ÷ total POs. Final score =
+            (sum of points ÷ total POs) × 10, at most {SERVICE_SCORE_CAP}, in minus scoring: the gap from 100, so 0 is full marks and 85 shows
+            as -15. Total POs comes from the OTIF file: the coordinator's POs (as Relation Manager) closed in the month, each PO once, added up
+            over the months of the period. A coordinator with no POs for the period shows —.
             Team score = the average of the final scores of its people with Service switched on; anyone showing — is left out of that average.
           </p>
         </GlassCard>

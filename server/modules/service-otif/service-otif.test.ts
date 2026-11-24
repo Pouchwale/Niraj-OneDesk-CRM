@@ -42,8 +42,8 @@ describe("Krina Shah's OTIF orders under Disha Acharya (21 Nov 2026)", () => {
     expect(otifRowOf(['P2', '2026-10-05', 'Acme', 'Krina Shah'], columns)?.relationManager).toBe('Krina Shah')
     const match = coordinatorMatcher([{ id: 'k', name: 'Krina Shah' }, { id: 'd', name: 'Disha Acharya' }, { id: 'c', name: 'Disha Chaudhary' }])
     const rows = [
-      { poClosedDate: '2026-10-30', customerName: 'Old', relationManager: otifRelationManager('Krina Shah', '2026-10-30') },
-      { poClosedDate: '2026-11-16', customerName: 'New', relationManager: otifRelationManager('Krina Shah', '2026-11-16') },
+      { poNo: 'P1', poClosedDate: '2026-10-30', relationManager: otifRelationManager('Krina Shah', '2026-10-30') },
+      { poNo: 'P2', poClosedDate: '2026-11-16', relationManager: otifRelationManager('Krina Shah', '2026-11-16') },
     ]
     const { counts, weeks } = countOtifCustomers(rows, match)
     expect(counts['2026-10']).toEqual({ k: 1 })
@@ -52,39 +52,39 @@ describe("Krina Shah's OTIF orders under Disha Acharya (21 Nov 2026)", () => {
   })
 })
 
-describe('counting the OTIF customers', () => {
+describe('counting the OTIF POs (24 Nov 2026; customers before)', () => {
   const match = coordinatorMatcher([
     { id: 'p', name: 'Pragati Patel' },
     { id: 'k', name: 'Krina Shah' },
   ])
-  const row = (closed: string | null, customer: string | null, rm: string | null) => ({ poClosedDate: closed, customerName: customer, relationManager: rm })
+  const row = (closed: string | null, po: string | null, rm: string | null) => ({ poClosedDate: closed, poNo: po as string, relationManager: rm })
 
-  it('counts different customers per coordinator and month by PO Closed Date, from the month given', () => {
+  it('counts different POs per coordinator and month by PO Closed Date, from the month given', () => {
     const { counts, unmatched } = countOtifCustomers(
       [
-        row('2026-11-02', 'Amul Dairy', 'Pragati'),
-        row('2026-11-09', 'AMUL  dairy ', 'PRAGATI PATEL'), // the same customer again
-        row('2026-11-10', 'Banas Dairy', 'Pragati'),
-        row('2026-11-11', 'Amul Dairy', 'Krina'), // a customer counts for each coordinator who served it
-        row('2026-12-01', 'Amul Dairy', 'Pragati'),
-        row('2026-10-31', 'Old Ltd', 'Pragati'), // before November: typed instead
-        row(null, 'Open Order Ltd', 'Pragati'), // still open: no closed date
-        row('2026-11-12', null, 'Pragati'), // no customer name
-        row('2026-11-12', 'Someone Ltd', 'Niki Patel'),
-        row('2026-11-13', 'Nobody Ltd', null),
+        row('2026-11-02', '91001', 'Pragati'),
+        row('2026-11-02', ' 91001 ', 'PRAGATI PATEL'), // the same PO on another line of the file: once
+        row('2026-11-10', '91002', 'Pragati'), // another PO, even for the same customer: counts
+        row('2026-11-11', '91003', 'Krina'),
+        row('2026-12-01', '91004', 'Pragati'),
+        row('2026-10-31', '90001', 'Pragati'), // before the month given
+        row(null, '91005', 'Pragati'), // still open: no closed date
+        row('2026-11-12', null, 'Pragati'), // no PO number
+        row('2026-11-12', '91006', 'Niki Patel'),
+        row('2026-11-13', '91007', null),
       ],
       match,
       '2026-11'
     )
     expect(counts).toEqual({ '2026-11': { p: 2, k: 1 }, '2026-12': { p: 1 } })
-    // Every month by default (16 Nov 2026: OTIF for the past months too).
-    expect(countOtifCustomers([row('2026-10-31', 'Old Ltd', 'Pragati')], match).counts).toEqual({ '2026-10': { p: 1 } })
+    // Every month by default (OTIF for the past months too).
+    expect(countOtifCustomers([row('2026-10-31', '90001', 'Pragati')], match).counts).toEqual({ '2026-10': { p: 1 } })
     expect(unmatched).toEqual({ '2026-11': { 'Niki Patel': 1, '(blank)': 1 } })
   })
 
   it('counts them by week too, Saturday to Friday', () => {
-    const { weeks } = countOtifCustomers([row('2026-11-06', 'Amul', 'Pragati'), row('2026-11-07', 'Amul', 'Pragati'), row('2026-11-08', 'Banas', 'Pragati'), row('2026-11-13', 'amul', 'Pragati')], match)
-    // Friday 6 Nov is the week of Saturday 31 Oct; 7 to 13 Nov is one week.
+    const { weeks } = countOtifCustomers([row('2026-11-06', 'A1', 'Pragati'), row('2026-11-07', 'A2', 'Pragati'), row('2026-11-08', 'A3', 'Pragati'), row('2026-11-13', 'a3', 'Pragati')], match)
+    // Friday 6 Nov is the week of Saturday 31 Oct; 7 to 13 Nov is one week (A3 and a3 are one PO).
     expect(weeks).toEqual({ '2026-10-31': { p: 1 }, '2026-11-07': { p: 2 } })
   })
 })
@@ -155,10 +155,10 @@ describe('the route', () => {
     expect((await get(await signIn('pragati', 'Pragati@123'))).status).toBe(403)
   })
 
-  it('counts each coordinator’s customers from the file', async () => {
+  it('counts each coordinator’s closed POs from the file, two of them for one customer included', async () => {
     const res = await get(await signIn('niki', 'Niki@123'))
     expect(res.status).toBe(200)
     const body = (await res.json()) as ServiceOtifResponse
-    expect(body).toMatchObject({ configured: true, error: null, counts: { '2026-11': { 'coord-1': 2 } }, unmatched: { '2026-11': { Somebody: 1 } } })
+    expect(body).toMatchObject({ configured: true, error: null, counts: { '2026-11': { 'coord-1': 3 } }, unmatched: { '2026-11': { Somebody: 1 } } })
   })
 })
