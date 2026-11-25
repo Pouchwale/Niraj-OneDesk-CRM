@@ -14,7 +14,7 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
-import { accountRefusal, billingIssueRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string) {
@@ -49,6 +49,8 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     serviceRecords: (snapshot.serviceRecords ?? []).filter((r) => r.coordinator_id === userId),
     serviceTargets: [],
     selfLeads: (snapshot.selfLeads ?? []).filter((l) => l.coordinator_id === userId),
+    // Their own rate sheets; the rate table is everyone's, so their Do not Send works out the same.
+    flexoRateSheets: (snapshot.flexoRateSheets ?? []).filter((s) => s.coordinator_id === userId),
     // Only their own module switches.
     moduleAccess: (snapshot.moduleAccess ?? []).filter((a) => a.coordinatorId === userId),
     // Numbers only, so a new quotation never reuses one another coordinator took.
@@ -165,6 +167,18 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (festive) {
         logger.warn('data: festival settings refused', { method, user: user.id, refusal: festive })
         next(ApiError.forbidden(festive))
+        return
+      }
+      const qconfig = quotationConfigRefusal(user.role, method)
+      if (qconfig) {
+        logger.warn('data: quotation settings refused', { method, user: user.id, refusal: qconfig })
+        next(ApiError.forbidden(qconfig))
+        return
+      }
+      const flexo = flexoRateSheetRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().flexoRateSheets ?? [])
+      if (flexo) {
+        logger.warn('data: rate sheet change refused', { method, user: user.id, refusal: flexo })
+        next(ApiError.forbidden(flexo))
         return
       }
       const lead = selfLeadRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().selfLeads ?? [])

@@ -9,6 +9,7 @@
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { BarChart3, Clock, Download, FileText, IndianRupee, List, Plus, Search, Trophy, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -28,6 +29,10 @@ import { QuotationDialog } from './QuotationDialog'
 import { DEFAULT_FILTERS, QuotationFilters, describeFilter, toQuotationFilter, type FilterState } from './QuotationFilters'
 import { QuotationPerformance } from './QuotationPerformance'
 import { QuotationConversions } from './QuotationConversions'
+import { FlexoRateSheetsView, type QuotationReport } from './flexo/FlexoRateSheetsView'
+import { DoNotSendView } from './flexo/DoNotSendView'
+import { SalesQuotationView } from './flexo/SalesQuotationView'
+import { ArrowLeft } from 'lucide-react'
 
 export const STATUS_STYLE: Record<QuotationStatus, string> = {
   open: 'bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-400',
@@ -43,7 +48,90 @@ const TYPE_STYLE: Record<'new' | 'existing', string> = {
 
 const dayOf = quotationDay
 
+/** The parts of Quotations (24 Nov 2026): today's quotations, and the Quotation Sheet built from SAP with its two reports. */
+const PARTS = [
+  { id: 'list', label: 'Quotations' },
+  { id: 'sheet', label: 'Quotation Sheet' },
+] as const
+type Part = (typeof PARTS)[number]['id']
+const REPORTS: Record<QuotationReport, { title: string; subtitle: string }> = {
+  'do-not-send': { title: 'Do not Send', subtitle: "The costing for this quotation sheet (SAP's DO_NOT_SEND). Not for the customer." },
+  'sales-quotation': { title: 'Sales Quotation', subtitle: "The customer's quotation for this sheet (SAP's Sales_Quotation)." },
+}
+
 export function QuotationsPage() {
+  const { user, canManageTeam } = useAuth()
+  const [params, setParams] = useSearchParams()
+  // The Quotation Sheet is for the administrator and the team leader only, for now (25 Nov 2026).
+  const parts = canManageTeam ? PARTS : PARTS.filter((p) => p.id === 'list')
+  const part: Part = parts.some((p) => p.id === params.get('part')) ? (params.get('part') as Part) : 'list'
+  const doc = Number(params.get('doc'))
+  const reportParam = params.get('report')
+  const report: QuotationReport | null = reportParam === 'do-not-send' || reportParam === 'sales-quotation' ? reportParam : null
+  const sheets = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.flexoRateSheets)
+  const sheet = report && doc ? sheets.find((s) => s.docEntry === doc) ?? null : null
+  const go = (next: Part, docEntry?: number | null, kind?: QuotationReport) => {
+    const p = new URLSearchParams(params)
+    if (next === 'list') p.delete('part')
+    else p.set('part', next)
+    if (docEntry && kind) {
+      p.set('doc', String(docEntry))
+      p.set('report', kind)
+    } else {
+      p.delete('doc')
+      p.delete('report')
+    }
+    setParams(p)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div role="tablist" aria-label="Quotations part" className={cn('inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5', parts.length < 2 && 'hidden')} data-testid="quotation-parts">
+        {parts.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            role="tab"
+            aria-selected={part === p.id}
+            onClick={() => go(p.id)}
+            className={cn(
+              'rounded-md px-4 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              part === p.id ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {part === 'list' && <QuotationList />}
+      {part === 'sheet' && !report && (
+        <>
+          <PageHeader title="Quotation Sheet" subtitle="Fill in the sheet (SAP's Flexo Rate Sheet) and press Add; its Do not Send and Sales Quotation come from it." />
+          <FlexoRateSheetsView canManageTeam={canManageTeam} currentUserId={user?.id ?? ''} onOpenReport={(d, kind) => go('sheet', d, kind)} />
+        </>
+      )}
+      {part === 'sheet' && report && (
+        <>
+          <PageHeader title={`${REPORTS[report].title}${sheet ? ` · Quotation Sheet ${sheet.docEntry}` : ''}`} subtitle={REPORTS[report].subtitle}>
+            <Button variant="outline" onClick={() => go('sheet')} data-testid="report-back">
+              <ArrowLeft className="mr-2 h-4 w-4" /> Quotation Sheet
+            </Button>
+          </PageHeader>
+          {!sheet ? (
+            <p className="text-sm text-muted-foreground">There is no quotation sheet {doc || ''}{canManageTeam ? '' : ' of yours'}.</p>
+          ) : report === 'do-not-send' ? (
+            <DoNotSendView sheet={sheet} />
+          ) : (
+            <SalesQuotationView sheet={sheet} />
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Today's quotations: list, Performance, Conversions and score (unchanged). */
+function QuotationList() {
   const { user, canManageTeam } = useAuth()
   const all = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.quotations)
   const today = todayISO()

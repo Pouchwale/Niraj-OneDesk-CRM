@@ -9,6 +9,8 @@ import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, disputedAmountOf, isBankrupt, isNoFo
 import { nextBillingSrNo } from './billing-issues'
 import { addBuckets, bucketsOf, disputeExtraIdOf, isDisputeExtra, splitDisputedBalance, type AgeingBuckets } from './dispute-split'
 import { invoiceKeyOf } from './account-key'
+import { nextDocEntry, type FlexoRate, type FlexoRateSheet } from './flexo-rate-sheet'
+import { quotationConfigProblem, resolveQuotationConfig, type QuotationConfig } from './quotation-config'
 // Relative: this file runs on the server too, outside Vite's alias resolution.
 import { DAY_MS } from './constants'
 import { withoutCarryBeforeFreshStart } from './robi-fresh-start'
@@ -469,6 +471,12 @@ export interface PersistedStore {
   moduleAccess?: ModuleAccess[]
   /** How Robi celebrates festivals (set by the administrator); null = the defaults. */
   festivalConfig?: FestivalConfig | null
+  /** Quotations → Flexo Rate Sheets (24 Nov 2026). Optional for older files. */
+  flexoRateSheets?: FlexoRateSheet[]
+  /** The Do not Send report's rate table (SAP's @RATED), by Type. Optional for older files. */
+  flexoRates?: FlexoRate[]
+  /** Quotation Sheet settings (numbers, lists, texts) set by the administrator; null = SAP's. */
+  quotationConfig?: QuotationConfig | null
   /**
    * Every quotation number in use, team-wide. Sent to a coordinator, who only
    * holds their own quotations, so the next number suggested is never taken.
@@ -570,6 +578,9 @@ class DemoCompanyStore {
   robiOffDays: RobiOffDay[] = restored?.robiOffDays ?? []
   moduleAccess: ModuleAccess[] = restored?.moduleAccess ?? []
   festivalConfig: FestivalConfig | null = restored?.festivalConfig ? cleanFestivalConfig(restored.festivalConfig) : null
+  flexoRateSheets: FlexoRateSheet[] = restored?.flexoRateSheets ?? []
+  flexoRates: FlexoRate[] = restored?.flexoRates ?? []
+  quotationConfig: QuotationConfig | null = restored?.quotationConfig ?? null
   quotationNos: string[] = []
   /** True once a save has been refused, so it is reported once, not every tick. */
   storageFailed = false
@@ -1470,6 +1481,9 @@ class DemoCompanyStore {
       robiOffDays: this.robiOffDays,
       moduleAccess: this.moduleAccess,
       festivalConfig: this.festivalConfig,
+      flexoRateSheets: this.flexoRateSheets,
+      flexoRates: this.flexoRates,
+      quotationConfig: this.quotationConfig,
     }
   }
 
@@ -1675,6 +1689,61 @@ class DemoCompanyStore {
 
   deleteSelfLead(id: string): void {
     this.selfLeads = this.selfLeads.filter((l) => l.id !== id)
+  }
+
+  /* ===== Quotations → Flexo Rate Sheets (24 Nov 2026) ===== */
+
+  getFlexoRateSheets(): FlexoRateSheet[] {
+    return [...this.flexoRateSheets]
+  }
+
+  /**
+   * Adds a sheet, or replaces the one with the same id. A new sheet gets the
+   * next DocEntry here (on the server, from every sheet), never from the
+   * browser; who added it and when stay as they were.
+   */
+  saveFlexoRateSheet(sheet: FlexoRateSheet): void {
+    if (!sheet?.id || !Array.isArray(sheet.lines)) return
+    const held = this.flexoRateSheets.find((s) => s.id === sheet.id)
+    const others = this.flexoRateSheets.filter((s) => s.id !== sheet.id)
+    this.flexoRateSheets = [
+      ...others,
+      {
+        ...sheet,
+        docEntry: held?.docEntry ?? nextDocEntry(others),
+        coordinator_id: held?.coordinator_id ?? sheet.coordinator_id,
+        created_at: held?.created_at ?? sheet.created_at,
+        created_by: held?.created_by ?? sheet.created_by,
+      },
+    ]
+  }
+
+  deleteFlexoRateSheet(id: string): void {
+    this.flexoRateSheets = this.flexoRateSheets.filter((s) => s.id !== id)
+  }
+
+  getFlexoRates(): FlexoRate[] {
+    return [...this.flexoRates]
+  }
+
+  /** Saves the Quotation Sheet settings (the administrator); null goes back to SAP's values. A setting with a problem is not saved. */
+  saveQuotationConfig(config: QuotationConfig | null, by: string | null, at: string): void {
+    if (config === null) {
+      this.quotationConfig = null
+      return
+    }
+    const clean = resolveQuotationConfig(config)
+    if (quotationConfigProblem(clean)) return
+    this.quotationConfig = { ...clean, updatedAt: at, updatedBy: by }
+  }
+
+  /** Sets one Type's rate; null takes it out of the table (the report then counts 0). */
+  setFlexoRate(type: string, rate: number | null, by: string | null, at: string): void {
+    const name = String(type ?? '').trim()
+    if (!name) return
+    const others = this.flexoRates.filter((r) => r.type !== name)
+    const n = Number(rate)
+    this.flexoRates = rate === null || !Number.isFinite(n) ? others : [...others, { type: name, rate: n, updatedAt: at, updatedBy: by }]
   }
 
   /* ===== Who is in the office ===== */
@@ -1915,6 +1984,9 @@ class DemoCompanyStore {
     this.robiOffDays = snapshot.robiOffDays ?? []
     this.moduleAccess = snapshot.moduleAccess ?? []
     this.festivalConfig = snapshot.festivalConfig ? cleanFestivalConfig(snapshot.festivalConfig) : null
+    this.flexoRateSheets = snapshot.flexoRateSheets ?? []
+    this.flexoRates = snapshot.flexoRates ?? []
+    this.quotationConfig = snapshot.quotationConfig ?? null
     this.quotationNos = snapshot.quotationNos ?? []
     this.refreshStatuses()
   }

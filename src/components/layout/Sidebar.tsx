@@ -1,7 +1,7 @@
-import React from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft, X, ShieldCheck, Building2, AlertTriangle, PackageCheck, FileText, ReceiptText, Mail, UserPlus, PartyPopper, History, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, CalendarRange, BarChart3, Users, Settings, ChevronLeft, ChevronDown, X, ShieldCheck, Building2, AlertTriangle, PackageCheck, FileText, ReceiptText, Mail, UserPlus, PartyPopper, History, ShoppingCart } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { cn } from '@/lib/utils';
 import { isRfdOnly } from '@/lib/users/rfd-only';
@@ -26,7 +26,21 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
     { to: '/companies', icon: Building2, label: 'Active Payments', show: !rfdOnly && on('active_payments') },
     { to: '/overdue', icon: AlertTriangle, label: 'Overdue Payments', show: !rfdOnly && on('overdue_payments') },
     { to: '/rfd', icon: PackageCheck, label: 'Ready for Dispatch', show: on('rfd') },
-    { to: '/quotations', icon: FileText, label: 'Quotations', show: !rfdOnly && on('quotations') },
+    {
+      to: '/quotations',
+      icon: FileText,
+      label: 'Quotations',
+      show: !rfdOnly && on('quotations'),
+      // Sub-modules (24 Nov 2026): today's quotations, and the Quotation Sheet with its two reports.
+      // The Quotation Sheet is for the administrator and the team leader only, for now (25 Nov 2026):
+      // a coordinator keeps the plain Quotations link.
+      children: canManageTeam
+        ? [
+            { to: '/quotations', part: null, label: 'Quotations' },
+            { to: '/quotations?part=sheet', part: 'sheet', label: 'Quotation Sheet' },
+          ]
+        : undefined,
+    },
     { to: '/pre-sales', icon: ShoppingCart, label: 'Pre Sales Analysis', show: !rfdOnly && on('pre_sales') },
     { to: '/billing-issues', icon: ReceiptText, label: 'Billing Issues', show: on('billing_issues') },
     { to: '/service', icon: Mail, label: 'Service', show: !rfdOnly && on('service') },
@@ -39,6 +53,14 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
     { to: '/settings', icon: Settings, label: 'Settings', show: canManageTeam },
     { to: '/admin/users', icon: ShieldCheck, label: 'Admin Panel', show: isAdmin },
   ];
+
+  const location = useLocation();
+  const part = new URLSearchParams(location.search).get('part');
+  const [openGroup, setOpenGroup] = useState<string | null>(() => (location.pathname === '/quotations' ? '/quotations' : null));
+  // Opening a page inside a group opens that group.
+  useEffect(() => {
+    if (location.pathname === '/quotations') setOpenGroup('/quotations');
+  }, [location.pathname]);
 
   const content = (
     <div className="flex flex-col h-full bg-card/60 [will-change:backdrop-filter] border-r border-border transition-colors">
@@ -68,7 +90,44 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
       </div>
 
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto scrollbar-none">
-        {navItems.filter(i => i.show).map((item) => (
+        {navItems.filter(i => i.show).map((item) => 'children' in item && item.children && !collapsed ? (
+          <div key={item.to} data-testid="nav-group-quotations">
+            <button
+              type="button"
+              onClick={() => setOpenGroup((g) => (g === item.to ? null : item.to))}
+              aria-expanded={openGroup === item.to}
+              className={cn(
+                "flex w-full items-center gap-3 px-3 py-3 rounded-xl transition-colors relative group",
+                location.pathname === item.to ? "text-primary font-semibold" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+            >
+              <item.icon size={20} className="shrink-0 relative z-10" />
+              <span className="whitespace-nowrap font-medium relative z-10 flex-1 text-left">{item.label}</span>
+              <ChevronDown size={16} className={cn("shrink-0 transition-transform", openGroup === item.to ? "rotate-180" : "")} />
+            </button>
+            {openGroup === item.to && (
+              <div className="ml-6 mt-1 space-y-1 border-l border-border/60 pl-3">
+                {item.children.map((child) => {
+                  const active = location.pathname === item.to && (part ?? null) === child.part;
+                  return (
+                    <NavLink
+                      key={child.label}
+                      to={child.to}
+                      end
+                      data-testid={`nav-sub-${child.label.toLowerCase().replace(/\s+/g, '-')}`}
+                      className={cn(
+                        "block rounded-lg px-3 py-2 text-sm transition-colors",
+                        active ? "bg-primary/10 text-primary font-semibold" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      )}
+                    >
+                      {child.label}
+                    </NavLink>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
           <NavLink
             key={item.to}
             to={item.to}

@@ -90,6 +90,13 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   importServiceRecords: 'team',
   setServiceCustomers: 'team',
 
+  // Quotations → Flexo Rate Sheets: a coordinator keeps their own (see flexoRateSheetRefusal); the leader sets the rates.
+  saveFlexoRateSheet: 'own',
+  deleteFlexoRateSheet: 'team',
+  setFlexoRate: 'team',
+  // The Quotation Sheet settings: the administrator only (see quotationConfigRefusal).
+  saveQuotationConfig: 'team',
+
   // Self leads: a coordinator keeps their own (see selfLeadRefusal).
   saveSelfLead: 'own',
   addSelfLeadRemark: 'own',
@@ -266,6 +273,25 @@ export function selfLeadRefusal(
   return null
 }
 
+/**
+ * Why a coordinator may not save this Flexo Rate Sheet, or null when they may:
+ * only their own, and they cannot hand one to somebody else.
+ */
+export function flexoRateSheetRefusal(
+  role: AuthRole | undefined,
+  userId: string,
+  method: string,
+  args: unknown[],
+  sheets: { id: string; coordinator_id: string | null }[]
+): string | null {
+  if (method !== 'saveFlexoRateSheet') return null
+  if (role === 'admin' || role === 'team_leader') return null
+  const sheet = (args[0] ?? null) as { id?: unknown; coordinator_id?: unknown } | null
+  const held = sheets.find((s) => s.id === sheet?.id)
+  if (held && held.coordinator_id !== userId) return 'You can only change your own rate sheets.'
+  return sheet?.coordinator_id === userId ? null : 'A rate sheet you save must be your own.'
+}
+
 /** Only the administrator switches Robi's tasks off for a day, or back on. */
 export function robiOffDayRefusal(role: AuthRole | undefined, method: string): string | null {
   if (method !== 'setRobiOffDay' && method !== 'clearRobiOffDay') return null
@@ -279,6 +305,12 @@ export function moduleAccessRefusal(role: AuthRole | undefined, method: string):
 }
 
 /** Only the administrator changes how Robi celebrates festivals. */
+/** Only the administrator changes the Quotation Sheet settings (formula numbers, lists, texts). */
+export function quotationConfigRefusal(role: AuthRole | undefined, method: string): string | null {
+  if (method !== 'saveQuotationConfig') return null
+  return role === 'admin' ? null : 'Only the administrator can change the Quotation Sheet settings.'
+}
+
 export function festivalConfigRefusal(role: AuthRole | undefined, method: string): string | null {
   if (method !== 'saveFestivalConfig') return null
   return role === 'admin' ? null : 'Only the administrator can change the festival settings.'

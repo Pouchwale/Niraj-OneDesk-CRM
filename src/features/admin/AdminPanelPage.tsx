@@ -34,6 +34,7 @@ import { ModuleAccessCard } from './ModuleAccessCard'
 import { PersonRatioCard } from './PersonRatioCard'
 import { ScoreGroupsCard } from './ScoreGroupsCard'
 import { FestivalAdminCard } from '@/features/festivals/FestivalAdminCard'
+import { QuotationFormulasCard } from './QuotationFormulasCard'
 import {
   blockedFromDisabling,
   blockedFromRemoval,
@@ -230,6 +231,8 @@ export function AdminPanelPage() {
       <RobiOffDaysCard userId={signedIn?.id ?? 'admin-0'} />
 
       <FestivalAdminCard />
+
+      <QuotationFormulasCard userId={signedIn?.id ?? 'admin-0'} />
 
       <GlassCard className="p-4 sm:p-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
