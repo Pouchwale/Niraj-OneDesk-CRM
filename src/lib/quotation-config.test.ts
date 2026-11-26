@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { doNotSendReport, figuresOf } from './do-not-send'
 import { blankFlexoLine, type FlexoRateLine, type FlexoRateSheet } from './flexo-rate-sheet'
 import { DEFAULT_NUMBERS, DEFAULT_QUOTATION_CONFIG, LIST_FIELDS, NUMBER_FIELDS, quotationConfigProblem, resolveQuotationConfig } from './quotation-config'
-import { DO_NOT_SEND_FORMULAS, SALES_QUOTATION_FORMULAS, SHEET_FIELDS } from './quotation-formula-index'
+import { DO_NOT_SEND_COLOURS, DO_NOT_SEND_FORMULAS, DO_NOT_SEND_SQL, SALES_QUOTATION_FORMULAS, SALES_QUOTATION_SQL, SHEET_FIELDS } from './quotation-formula-index'
 import { salesQuotation, salesUnitPrice } from './sales-quotation'
 
 const rates = { 'Gloss UV': 10, 'PP White': 30, Gujarat: 2, None: 0 }
@@ -64,9 +64,24 @@ describe('Quotation Sheet settings', () => {
 
   it('indexes every field and formula, and every changeable number is named in a formula', () => {
     expect(SHEET_FIELDS).toHaveLength(35)
-    expect(DO_NOT_SEND_FORMULAS.map((f) => f.no)).toEqual(expect.arrayContaining(['#0', '#26', '#28', '#37', '#41']))
-    expect(SALES_QUOTATION_FORMULAS.map((f) => f.no)).toEqual(expect.arrayContaining(['#18', '#26', '#50', '#22']))
-    const named = new Set([...DO_NOT_SEND_FORMULAS, ...SALES_QUOTATION_FORMULAS].flatMap((f) => f.numbers))
+    // The user's complete Do not Send list (26 Nov 2026): exactly these 30, in their order.
+    expect(DO_NOT_SEND_FORMULAS.map((f) => f.name)).toEqual([
+      'Ar Gap', 'Calculated Rate', 'Changeover Time (Hrs)', 'Circumference', 'Coating Cost', 'Cons Price/SQM', 'Conversion Cost',
+      'Dispatch Location', 'Factor', 'Final Rate', 'Freight Cost', 'Ink Cost', 'L + Waste', 'L+S', 'Material Cost', 'Packing Cost',
+      'Price/SQM', 'Print Speed', 'Profit Cost', 'RM Price/SQM', 'Running Meters', 'SQM Conversion', 'SQM Per Label', 'Total Cost',
+      'Total Value', 'Value Add Cost', 'W + Waste', 'Wastage Cost', 'Wastage Meters', 'Width',
+    ])
+    expect(DO_NOT_SEND_FORMULAS.map((f) => f.no)).toEqual(DO_NOT_SEND_FORMULAS.map((_, i) => String(i + 1)))
+    expect(DO_NOT_SEND_SQL).toContain('left join [@RATED] T5 on T1.U_DeliveryZone=T5.U_Type')
+    // The user's complete Sales Quotation list (26 Nov 2026): exactly these 21, in their order.
+    expect(SALES_QUOTATION_FORMULAS.map((f) => f.name)).toEqual([
+      'Calculated Rate', 'Changeover Time (Hrs)', 'Circumference', 'Coating Cost', 'Conversion Cost', 'Effects', 'Final Rate',
+      'Freight Cost', 'Ink Cost', 'L+S', 'Material Cost', 'Packing Cost', 'Print Speed', 'Profit Cost', 'Running Meters',
+      'SQM Per Label', 'Total Cost', 'Value Add Cost', 'Wastage Cost', 'Wastage Meters', 'Width',
+    ])
+    expect(SALES_QUOTATION_FORMULAS.map((f) => f.no)).toEqual(SALES_QUOTATION_FORMULAS.map((_, i) => String(i + 1)))
+    expect(SALES_QUOTATION_SQL).toContain('cross join OADP TT1')
+    const named = new Set([...DO_NOT_SEND_FORMULAS, ...DO_NOT_SEND_COLOURS, ...SALES_QUOTATION_FORMULAS].flatMap((f) => f.numbers))
     for (const n of NUMBER_FIELDS) expect(named.has(n.key), n.key).toBe(true)
     expect(LIST_FIELDS).toHaveLength(11)
   })

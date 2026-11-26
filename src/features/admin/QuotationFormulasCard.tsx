@@ -6,7 +6,7 @@
  * them change. Saved for everyone; "Back to SAP values" undoes every change.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, ChevronRight, Lock, Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -16,12 +16,13 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useQuotationConfig } from '@/features/quotations/flexo/useQuotationConfig'
 import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
-import { demoCompanyStore } from '@/lib/demo-companies'
+import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
+import { rateTypes } from '@/lib/flexo-rate-sheet'
 import {
   DEFAULT_NUMBERS, LIST_FIELDS, NUMBER_FIELDS, quotationConfigProblem,
   type ListKey, type QuotationConfig, type NumberKey,
 } from '@/lib/quotation-config'
-import { DO_NOT_SEND_FORMULAS, NULL_RULES, SALES_QUOTATION_FORMULAS, SHEET_FIELDS, type FormulaEntry } from '@/lib/quotation-formula-index'
+import { DO_NOT_SEND_COLOURS, DO_NOT_SEND_FORMULAS, DO_NOT_SEND_SQL, NULL_RULES, SALES_QUOTATION_FORMULAS, SALES_QUOTATION_LAYOUT, SALES_QUOTATION_SQL, SHEET_FIELDS, type FormulaEntry } from '@/lib/quotation-formula-index'
 import { whenSaved } from '@/lib/shared-data'
 import { cn } from '@/lib/utils'
 
@@ -35,6 +36,63 @@ const TABS: { id: Tab; label: string }[] = [
 
 const clone = (c: QuotationConfig): QuotationConfig => JSON.parse(JSON.stringify(c))
 const labelOf = (key: NumberKey) => NUMBER_FIELDS.find((f) => f.key === key)?.label ?? key
+
+/** Which rate column of the SQL each list's Type fills (the LEFT JOINs on @RATED). */
+const RATE_COLUMN: Record<string, string> = {
+  'Coating Type': 'Coating Rate (T2)',
+  Material: 'Materail Rate (T3)',
+  'Value Addition': 'Valuadition Rate (T4)',
+  'Delivery Zone': 'Diapcth Rate (T5)',
+}
+
+/** SAP's @RATED as held in the CRM (loaded from SAP 26 Nov 2026), one row per Type, sorted as SAP sorts it. */
+function RateIndex() {
+  const rates = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.flexoRates)
+  const cfg = useQuotationConfig()
+  const rows = useMemo(() => {
+    const used = new Map(rateTypes(cfg.lists).map((t) => [t.type, t.usedFor]))
+    const types = new Set([...used.keys(), ...rates.map((r) => r.type)])
+    return [...types]
+      // SAP's ORDER BY U_Type ignores capitals ("Sand Touch" before "SMI 22 GSM").
+      .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+      .map((type) => {
+        const held = rates.find((r) => r.type === type)
+        return { type, rate: held?.rate ?? null, updatedAt: held?.updatedAt ?? null, usedFor: used.get(type) ?? [] }
+      })
+  }, [rates, cfg])
+  const missing = rows.filter((r) => r.rate === null).length
+  return (
+    <div className="space-y-2" data-testid="rate-index">
+      <h4 className="text-sm font-semibold">Rate table (SAP @RATED, {rows.length - missing} rates)</h4>
+      <p className="text-xs text-muted-foreground">
+        The SQL joins this table four times by Type: Coating Type → Coating Rate, Material → Materail Rate, Value Addition → Valuadition Rate, Delivery Zone → Diapcth Rate. Rates are changed in Quotations → Quotation Sheet → Rate table.
+        {missing > 0 && <span className="font-medium text-amber-700 dark:text-amber-400"> {missing} Type{missing === 1 ? ' has' : 's have'} no rate.</span>}
+      </p>
+      <div className="overflow-x-auto rounded-md border border-border/60">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/50 text-left text-muted-foreground">
+            <tr>
+              <th className="px-2 py-2 font-medium">#</th>
+              <th className="px-2 py-2 font-medium">Type (U_Type)</th>
+              <th className="px-2 py-2 text-right font-medium">Rate (U_Rate)</th>
+              <th className="px-2 py-2 font-medium">Used as</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {rows.map((r, i) => (
+              <tr key={r.type} data-testid="rate-entry">
+                <td className="px-2 py-1.5 tabular-nums">{i + 1}</td>
+                <td className="px-2 py-1.5 font-medium">{r.type}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{r.rate ?? <span className="text-amber-700 dark:text-amber-400">no rate</span>}</td>
+                <td className="px-2 py-1.5">{r.usedFor.length ? r.usedFor.map((u) => RATE_COLUMN[u] ?? u).join(', ') : 'Not in a dropdown list'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 
 function FormulaList({ title, entries, cfg }: { title: string; entries: FormulaEntry[]; cfg: QuotationConfig }) {
   return (
@@ -189,8 +247,19 @@ export function QuotationFormulasCard({ userId }: { userId: string }) {
                 <p className="rounded-md border border-border/60 p-2"><b>Do not Send, empty values:</b> {NULL_RULES.doNotSend}</p>
                 <p className="rounded-md border border-border/60 p-2"><b>Sales Quotation, empty values:</b> {NULL_RULES.salesQuotation}</p>
               </div>
-              <FormulaList title="Do not Send (DO_NOT_SEND.rpt)" entries={DO_NOT_SEND_FORMULAS} cfg={saved} />
-              <FormulaList title="Sales Quotation (Sales_Quotation.rpt)" entries={SALES_QUOTATION_FORMULAS} cfg={saved} />
+              <FormulaList title={`Do not Send formulas (${DO_NOT_SEND_FORMULAS.length})`} entries={DO_NOT_SEND_FORMULAS} cfg={saved} />
+              <div className="space-y-2" data-testid="dns-sql">
+                <h4 className="text-sm font-semibold">Do not Send SQL (the four rates from @RATED and the footer texts)</h4>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/50 p-3 font-mono text-[11px] leading-snug">{DO_NOT_SEND_SQL}</pre>
+              </div>
+              <FormulaList title="Do not Send cell colours (report design, not in the formula list)" entries={DO_NOT_SEND_COLOURS} cfg={saved} />
+              <RateIndex />
+              <FormulaList title={`Sales Quotation formulas (${SALES_QUOTATION_FORMULAS.length})`} entries={SALES_QUOTATION_FORMULAS} cfg={saved} />
+              <div className="space-y-2" data-testid="sq-sql">
+                <h4 className="text-sm font-semibold">Sales Quotation SQL (the four rates from @RATED, the footer texts and the company logo)</h4>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/50 p-3 font-mono text-[11px] leading-snug">{SALES_QUOTATION_SQL}</pre>
+              </div>
+              <FormulaList title="Sales Quotation page layout (report design, not in the formula list)" entries={SALES_QUOTATION_LAYOUT} cfg={saved} />
             </div>
           )}
 
