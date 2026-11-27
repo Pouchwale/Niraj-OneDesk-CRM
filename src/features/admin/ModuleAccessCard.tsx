@@ -17,20 +17,27 @@ import { getAllCoordinators } from '@/features/auth/AuthContext'
 import { useModuleAccess } from '@/features/auth/module-access'
 import { demoCompanyStore } from '@/lib/demo-companies'
 import { whenSaved } from '@/lib/shared-data'
-import { APP_MODULES, modulesOff, type AppModuleId } from '../../../shared/module-access'
+import { APP_MODULES, moduleOn, moduleOnByDefault, modulesOff, modulesOn, type AppModuleId } from '../../../shared/module-access'
 
 export function ModuleAccessCard({ userId }: { userId: string }) {
   const access = useModuleAccess()
   const coordinators = [...getAllCoordinators()].sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''))
   const [busy, setBusy] = useState<string | null>(null)
 
-  const toggle = async (coordinatorId: string, name: string, module: AppModuleId, on: boolean) => {
+  const toggle = async (coordinatorId: string, team: string | null | undefined, name: string, module: AppModuleId, on: boolean) => {
     const off = modulesOff(access, coordinatorId)
-    if (on) off.delete(module)
-    else off.add(module)
+    const switchedOn = modulesOn(access, coordinatorId)
+    if (on) {
+      off.delete(module)
+      // A module that starts on for another team only (Quotation Sheet: GP3) is switched on for them by name.
+      if (!moduleOnByDefault(module, team)) switchedOn.add(module)
+    } else {
+      off.add(module)
+      switchedOn.delete(module)
+    }
     setBusy(`${coordinatorId}|${module}`)
     try {
-      demoCompanyStore.setModuleAccess(coordinatorId, [...off], userId, new Date().toISOString())
+      demoCompanyStore.setModuleAccess(coordinatorId, [...off], userId, new Date().toISOString(), [...switchedOn])
       await whenSaved()
       const label = APP_MODULES.find((m) => m.id === module)?.label ?? module
       toast.success(`${label} ${on ? 'switched on' : 'switched off'} for ${name}.`, {
@@ -52,6 +59,7 @@ export function ModuleAccessCard({ userId }: { userId: string }) {
           <p className="text-xs text-muted-foreground">
             Switch a module off for a coordinator who doesn't use it: it leaves their menu and can't be opened, and its score shows N/A and is
             not counted in their final score (in every period). Robi tasks off means no daily list. Dashboard and Final score always stay on.
+            Quotation Sheet starts on for GP3 coordinators and off for the others; switch it either way for anyone.
           </p>
         </div>
       </div>
@@ -75,15 +83,16 @@ export function ModuleAccessCard({ userId }: { userId: string }) {
                 <tr key={c.id} data-testid="module-access-row">
                   <td className="whitespace-nowrap px-3 py-2 font-medium">
                     {name}
+                    {c.module && <span className="ml-2 text-xs font-normal text-muted-foreground">{c.module}</span>}
                     {off.size > 0 && <span className="ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">{off.size} off</span>}
                   </td>
                   {APP_MODULES.map((m) => (
                     <td key={m.id} className="px-2 py-2 text-center">
                       <Switch
-                        checked={!off.has(m.id)}
+                        checked={moduleOn(access, { id: c.id, role: 'coordinator', module: c.module }, m.id)}
                         disabled={busy !== null}
                         aria-label={`${m.label} for ${name}`}
-                        onCheckedChange={(on) => void toggle(c.id, name, m.id, on)}
+                        onCheckedChange={(on) => void toggle(c.id, c.module, name, m.id, on)}
                       />
                     </td>
                   ))}

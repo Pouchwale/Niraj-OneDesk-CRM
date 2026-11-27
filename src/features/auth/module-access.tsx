@@ -30,7 +30,8 @@ export function useModuleOn(): (module: AppModuleId) => boolean {
 export function ModuleGate({ pathname, children }: { pathname: string; children: React.ReactNode }) {
   const on = useModuleOn()
   const module = moduleOfPath(pathname)
-  if (!module || on(module)) return <>{children}</>
+  // The Quotations page also holds the Quotation Sheet, which has a switch of its own.
+  if (!module || on(module) || (module === 'quotations' && on('quotation_sheet'))) return <>{children}</>
   const label = APP_MODULES.find((m) => m.id === module)?.label ?? 'This module'
   return (
     <GlassCard className="mx-auto mt-10 max-w-lg space-y-3 p-6 text-center" data-testid="module-switched-off">

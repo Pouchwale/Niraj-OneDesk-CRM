@@ -10,27 +10,30 @@
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
-import { doNotSendReport, type BackColor, type DoNotSendFigures, type DoNotSendLine } from '@/lib/do-not-send'
+import { DNS_DECIMALS, dnsFixed, doNotSendReport, pmtDays, type BackColor, type DoNotSendFigures, type DoNotSendLine } from '@/lib/do-not-send'
+import { downloadDoNotSendPdf } from './do-not-send-pdf'
 import { rateTypes, type FlexoRateSheet } from '@/lib/flexo-rate-sheet'
 import { whenSaved } from '@/lib/shared-data'
 import { useQuotationConfig } from './useQuotationConfig'
 import { cn, formatDate } from '@/lib/utils'
 
-/* Display only: the figures are worked out in full; the report's number formats were not in the notes, so up to 5 decimals show (the full value in the tooltip). */
+/* The hidden workings: up to 5 decimals (the full value in the tooltip). The report's own columns use SAP's printed decimals (DNS_DECIMALS). */
 const show = (n: number | null | undefined, decimals = 5) =>
   n === null || n === undefined || !Number.isFinite(n) ? '' : n.toLocaleString('en-IN', { maximumFractionDigits: decimals, minimumFractionDigits: 0 })
 const full = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n))
+/** A report figure as SAP prints it (display only; the full value is in the tooltip). */
+const sap = (f: DoNotSendFigures | null, key: keyof typeof DNS_DECIMALS) => dnsFixed(f?.[key], DNS_DECIMALS[key])
 
-const colorClass = (c: BackColor) => (c === 'red' ? 'bg-red-500 text-white' : c === 'yellow' ? 'bg-yellow-300 text-black' : '')
+const colorClass = (c: BackColor | 'lime') => (c === 'red' ? 'bg-red-500 text-white' : c === 'yellow' ? 'bg-yellow-300 text-black' : c === 'lime' ? 'bg-[#00ff00] text-black' : '')
 
-type Cell = { label: string; value: (r: DoNotSendLine, f: DoNotSendFigures | null) => string; raw?: (f: DoNotSendFigures | null) => number | null; color?: (r: DoNotSendLine) => BackColor; number?: boolean }
+type Cell = { label: string; value: (r: DoNotSendLine, f: DoNotSendFigures | null) => string; raw?: (f: DoNotSendFigures | null) => number | null; color?: (r: DoNotSendLine) => BackColor | 'lime'; number?: boolean }
 const n = (v: number | null) => (v === null ? '' : String(v))
 
 /** The report's detail columns, in its order. */
@@ -44,9 +47,9 @@ const COLUMNS: Cell[] = [
   { label: 'Teeth', value: (r) => n(r.line.teeth), number: true },
   { label: 'Ac Ups', value: (r) => n(r.line.acrossUps), number: true },
   { label: 'Ac Gap', value: (r) => n(r.line.acrossGap), number: true },
-  { label: 'Ar Gap', value: (_, f) => show(f?.arGap, 2), raw: (f) => f?.arGap ?? null, color: (r) => r.colors.arGap, number: true },
-  { label: 'Paper Width', value: (_, f) => show(f?.width), raw: (f) => f?.width ?? null, color: (r) => r.colors.width, number: true },
-  { label: 'Running Meters', value: (_, f) => show(f?.runningMeters, 2), raw: (f) => f?.runningMeters ?? null, number: true },
+  { label: 'Ar Gap', value: (_, f) => sap(f, 'arGap'), raw: (f) => f?.arGap ?? null, color: (r) => r.colors.arGap, number: true },
+  { label: 'Paper Width', value: (_, f) => sap(f, 'width'), raw: (f) => f?.width ?? null, color: (r) => r.colors.width, number: true },
+  { label: 'Running Meters', value: (_, f) => sap(f, 'runningMeters'), raw: (f) => f?.runningMeters ?? null, number: true },
   { label: 'Colors', value: (r) => n(r.line.colors), number: true },
   { label: 'Job Level', value: (r) => r.line.jobLevel, color: (r) => r.colors.jobLevel },
   { label: 'CoatingType', value: (r) => r.line.coatingType },
@@ -56,13 +59,14 @@ const COLUMNS: Cell[] = [
   { label: 'Ink Coverage Area', value: (r) => n(r.line.inkCoverageArea), number: true },
   { label: 'Dispatch Location', value: (r) => r.dispatchLocation },
   { label: 'Profit + Overhead', value: (r) => n(r.line.profitOverhead), color: (r) => r.colors.profitOverhead, number: true },
-  { label: 'Pmt Days', value: () => '' },
-  { label: 'Final Rate', value: (_, f) => show(f?.finalRate), raw: (f) => f?.finalRate ?? null, number: true },
-  { label: 'Total Value', value: (_, f) => show(f?.totalValue, 2), raw: (f) => f?.totalValue ?? null, color: (r) => r.colors.totalValue, number: true },
-  { label: 'Factor', value: (_, f) => show(f?.factor), raw: (f) => f?.factor ?? null, number: true },
-  { label: 'Price/SQM', value: (_, f) => show(f?.pricePerSqm), raw: (f) => f?.pricePerSqm ?? null, number: true },
-  { label: 'RM Price/SQM', value: (_, f) => show(f?.rmPricePerSqm), raw: (f) => f?.rmPricePerSqm ?? null, number: true },
-  { label: 'Cons Price/SQM', value: (_, f) => show(f?.consPricePerSqm), raw: (f) => f?.consPricePerSqm ?? null, number: true },
+  { label: 'Pmt Days', value: () => '', number: true },
+  { label: 'Final Rate', value: (_, f) => sap(f, 'finalRate'), raw: (f) => f?.finalRate ?? null, number: true },
+  { label: 'Total Value', value: (_, f) => sap(f, 'totalValue'), raw: (f) => f?.totalValue ?? null, color: (r) => r.colors.totalValue, number: true },
+  // Always green in SAP's report (a fixed colour, not a rule).
+  { label: 'Factor', value: (_, f) => sap(f, 'factor'), raw: (f) => f?.factor ?? null, color: () => 'lime', number: true },
+  { label: 'Price/SQM', value: (_, f) => sap(f, 'pricePerSqm'), raw: (f) => f?.pricePerSqm ?? null, number: true },
+  { label: 'RM Price/SQM', value: (_, f) => sap(f, 'rmPricePerSqm'), raw: (f) => f?.rmPricePerSqm ?? null, number: true },
+  { label: 'Cons Price/SQM', value: (_, f) => sap(f, 'consPricePerSqm'), raw: (f) => f?.consPricePerSqm ?? null, number: true },
 ]
 
 /** Worked out by the report but not printed (suppressed fields). */
@@ -88,9 +92,9 @@ const HIDDEN: { label: string; key: keyof DoNotSendFigures }[] = [
   { label: 'Calculated Rate', key: 'calculatedRate' },
 ]
 
-export function RatesCard({ canManageTeam, currentUserId }: { canManageTeam: boolean; currentUserId: string }) {
+export function RatesCard({ canManageTeam, currentUserId, defaultOpen = false }: { canManageTeam: boolean; currentUserId: string; defaultOpen?: boolean }) {
   const rates = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.flexoRates)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const cfg = useQuotationConfig()
   const types = useMemo(() => {
     const known = rateTypes(cfg.lists)
@@ -161,6 +165,7 @@ export function RatesCard({ canManageTeam, currentUserId }: { canManageTeam: boo
 export function DoNotSendView({ sheet }: { sheet: FlexoRateSheet }) {
   const rates = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.flexoRates)
   const [workings, setWorkings] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const cfg = useQuotationConfig()
   const rateTable = useMemo(() => Object.fromEntries(rates.map((r) => [r.type, r.rate])), [rates])
   const report = useMemo(() => doNotSendReport(sheet, rateTable, cfg), [sheet, rateTable, cfg])
@@ -168,10 +173,30 @@ export function DoNotSendView({ sheet }: { sheet: FlexoRateSheet }) {
   return (
     <div className="space-y-6">
       <GlassCard className="space-y-4 p-4 sm:p-6" data-testid="do-not-send">
-        <Button type="button" variant="outline" onClick={() => setWorkings((w) => !w)} data-testid="dns-workings">
-          {workings ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
-          {workings ? 'Hide workings' : 'Show hidden workings'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" onClick={() => setWorkings((w) => !w)} data-testid="dns-workings">
+            {workings ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+            {workings ? 'Hide workings' : 'Show hidden workings'}
+          </Button>
+          <Button
+            type="button"
+            disabled={downloading || !report || report.lines.length === 0 || report.lines.some((r) => r.error)}
+            title={report?.lines.some((r) => r.error) ? 'A line cannot be worked out, so SAP would not print this report. Fix the line first.' : undefined}
+            onClick={async () => {
+              setDownloading(true)
+              try {
+                await downloadDoNotSendPdf(report)
+              } catch (err) {
+                toast.error('PDF not made.', { description: err instanceof Error ? err.message : 'Try again.' })
+              } finally {
+                setDownloading(false)
+              }
+            }}
+            data-testid="dns-download-pdf"
+          >
+            <Download className="mr-2 h-4 w-4" /> {downloading ? 'Making PDF…' : 'Download PDF'}
+          </Button>
+        </div>
 
         {report && (
           <div className="space-y-4">
@@ -207,7 +232,7 @@ export function DoNotSendView({ sheet }: { sheet: FlexoRateSheet }) {
                           className={cn('whitespace-nowrap px-2 py-1.5', c.number && 'text-right tabular-nums', c.color && colorClass(c.color(r)))}
                           title={c.raw ? full(c.raw(r.figures)) : undefined}
                         >
-                          {c.label === 'Pmt Days' ? report.sheet.paymentTerms : c.value(r, r.figures)}
+                          {c.label === 'Pmt Days' ? pmtDays(report.sheet.paymentTerms) : c.value(r, r.figures)}
                         </td>
                       ))}
                       {workings && HIDDEN.map((h) => (
@@ -233,7 +258,8 @@ export function DoNotSendView({ sheet }: { sheet: FlexoRateSheet }) {
               </div>
             )}
 
-            {report.sheet.remark && <p className="whitespace-pre-wrap text-sm" data-testid="dns-remark">{report.sheet.remark}</p>}
+            {/* SAP prints the remarks right-aligned in a yellow bar (a fixed colour). */}
+            <p className="whitespace-pre-wrap bg-[#ffff00] px-2 py-0.5 text-right text-sm text-black" data-testid="dns-remark">{report.sheet.remark || ' '}</p>
 
             <div className="grid max-w-xl grid-cols-[160px_12px_minmax(0,1fr)] gap-y-1 text-sm" data-testid="dns-footer">
               <span className="text-muted-foreground">Freight</span><span>:</span><span>{report.footer.freight}</span>

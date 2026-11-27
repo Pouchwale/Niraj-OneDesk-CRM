@@ -51,6 +51,43 @@ function twoDecimals(x: number): number {
   return (sign * Math.round(Math.abs(x) * 100 + 1e-9)) / 100
 }
 
+/**
+ * How SAP's printed report shows each figure (the user's 5382 PDF, 27 Nov
+ * 2026). Display only: every formula keeps working with the full value, as in
+ * SAP (5382 line 1 prints Final Rate 0.950 but Total Value 94976, not 95000).
+ */
+export const DNS_DECIMALS = {
+  arGap: 2,
+  width: 3,
+  runningMeters: 0,
+  finalRate: 3,
+  totalValue: 0,
+  factor: 3,
+  pricePerSqm: 3,
+  rmPricePerSqm: 3,
+  consPricePerSqm: 3,
+} as const
+
+/** A figure as the report prints it: rounded half away from zero, no thousands separator ("94976", "0.950"). */
+export function dnsFixed(v: number | null | undefined, decimals: number): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return ''
+  const f = 10 ** decimals
+  const sign = v < 0 ? -1 : 1
+  // The small nudge keeps a value stored as 2.67499999... rounding as written.
+  const r = (sign * Math.round(Math.abs(v) * f + 1e-9)) / f
+  return (Object.is(r, -0) ? 0 : r).toFixed(decimals)
+}
+
+/**
+ * Pmt Days: SAP prints U_PaymentTerms, a whole number (NULL shows 0). The
+ * Quotation Sheet keeps the payment terms as text ("90 Days"), so its number
+ * is used; text with no number counts as 0.
+ */
+export function pmtDays(paymentTerms: string | null | undefined): number {
+  const m = /\d+/.exec(paymentTerms ?? '')
+  return m ? Number(m[0]) : 0
+}
+
 /** Every figure the report works out for one line. The hidden ones are worked out but not printed. */
 export interface DoNotSendFigures {
   circumference: number

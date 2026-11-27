@@ -33,6 +33,7 @@ import { FlexoRateSheetsView, type QuotationReport } from './flexo/FlexoRateShee
 import { DoNotSendView } from './flexo/DoNotSendView'
 import { SalesQuotationView } from './flexo/SalesQuotationView'
 import { ArrowLeft } from 'lucide-react'
+import { useModuleOn } from '@/features/auth/module-access'
 
 export const STATUS_STYLE: Record<QuotationStatus, string> = {
   open: 'bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-400',
@@ -62,9 +63,11 @@ const REPORTS: Record<QuotationReport, { title: string; subtitle: string }> = {
 export function QuotationsPage() {
   const { user, canManageTeam } = useAuth()
   const [params, setParams] = useSearchParams()
-  // The Quotation Sheet is for the administrator and the team leader only, for now (25 Nov 2026).
-  const parts = canManageTeam ? PARTS : PARTS.filter((p) => p.id === 'list')
-  const part: Part = parts.some((p) => p.id === params.get('part')) ? (params.get('part') as Part) : 'list'
+  const on = useModuleOn()
+  // The Quotation Sheet: the administrator, the team leader, and coordinators with it switched on (GP3 from 27 Nov 2026).
+  // Each part has its own switch: Quotations (list) and Quotation Sheet (sheet).
+  const parts = PARTS.filter((p) => (p.id === 'list' ? on('quotations') : on('quotation_sheet')))
+  const part: Part = parts.some((p) => p.id === params.get('part')) ? (params.get('part') as Part) : parts[0]?.id ?? 'list'
   const doc = Number(params.get('doc'))
   const reportParam = params.get('report')
   const report: QuotationReport | null = reportParam === 'do-not-send' || reportParam === 'sales-quotation' ? reportParam : null
@@ -105,10 +108,7 @@ export function QuotationsPage() {
       </div>
       {part === 'list' && <QuotationList />}
       {part === 'sheet' && !report && (
-        <>
-          <PageHeader title="Quotation Sheet" subtitle="Fill in the sheet (SAP's Flexo Rate Sheet) and press Add; its Do not Send and Sales Quotation come from it." />
-          <FlexoRateSheetsView canManageTeam={canManageTeam} currentUserId={user?.id ?? ''} onOpenReport={(d, kind) => go('sheet', d, kind)} />
-        </>
+        <FlexoRateSheetsView canManageTeam={canManageTeam} currentUserId={user?.id ?? ''} onOpenReport={(d, kind) => go('sheet', d, kind)} />
       )}
       {part === 'sheet' && report && (
         <>

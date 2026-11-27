@@ -30,13 +30,14 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
       to: '/quotations',
       icon: FileText,
       label: 'Quotations',
-      show: !rfdOnly && on('quotations'),
+      // Shown for either part: the Quotation Sheet is switched separately from Quotations (27 Nov 2026).
+      show: !rfdOnly && (on('quotations') || on('quotation_sheet')),
       // Sub-modules (24 Nov 2026): today's quotations, and the Quotation Sheet with its two reports.
-      // The Quotation Sheet is for the administrator and the team leader only, for now (25 Nov 2026):
-      // a coordinator keeps the plain Quotations link.
-      children: canManageTeam
+      // The Quotation Sheet: the administrator, the team leader, and coordinators with it switched on
+      // (on for GP3 from 27 Nov 2026; Admin Panel → Modules per coordinator). Others keep the plain link.
+      children: on('quotation_sheet')
         ? [
-            { to: '/quotations', part: null, label: 'Quotations' },
+            ...(on('quotations') ? [{ to: '/quotations', part: null, label: 'Quotations' }] : []),
             { to: '/quotations?part=sheet', part: 'sheet', label: 'Quotation Sheet' },
           ]
         : undefined,

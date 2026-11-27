@@ -41,6 +41,30 @@ describe('the switches', () => {
     expect([...scoreModulesOff(access, 'coord-1')].sort()).toEqual(['kpi', 'kpi_dispute', 'service'])
   })
 
+  it('starts the Quotation Sheet on for GP3 coordinators only; the administrator switches it either way', () => {
+    const gp3 = { id: 'coord-1', role: 'coordinator', module: 'GP3' }
+    const pw = { id: 'coord-2', role: 'coordinator', module: 'Pouchwale' }
+    expect(moduleOn([], gp3, 'quotation_sheet')).toBe(true)
+    expect(moduleOn([], pw, 'quotation_sheet')).toBe(false)
+    expect(moduleOn([], { id: 'x', role: 'team_leader', module: 'Pouchwale' }, 'quotation_sheet')).toBe(true)
+    // Every other module still starts on for everyone.
+    expect(moduleOn([], pw, 'quotations')).toBe(true)
+    // Switched on for a Pouchwale coordinator, off for a GP3 one.
+    demoCompanyStore.setModuleAccess('coord-2', [], 'admin-0', '2026-11-27T05:00:00.000Z', ['quotation_sheet'])
+    demoCompanyStore.setModuleAccess('coord-1', ['quotation_sheet'], 'admin-0', '2026-11-27T05:00:00.000Z', [])
+    expect(moduleOn(demoCompanyStore.moduleAccess, pw, 'quotation_sheet')).toBe(true)
+    expect(moduleOn(demoCompanyStore.moduleAccess, gp3, 'quotation_sheet')).toBe(false)
+    // Switching another module keeps the Quotation Sheet switch as it is.
+    demoCompanyStore.setModuleAccess('coord-2', ['service'], 'admin-0', '2026-11-27T05:01:00.000Z')
+    expect(moduleOn(demoCompanyStore.moduleAccess, pw, 'quotation_sheet')).toBe(true)
+    // Back to how they start: nothing kept.
+    demoCompanyStore.setModuleAccess('coord-2', [], 'admin-0', '2026-11-27T05:02:00.000Z', [])
+    demoCompanyStore.setModuleAccess('coord-1', [], 'admin-0', '2026-11-27T05:02:00.000Z', [])
+    expect(demoCompanyStore.moduleAccess).toEqual([])
+    // It carries no score, so the final score is untouched.
+    expect(scoreModulesOff([{ coordinatorId: 'coord-1', off: ['quotation_sheet'], by: '', at: '' }], 'coord-1').size).toBe(0)
+  })
+
   it('lets only the administrator change them', () => {
     expect(moduleAccessRefusal('admin', 'setModuleAccess')).toBeNull()
     expect(moduleAccessRefusal('team_leader', 'setModuleAccess')).toMatch(/administrator/)

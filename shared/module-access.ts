@@ -18,8 +18,15 @@ export type AppModuleId =
   | 'service'
   | 'self_leads'
   | 'robi_tasks'
+  | 'quotation_sheet'
 
-export const APP_MODULES: readonly { id: AppModuleId; label: string; route: string | null; scores: readonly string[] }[] = [
+/**
+ * `defaultTeam`: a module that starts switched on only for that team's
+ * coordinators (Quotation Sheet, 27 Nov 2026: "visible to all GP3 users");
+ * the administrator can still switch it on or off for anyone. Every other
+ * module starts on for everyone.
+ */
+export const APP_MODULES: readonly { id: AppModuleId; label: string; route: string | null; scores: readonly string[]; defaultTeam?: 'GP3' | 'Pouchwale' }[] = [
   { id: 'active_payments', label: 'Active Payments', route: '/companies', scores: [] },
   { id: 'overdue_payments', label: 'Overdue Payments', route: '/overdue', scores: ['kpi', 'kpi_dispute'] },
   { id: 'rfd', label: 'Ready for Dispatch', route: '/rfd', scores: [] },
@@ -29,6 +36,8 @@ export const APP_MODULES: readonly { id: AppModuleId; label: string; route: stri
   { id: 'service', label: 'Service', route: '/service', scores: ['service'] },
   { id: 'self_leads', label: 'Self Leads', route: '/self-leads', scores: ['self_leads'] },
   { id: 'robi_tasks', label: 'Robi tasks', route: null, scores: ['robi'] },
+  // A part of Quotations (?part=sheet), so no page of its own here: Quotations hides it when off.
+  { id: 'quotation_sheet', label: 'Quotation Sheet', route: null, scores: [], defaultTeam: 'GP3' },
 ]
 
 export const APP_MODULE_IDS: readonly AppModuleId[] = APP_MODULES.map((m) => m.id)
@@ -37,6 +46,8 @@ export const APP_MODULE_IDS: readonly AppModuleId[] = APP_MODULES.map((m) => m.i
 export interface ModuleAccess {
   coordinatorId: string
   off: AppModuleId[]
+  /** Team-default modules (defaultTeam) switched on for someone outside that team. */
+  on?: AppModuleId[]
   by: string
   at: string
 }
@@ -47,10 +58,27 @@ export function modulesOff(access: readonly ModuleAccess[] | null | undefined, c
   return new Set(access?.find((a) => a.coordinatorId === coordinatorId)?.off ?? [])
 }
 
+/** The team-default modules switched on for a coordinator outside that team. */
+export function modulesOn(access: readonly ModuleAccess[] | null | undefined, coordinatorId: string | null | undefined): Set<AppModuleId> {
+  if (!coordinatorId) return new Set()
+  return new Set(access?.find((a) => a.coordinatorId === coordinatorId)?.on ?? [])
+}
+
+/** Whether a module starts on for a coordinator of this team, before any switch. */
+export function moduleOnByDefault(module: AppModuleId, team: string | null | undefined): boolean {
+  const m = APP_MODULES.find((x) => x.id === module)
+  return !m?.defaultTeam || m.defaultTeam === team
+}
+
 /** Whether a module is switched on for this person (anyone not a coordinator has everything). */
-export function moduleOn(access: readonly ModuleAccess[] | null | undefined, user: { id: string; role: string } | null | undefined, module: AppModuleId): boolean {
+export function moduleOn(
+  access: readonly ModuleAccess[] | null | undefined,
+  user: { id: string; role: string; module?: string | null } | null | undefined,
+  module: AppModuleId
+): boolean {
   if (!user || user.role !== 'coordinator') return true
-  return !modulesOff(access, user.id).has(module)
+  if (modulesOff(access, user.id).has(module)) return false
+  return modulesOn(access, user.id).has(module) || moduleOnByDefault(module, user.module)
 }
 
 /** The app module a page belongs to, by its path ("/overdue/123" → overdue_payments); null for pages always on. */

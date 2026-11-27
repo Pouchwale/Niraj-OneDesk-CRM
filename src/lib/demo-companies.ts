@@ -1804,12 +1804,18 @@ class DemoCompanyStore {
     return this.getModulesOff(coordinatorId).includes(module)
   }
 
-  /** Replaces a coordinator's switched-off modules; an empty list switches everything back on. */
-  setModuleAccess(coordinatorId: string, off: AppModuleId[], by: string, at: string): void {
+  /**
+   * Replaces a coordinator's switched-off modules (and, for a module that
+   * starts on for one team only, the ones switched on for them); empty lists
+   * put everything back to how it starts. Left out, `on` is kept as it is.
+   */
+  setModuleAccess(coordinatorId: string, off: AppModuleId[], by: string, at: string, on?: AppModuleId[]): void {
     if (!coordinatorId) return
     const clean = cleanModulesOff(off)
+    const held = this.moduleAccess.find((a) => a.coordinatorId === coordinatorId)
+    const cleanOn = cleanModulesOff(on ?? held?.on ?? []).filter((m) => !clean.includes(m))
     const rest = this.moduleAccess.filter((a) => a.coordinatorId !== coordinatorId)
-    this.moduleAccess = clean.length ? [...rest, { coordinatorId, off: clean, by, at }] : rest
+    this.moduleAccess = clean.length || cleanOn.length ? [...rest, { coordinatorId, off: clean, ...(cleanOn.length ? { on: cleanOn } : {}), by, at }] : rest
   }
 
   /* ===== Festivals (Robi's celebrations, set by the administrator) ===== */
