@@ -43,6 +43,15 @@ export const CUSTOMER_UPDATES_ADMIN_ONLY = false
 /** Whether this role sees Customer updates now. */
 export const seesCustomerUpdates = (role: string | null | undefined) => (CUSTOMER_UPDATES_ADMIN_ONLY ? role === 'admin' : Boolean(role))
 
+/**
+ * Who a report's jobs go to when the API sends no Co-ordinator Name (27 Nov
+ * 2026, the user: the Pouch report has no names, so every pouch goes to Disha
+ * Acharya). A name the API does send always wins.
+ */
+export const DEFAULT_COORDINATOR: Partial<Record<OpenJobReport, string>> = {
+  'bom-pouch-open': 'Disha Acharya',
+}
+
 /** Days before the Due Date the customer is to be told. */
 export const TELL_DAYS_BEFORE_DUE = 3
 

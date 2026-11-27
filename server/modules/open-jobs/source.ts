@@ -9,7 +9,7 @@
  * account by full or first name (the Pre Sales matcher).
  */
 
-import { API_DETAIL_HEADERS, cellFor, monthFirstDate, OPEN_JOB_REPORTS, rfdDateOf, type OpenJob, type OpenJobReport, type OpenJobsResponse } from '../../../shared/open-jobs'
+import { API_DETAIL_HEADERS, cellFor, DEFAULT_COORDINATOR, monthFirstDate, OPEN_JOB_REPORTS, rfdDateOf, type OpenJob, type OpenJobReport, type OpenJobsResponse } from '../../../shared/open-jobs'
 import { poKey, type ServicePoMatch } from '../../../shared/service-po'
 import type { InventoryApiConfig } from '../../config'
 import type { Logger } from '../../logger'
@@ -85,7 +85,8 @@ export function toOpenJob(
   }
   // Customer and coordinator from the API only (27 Nov 2026, the user's choice); Service-AutoPO only adds SO, FG and job name.
   const customerName = api.customer
-  const coordinatorName = api.coordinator
+  // No name from the API: the report's default owner (Pouch → Disha Acharya, the user's rule).
+  const coordinatorName = api.coordinator ?? DEFAULT_COORDINATOR[report] ?? null
   return {
     poNo,
     report,

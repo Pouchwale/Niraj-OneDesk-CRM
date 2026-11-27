@@ -34,8 +34,14 @@ describe('an open job', () => {
   ])
   const who = (n: string | null) => (n?.toLowerCase().startsWith('pragati') ? 'c1' : null)
   it('takes the customer and coordinator from the API only; Service-AutoPO adds just SO, FG and job name', () => {
-    const j = toOpenJob({ 'PO No.': '92178', 'PO Date': '11/18/26', 'Po RFD Date': '30/11/2026|MANUAL', 'Due Date': '11/25/26' }, 'bom-pouch-open', sheet, who)
-    expect(j).toMatchObject({ poNo: '92178', dueDate: '2026-11-25', rfdDate: '2026-11-30', rfdManual: true, customerName: null, coordinatorName: null, coordinatorId: null, salesOrderNo: '5001', jobName: 'Pouch 250g', detailsFrom: null })
+    const k =toOpenJob({ 'PO No.': '92178', 'PO Date': '11/18/26', 'Po RFD Date': '30/11/2026|MANUAL', 'Due Date': '11/25/26' }, 'bom-label-sleeve-open', sheet, who)
+    expect(k).toMatchObject({ poNo: '92178', dueDate: '2026-11-25', rfdDate: '2026-11-30', rfdManual: true, customerName: null, coordinatorName: null, coordinatorId: null, salesOrderNo: '5001', jobName: 'Pouch 250g', detailsFrom: null })
+  })
+  it('a pouch with no Co-ordinator Name from the API goes to Disha Acharya; a name the API sends wins', () => {
+    const disha = (n: string | null) => (n === 'Disha Acharya' ? 'd1' : n === 'Krina Shah' ? 'k1' : null)
+    expect(toOpenJob({ 'PO No.': '1', 'Customer Name': 'A' }, 'bom-pouch-open', null, disha)).toMatchObject({ coordinatorName: 'Disha Acharya', coordinatorId: 'd1' })
+    expect(toOpenJob({ 'PO No.': '1', 'Co-ordinator Name': 'Krina Shah' }, 'bom-pouch-open', null, disha)).toMatchObject({ coordinatorId: 'k1' })
+    expect(toOpenJob({ 'PO No.': '1' }, 'bom-label-sleeve-open', null, disha)).toMatchObject({ coordinatorId: null })
   })
   it("prefers the API's own Customer Name and Coordinator columns when it sends them", () => {
     const j = toOpenJob(
