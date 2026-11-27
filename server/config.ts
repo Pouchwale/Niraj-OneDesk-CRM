@@ -117,7 +117,18 @@ export interface ServerConfig {
   unknownExcelKeys: string[]
   /** The Service-AutoPO workbook the Service form looks PO numbers up in (16 Nov 2026); off when not set. */
   servicePoPath: string | undefined
+  /** The inventory app's read-only API for the open jobs (27 Nov 2026); off without a key. */
+  inventoryApi: InventoryApiConfig | undefined
 }
+
+export interface InventoryApiConfig {
+  url: string
+  key: string
+  /** Sent as X-API-Client-Name. */
+  client: string
+}
+
+export const DEFAULT_INVENTORY_API_URL = 'https://inventory-data-sync.replit.app'
 
 function trimmed(value: string | undefined): string | undefined {
   const out = value?.trim()
@@ -243,5 +254,12 @@ export function loadConfig(env: RawEnv = process.env): ServerConfig {
     databaseUrl: trimmed(value.DATABASE_URL),
     unknownExcelKeys: unknownExcelKeys(env),
     servicePoPath: trimmed(env.SERVICE_PO_PATH) ? resolve(trimmed(env.SERVICE_PO_PATH)!) : undefined,
+    inventoryApi: trimmed(env.INVENTORY_API_KEY)
+      ? {
+          url: (trimmed(env.INVENTORY_API_URL) ?? DEFAULT_INVENTORY_API_URL).replace(/\/+$/, ''),
+          key: trimmed(env.INVENTORY_API_KEY)!,
+          client: trimmed(env.INVENTORY_API_CLIENT) ?? 'crm-service',
+        }
+      : undefined,
   }
 }

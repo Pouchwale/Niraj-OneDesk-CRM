@@ -16,6 +16,10 @@ export interface ServicePoMatch {
   fgCode: string | null
   /** yyyy-mm-dd: the sheet's Due Date, the record's Original SO dispatch date. */
   dueDate: string | null
+  /** The sheet's Co-ordinator Name (open jobs' customer updates, 27 Nov 2026). */
+  coordinatorName?: string | null
+  /** The sheet's Job Name. */
+  jobName?: string | null
 }
 
 export interface ServicePoResponse {

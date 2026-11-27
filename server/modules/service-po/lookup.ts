@@ -20,6 +20,9 @@ const HEADERS = {
   fg: ['FG Item Code', 'FG Code', 'Item Code'],
   so: ['SO Number', 'SO No', 'Sales Order No', 'Sales Order Number'],
   due: ['Due Date', 'SO Due Date', 'Sales Order Due Date'],
+  // For the open jobs' customer updates (27 Nov 2026): whose PO it is, and what the job is.
+  coordinator: ['Co-ordinator Name', 'Coordinator Name', 'Coordinator'],
+  job: ['Job Name'],
 } as const
 type Field = keyof typeof HEADERS
 
@@ -45,6 +48,8 @@ export function readServicePos(buffer: Buffer): Map<string, ServicePoMatch> {
           salesOrderNo: textCell(cell(row, 'so')),
           fgCode: textCell(cell(row, 'fg')),
           dueDate: dateCell(cell(row, 'due'), date1904),
+          coordinatorName: textCell(cell(row, 'coordinator')),
+          jobName: textCell(cell(row, 'job')),
         })
       }
       return out
@@ -53,8 +58,12 @@ export function readServicePos(buffer: Buffer): Map<string, ServicePoMatch> {
   throw new Error('No sheet in Service-AutoPO has a "PO No." column.')
 }
 
-export function servicePoRoutes(path: string | undefined, logger: Logger): Router {
-  const router = Router()
+export interface ServicePoFile {
+  /** Every PO in the workbook, read again only after it has been saved; the last good read while a save is under way. */
+  load(): { pos: Map<string, ServicePoMatch> | null; error: string | null }
+}
+
+export function createServicePoFile(path: string | undefined, logger: Logger): ServicePoFile {
   let cache: { modifiedAt: number; pos: Map<string, ServicePoMatch> } | null = null
 
   const load = (): { pos: Map<string, ServicePoMatch> | null; error: string | null } => {
@@ -77,9 +86,13 @@ export function servicePoRoutes(path: string | undefined, logger: Logger): Route
       return cache ? { pos: cache.pos, error: null } : { pos: null, error: message }
     }
   }
+  return { load }
+}
 
+export function servicePoRoutes(path: string | undefined, logger: Logger, file: ServicePoFile = createServicePoFile(path, logger)): Router {
+  const router = Router()
   router.get('/', (req, res) => {
-    const { pos, error } = load()
+    const { pos, error } = file.load()
     const key = poKey(req.query.po)
     const body: ServicePoResponse = { configured: Boolean(path), error, match: key && pos ? pos.get(key) ?? null : null }
     res.json(body)

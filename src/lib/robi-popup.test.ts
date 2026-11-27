@@ -50,3 +50,29 @@ describe('Robi pop-up', () => {
     expect(greetingFor(new Date(2026, 10, 27, 19))).toBe('Good evening')
   })
 })
+
+describe('Robi pop-up: customer updates (27 Nov 2026)', () => {
+  const upd = (po: string, rfd = '2026-11-30') =>
+    ({
+      job: { poNo: po, rfdDate: rfd, dueDate: '2026-11-25', customerName: 'Sapiens Labs' },
+      status: 'Delay',
+      days: 5,
+      tellFrom: '2026-11-22',
+      due: true,
+      told: false,
+    }) as unknown as import('../../shared/open-jobs').CustomerUpdate
+
+  it('pops up a new update right away, but not one already shown', () => {
+    const c = robiPopupContent([], TODAY, NOW, TODAY, [upd('1'), upd('2')], new Set(['1|2026-11-30']))
+    expect(c?.updates.map((u) => u.job.poNo)).toEqual(['2'])
+    expect(robiPopupContent([], TODAY, NOW, TODAY, [upd('1')], new Set(['1|2026-11-30']))).toBeNull()
+  })
+  it('a changed RFD date is new again', () => {
+    expect(robiPopupContent([], TODAY, NOW, TODAY, [upd('1', '2026-12-02')], new Set(['1|2026-11-30']))?.updates).toHaveLength(1)
+  })
+  it('every morning lists all of them until the customer is told', () => {
+    const c = robiPopupContent([], TODAY, NOW, '2026-11-26', [upd('1'), upd('2')], new Set(['1|2026-11-30', '2|2026-11-30']))
+    expect(c?.morning).toBe(true)
+    expect(c?.updates).toHaveLength(2)
+  })
+})

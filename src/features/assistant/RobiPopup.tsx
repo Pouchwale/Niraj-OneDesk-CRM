@@ -10,21 +10,46 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { Bell, CalendarClock } from 'lucide-react'
+import { Bell, CalendarClock, Truck } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/AuthContext'
-import { subscribeToDemoStore } from '@/lib/demo-companies'
+import { useOpenJobs } from '@/features/service/open-jobs-api'
+import { longDate } from '@/lib/customer-update-email'
+import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { getNotifications, markAllAsRead, NOTIFICATIONS_READ_EVENT, type AppNotification } from '@/lib/notifications'
 import { greetingFor, robiPopupContent, type RobiPopupContent } from '@/lib/robi-popup'
 import { seesAllAccounts } from '@/lib/users/roles'
 import { cn, todayISO } from '@/lib/utils'
+import { customerUpdates, pendingUpdates, seesCustomerUpdates, updateKey, type CustomerUpdate, type OpenJob } from '../../../shared/open-jobs'
 import { RobiBuddy } from './RobiBuddy'
 
 const MORNING_KEY = 'crm.robi-popup.morning'
+const UPDATES_KEY = 'crm.robi-popup.updates'
 /** Payments listed in the pop-up; the rest wait in the bell. */
 const DUE_SHOWN = 4
+/** Customer updates listed in the pop-up; the rest wait in Service → Customer updates. */
+const UPDATES_SHOWN = 4
+
+/** The customer updates already popped up for this person (PO and RFD date). */
+function shownUpdates(userId: string): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(`${UPDATES_KEY}.${userId}`) ?? '[]') as string[])
+  } catch {
+    return new Set()
+  }
+}
+function rememberUpdates(userId: string, keys: string[]): void {
+  try {
+    localStorage.setItem(`${UPDATES_KEY}.${userId}`, JSON.stringify(keys))
+  } catch {
+    // Private mode: they may pop up again; nothing is lost.
+  }
+}
+const updateLine = (u: CustomerUpdate) =>
+  u.status === 'Delay' ? `delayed ${u.days} day${u.days === 1 ? '' : 's'}` : u.status === 'Early' ? `early by ${u.days} day${u.days === 1 ? '' : 's'}` : 'on time'
 
 function morningShownOn(userId: string): string | null {
   try {
@@ -62,16 +87,32 @@ export function RobiPopup() {
   const [content, setContent] = useState<RobiPopupContent | null>(null)
   const shown = useRef(false)
   const okRef = useRef<HTMLButtonElement>(null)
+  const navigate = useNavigate()
+  // Customer updates: a coordinator's own open jobs (the server sends only theirs).
+  // Off while Customer updates is the administrator's alone (shared/open-jobs.ts): only a coordinator's own POs pop up.
+  const updatesOn = user?.role === 'coordinator' && seesCustomerUpdates(user.role)
+  const open = useOpenJobs(updatesOn)
+  const jobs = useRef<OpenJob[]>([])
+  jobs.current = updatesOn && user ? (open.data?.jobs ?? []).filter((j) => j.coordinatorId === user.id) : []
+  const pendingNow = useCallback(
+    () => pendingUpdates(customerUpdates(jobs.current, demoCompanyStore.serviceRecords, todayISO())),
+    []
+  )
 
   const check = useCallback(async () => {
     if (!user || shown.current) return
     const notifications = await getNotifications(user.id, seesAllAccounts(user.role))
-    const next = robiPopupContent(notifications, todayISO(), new Date(), morningShownOn(user.id))
+    const next = robiPopupContent(notifications, todayISO(), new Date(), morningShownOn(user.id), pendingNow(), shownUpdates(user.id))
     if (next) {
       shown.current = true
       setContent(next)
     }
-  }, [user])
+  }, [user, pendingNow])
+
+  // New open jobs read from the inventory app: look again.
+  useEffect(() => {
+    if (open.data) void check()
+  }, [open.data, check])
 
   useEffect(() => {
     if (!user) return
@@ -97,17 +138,35 @@ export function RobiPopup() {
     if (!user || !content) return
     const ids = [...content.messages, ...content.due].map((n) => n.id)
     if (content.morning) rememberMorning(user.id, todayISO())
+    // Shown: kept only while still waiting, so a new RFD date for the same PO pops up again.
+    const waiting = new Set(pendingNow().map(updateKey))
+    rememberUpdates(user.id, [...new Set([...shownUpdates(user.id), ...content.updates.map(updateKey)])].filter((k) => waiting.has(k)))
     setContent(null)
     shown.current = false
     await markAllAsRead(ids, user.id)
   }
+  const openUpdates = async () => {
+    await gotIt()
+    navigate('/service?view=updates')
+  }
 
   const firstName = (user?.full_name ?? '').split(/\s+/)[0]
   const now = new Date()
-  const title = content?.morning ? `${greetingFor(now)}${firstName ? `, ${firstName}` : ''}` : content?.messages.length === 1 ? 'A message for you' : 'Messages for you'
+  const onlyUpdates = Boolean(content && !content.morning && content.messages.length === 0)
+  const title = content?.morning
+    ? `${greetingFor(now)}${firstName ? `, ${firstName}` : ''}`
+    : onlyUpdates
+      ? content!.updates.length === 1
+        ? 'A customer to update'
+        : 'Customers to update'
+      : content?.messages.length === 1
+        ? 'A message for you'
+        : 'Messages for you'
   const subtitle = content?.morning
     ? now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })
-    : 'From your team, just now'
+    : onlyUpdates
+      ? 'Tell them how their order stands'
+      : 'From your team, just now'
 
   return (
     <AnimatePresence>
@@ -177,6 +236,40 @@ export function RobiPopup() {
                   {content.due.length > DUE_SHOWN && (
                     <p className="mt-2 text-xs text-muted-foreground">+{content.due.length - DUE_SHOWN} more in your notifications</p>
                   )}
+                </div>
+              )}
+
+              {content.updates.length > 0 && (
+                <div className="rounded-2xl border border-border/70 p-3.5" data-testid="robi-popup-updates">
+                  <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <Truck className="h-3.5 w-3.5" /> Customers to update
+                  </p>
+                  <ul className="mt-2 space-y-2">
+                    {content.updates.slice(0, UPDATES_SHOWN).map((u) => (
+                      <li key={updateKey(u)} className="flex gap-2.5 text-sm leading-snug">
+                        <span
+                          className={cn(
+                            'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                            u.status === 'Delay' ? 'bg-rose-500' : u.status === 'Early' ? 'bg-emerald-500' : 'bg-sky-500'
+                          )}
+                        />
+                        <span className="min-w-0">
+                          <span className="font-medium">{u.job.customerName ?? `PO ${u.job.poNo}`}</span>
+                          <span className="text-muted-foreground">
+                            {' '}
+                            · PO {u.job.poNo} {updateLine(u)}
+                            {u.job.rfdDate ? `, ready ${longDate(u.job.rfdDate)}` : ''}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {content.updates.length > UPDATES_SHOWN && (
+                    <p className="mt-2 text-xs text-muted-foreground">+{content.updates.length - UPDATES_SHOWN} more in Service → Customer updates</p>
+                  )}
+                  <Button variant="outline" className="mt-3 h-9 w-full rounded-full" onClick={() => void openUpdates()} data-testid="robi-popup-open-updates">
+                    Email them now
+                  </Button>
                 </div>
               )}
             </div>

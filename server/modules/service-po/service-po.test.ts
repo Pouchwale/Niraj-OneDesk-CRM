@@ -1,5 +1,5 @@
 /**
- * Service → the PO lookup (16 Nov 2026): the server reads Service-AutoPO by its
+ * Service â†’ the PO lookup (16 Nov 2026): the server reads Service-AutoPO by its
  * headers and answers for one PO to anyone signed in; the sheet is never sent.
  */
 
@@ -38,7 +38,7 @@ const book = () => {
 describe('reading Service-AutoPO', () => {
   it('finds the columns by header and keys each PO by its number', () => {
     const pos = readServicePos(book())
-    expect(pos.get('91662')).toEqual({ poNo: '91662', customerName: 'J.P.Foods Ltd', salesOrderNo: '34171', fgCode: 'FGSL3273', dueDate: '2026-11-18' })
+    expect(pos.get('91662')).toEqual({ poNo: '91662', customerName: 'J.P.Foods Ltd', salesOrderNo: '34171', fgCode: 'FGSL3273', dueDate: '2026-11-18', coordinatorName: 'Foram Prajapati', jobName: 'Pouch' })
     expect(pos.get('91651')).toMatchObject({ customerName: 'Satvam Nutrifoods', dueDate: null })
     expect(poKey(' 91662 ')).toBe('91662')
     expect(poKey(91662)).toBe('91662')
@@ -73,7 +73,7 @@ describe('the route', () => {
   it('answers a coordinator for one PO, and says when the sheet does not have it', async () => {
     const cookie = await signIn('pragati', 'Pragati@123')
     const found = (await (await ask(' 91662', cookie)).json()) as ServicePoResponse
-    expect(found).toEqual({ configured: true, error: null, match: { poNo: '91662', customerName: 'J.P.Foods Ltd', salesOrderNo: '34171', fgCode: 'FGSL3273', dueDate: '2026-11-18' } })
+    expect(found).toEqual({ configured: true, error: null, match: { poNo: '91662', customerName: 'J.P.Foods Ltd', salesOrderNo: '34171', fgCode: 'FGSL3273', dueDate: '2026-11-18', coordinatorName: 'Foram Prajapati', jobName: 'Pouch' } })
     const missing = (await (await ask('99999', cookie)).json()) as ServicePoResponse
     expect(missing).toEqual({ configured: true, error: null, match: null })
     // Nothing else: no list of POs, and no raw file.

@@ -13,7 +13,8 @@
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { CalendarRange, Clock, Download, Gauge, List, Mail, Plus, Search, Truck, Users } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { BellRing, CalendarRange, Clock, Download, Gauge, List, Mail, Plus, Search, Truck, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
@@ -45,6 +46,8 @@ import { whenSaved } from '@/lib/shared-data'
 import type { DispatchStatus, ServiceRecord } from '@/lib/types'
 import { cn, formatDate, todayISO } from '@/lib/utils'
 import { ServiceRecordDialog } from './ServiceRecordDialog'
+import { CustomerUpdates, useCustomerUpdates } from './CustomerUpdates'
+import { seesCustomerUpdates } from '../../../shared/open-jobs'
 import { getServiceOtif } from './service-otif-api'
 import type { ServiceOtifResponse } from '../../../shared/service-otif'
 
@@ -124,7 +127,16 @@ export function ServicePage() {
   const [search, setSearch] = useState('')
   const [person, setPerson] = useState('all')
   const [status, setStatus] = useState<DispatchStatus | 'all'>('all')
-  const [view, setView] = useState<'records' | 'scores'>('records')
+  // ?view=updates opens Customer updates (Robi's pop-up links there).
+  const [params, setParams] = useSearchParams()
+  const [view, setViewState] = useState<'records' | 'scores' | 'updates'>(() => (params.get('view') === 'updates' ? 'updates' : 'records'))
+  const setView = (v: 'records' | 'scores' | 'updates') => {
+    setViewState(v)
+    if (params.get('view')) setParams({}, { replace: true })
+  }
+  useEffect(() => {
+    if (params.get('view') === 'updates') setViewState('updates')
+  }, [params])
   const [editing, setEditing] = useState<ServiceRecord | 'new' | null>(null)
   // Total Customers from the OTIF file (November 2026 on), read each time the scores are opened.
   const [otif, setOtif] = useState<{ loading: boolean; data: ServiceOtifResponse | null; error: string | null }>({ loading: false, data: null, error: null })
@@ -190,6 +202,10 @@ export function ServicePage() {
   }, [otif.data, otifMonths.join(',')])
   const otifProblem = otif.error ?? otif.data?.error ?? (otif.data && !otif.data.configured ? 'The OTIF file is not set up on the server.' : null)
   const count = (s: DispatchStatus) => inPeriod.filter((r) => r.dispatch_status === s).length
+  // Customer updates: the administrator only while it is verified (shared/open-jobs.ts).
+  const updatesOn = seesCustomerUpdates(user?.role)
+  const { updates } = useCustomerUpdates(person)
+  const tellNow = updates.filter((u) => u.due && !u.told).length
   const noInfo = inPeriod.filter((r) => !r.information_date).length
 
   const download = async () => {
@@ -300,31 +316,36 @@ export function ServicePage() {
         <KpiCard title="No information date" value={noInfo} icon={Gauge} color="amber" hint="These get 0 points" />
       </div>
 
-      {canManageTeam && (
-        <div role="tablist" aria-label="View" className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
-          {([
-            { id: 'records', label: 'Records', icon: List },
-            { id: 'scores', label: 'Scores', icon: Gauge },
-          ] as const).map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              role="tab"
-              aria-selected={view === v.id}
-              onClick={() => setView(v.id)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                view === v.id ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <v.icon className="h-4 w-4" />
-              {v.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div role="tablist" aria-label="View" className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
+        {([
+          { id: 'records', label: 'Records', icon: List },
+          ...(updatesOn ? [{ id: 'updates', label: 'Customer updates', icon: BellRing }] : []),
+          ...(canManageTeam ? [{ id: 'scores', label: 'Scores', icon: Gauge }] : []),
+        ] as { id: 'records' | 'scores' | 'updates'; label: string; icon: typeof List }[]).map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            role="tab"
+            aria-selected={view === v.id}
+            onClick={() => setView(v.id)}
+            data-testid={`service-view-${v.id}`}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              view === v.id ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <v.icon className="h-4 w-4" />
+            {v.label}
+            {v.id === 'updates' && tellNow > 0 && (
+              <span className="rounded-full bg-rose-500 px-1.5 text-xs font-medium tabular-nums text-white">{tellNow}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
-      {canManageTeam && view === 'scores' ? (
+      {view === 'updates' && updatesOn ? (
+        <CustomerUpdates person={person} />
+      ) : canManageTeam && view === 'scores' ? (
         <GlassCard className="space-y-3 p-4 sm:p-6">
           <div>
             <h3 className="text-base font-medium">Service scores</h3>
