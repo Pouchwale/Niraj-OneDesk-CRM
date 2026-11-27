@@ -99,7 +99,7 @@ export const NotificationBell = () => {
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
+      <PopoverContent align="end" className="w-96 max-w-[calc(100vw-1.5rem)] p-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h4 className="font-semibold text-sm">Notifications</h4>
           {unreadCount > 0 && (
@@ -118,7 +118,8 @@ export const NotificationBell = () => {
           )}
         </div>
         
-        <ScrollArea className="max-h-[300px]">
+        {/* Taller now that messages show in full; it scrolls past that. */}
+        <ScrollArea className="max-h-[min(460px,70vh)]">
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center px-4">
               <Bell className="h-8 w-8 text-muted-foreground/30 mb-2" />
@@ -141,7 +142,7 @@ export const NotificationBell = () => {
                   <div className="flex w-full items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <div className={cn("mt-0.5 h-2 w-2 shrink-0 rounded-full", getIconColor(notification.type), getBgColor(notification.type))} />
-                      <span className="text-sm font-medium leading-none">
+                      <span className="text-sm font-medium leading-snug">
                         {notification.title}
                       </span>
                     </div>
@@ -149,7 +150,8 @@ export const NotificationBell = () => {
                       {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2 ml-4">
+                  {/* The whole message, as written (27 Nov 2026: it used to stop after two lines). */}
+                  <p className="ml-4 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground" data-testid="notification-message">
                     {notification.message}
                   </p>
                 </button>
