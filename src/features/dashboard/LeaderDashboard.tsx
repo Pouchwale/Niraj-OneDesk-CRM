@@ -170,7 +170,7 @@ export function LeaderDashboard() {
               key={t.team}
               title={`${t.team} team`}
               value={formatFinal(t.final)}
-              hint={`Payments ${formatFinal(t.payments)} · Operations ${formatFinal(t.operations)}`}
+              hint={t.weighted ? 'Average of its people’s final scores' : `Payments ${formatFinal(t.payments)} · Operations ${formatFinal(t.operations)}`}
               icon={Gauge}
               color={scoreColor(t.final)}
               href="/score-history"
@@ -226,7 +226,7 @@ export function LeaderDashboard() {
       </Section>
 
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Team score: the average of its Payments and Operations scores. Team leader score: the average of the two teams. Payment received: regular customers
+        Team score: the average of its people&apos;s final scores (weeks from 28 Nov 2026; before, the average of its Payments and Operations scores). Team leader score: the average of the two teams. Payment received: regular customers
         whose balance fell since the week&apos;s saved Saturday, taken from their oldest dues first. Quotations: given in the week; converted and value are those
         closed in the week. Repeat means an existing customer.
       </p>

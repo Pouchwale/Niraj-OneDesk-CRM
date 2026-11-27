@@ -155,7 +155,7 @@ export function FlexoLinesGrid({
         <h4 className="mr-2 text-sm font-semibold">Lines</h4>
         {readOnly ? (
           <span className="text-xs text-muted-foreground" data-testid="flexo-grid-readonly">
-            Saved sheet: only the administrator or the team leader can change it. To start from it, click a row number (Shift or Ctrl for more), Ctrl+C, then
+            Someone else's saved sheet: only they, the team leader or the administrator can change it. To start from it, click a row number (Shift or Ctrl for more), Ctrl+C, then
             New sheet and Ctrl+V there.
           </span>
         ) : (

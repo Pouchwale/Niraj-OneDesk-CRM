@@ -67,6 +67,7 @@ import {
   type ScoreModule,
 } from '@/lib/score-history'
 import { deleteFinalRatio, getScoreHistory, recalculatePeriod, saveFinalRatio } from '@/lib/score-history-api'
+import { WEIGHT_ITEMS, weightedDetail, weightedFinalOf, WEIGHTING_FROM, type WeightedFinal } from '@/lib/weightage'
 import { markSwitchedOff } from '@/lib/score-history'
 import { useModuleAccess } from '@/features/auth/module-access'
 import { LeadTargetCard } from './LeadTargetCard'
@@ -106,7 +107,16 @@ function toneOf(module: ScoreModule, score: number | null): string {
 }
 
 /** A final score from one module only is marked: a 0 from billing alone is not an all-round 0. */
-const OneModule = ({ final }: { final: ReturnType<typeof finalScoreOf> }) =>
+/** A final score as shown: the two scores' (before 28 Nov 2026) or the one weighted score's (since). */
+type FinalShown = ReturnType<typeof finalScoreOf> & { weighted?: WeightedFinal }
+
+/** The one final score (27 Nov 2026): what it says above the column, and its note. */
+const WEIGHTED_NAME = 'Final score'
+/** CAPA and FMS: columns of the one final score, from another app (not connected yet). */
+const OUTSIDE_ITEMS = WEIGHT_ITEMS.filter((i) => i.outside)
+const WEIGHTED_HINT = `Since ${formatDate(WEIGHTING_FROM)} each person has one final score: the weighted sum of the items in their weightage (Admin Panel → Final score weightage), shown as the gap from 100. No scaling: an item with no score — CAPA and FMS until that app is connected — counts as zero for its share.`
+
+const OneModule = ({ final }: { final: FinalShown }) =>
   !final.weights && final.parts.length === 1 ? <span className="ml-0.5 text-muted-foreground" title="Only one module had a score this period">*</span> : null
 
 const round1 = (v: number) => Math.round(v * 10) / 10
@@ -157,7 +167,8 @@ const averageOf = (scores: (number | null | undefined)[]) => {
 }
 
 /** "Average of 4 modules: Robi tasks -25, Regular Overdue -40, …", or with the ratio "Robi tasks -25 × 30%, …" */
-function finalDetail(final: ReturnType<typeof finalScoreOf>): string {
+function finalDetail(final: FinalShown): string {
+  if (final.weighted) return weightedDetail(final.weighted, formatPart)
   if (final.score === null) return 'No module has a score in this period'
   const left = final.na?.length ? ` · N/A, left out: ${final.na.map(moduleLabel).join(', ')}` : ''
   if (final.weights) {
@@ -258,8 +269,11 @@ export function ScoreHistoryPage() {
 
   // The score on screen: its name and its modules, as the period on screen has them.
   const currentGroups = data?.scoreGroups ?? DEFAULT_SCORE_GROUPS
-  const shownModules = modulesInGroup(selected?.scoreGroups ?? currentGroups, group)
-  const scoreName = `${scoreGroupLabel(group)} score`
+  // A period from 28 Nov 2026 has one final score over every module (src/lib/weightage.ts).
+  const weighted = Boolean(selected?.weighting)
+  const anyWeighted = periods.some((p) => p.weighting)
+  const shownModules = weighted ? SCORE_MODULES : modulesInGroup(selected?.scoreGroups ?? currentGroups, group)
+  const scoreName = weighted ? WEIGHTED_NAME : anyWeighted ? `${scoreGroupLabel(group)} / Final score` : `${scoreGroupLabel(group)} score`
   const chooseGroup = (next: ScoreGroup) => {
     setGroup(next)
     // A module over time stays only if it counts in the score chosen.
@@ -268,11 +282,16 @@ export function ScoreHistoryPage() {
 
   const entryOf = (period: PeriodScores | null, personId: string, m: ScoreModule) =>
     period?.entries.find((e) => e.coordinatorId === personId && e.module === m)
-  const finalOf = (period: PeriodScores | null, personId: string) =>
-    groupFinalOf(period, personId, group, currentGroups)
+  const finalOf = (period: PeriodScores | null, personId: string): FinalShown => {
+    if (period?.weighting) {
+      const w = weightedFinalOf(period, personId)
+      return { score: w.score, parts: [], weights: {}, weighted: w }
+    }
+    return groupFinalOf(period, personId, group, currentGroups)
+  }
   // The hint follows the period on screen: worked out by a ratio (the team's or someone's own), or the plain average.
   const ratio = Boolean(selected && people.some((p) => groupWeightsFor(selected, p.id, group, selected.scoreGroups ?? currentGroups)))
-  const finalHint = ratio ? FINAL_WEIGHTED_HINT : FINAL_HINT
+  const finalHint = weighted ? WEIGHTED_HINT : ratio ? FINAL_WEIGHTED_HINT : FINAL_HINT
 
   const workOutAgain = async () => {
     if (!selected?.lockedAt) return
@@ -326,7 +345,7 @@ export function ScoreHistoryPage() {
   }
 
   const header = (
-    <PageHeader title="Final score" subtitle="Each coordinator’s Payments and Operations scores and every module’s score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
+    <PageHeader title="Final score" subtitle="Each coordinator’s final score (Payments and Operations before 28 Nov 2026) and every module’s score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
       <Button variant="outline" onClick={() => void download()} disabled={!periods.length}>
         <Download className="mr-2 h-4 w-4" /> Excel
       </Button>
@@ -335,10 +354,13 @@ export function ScoreHistoryPage() {
 
   const controls = (
     <GlassCard className="flex flex-wrap items-end gap-4 p-4">
-      <div className="space-y-1">
-        <p className="text-xs text-muted-foreground">Score</p>
-        <ScoreGroupTabs value={group} onChange={chooseGroup} />
-      </div>
+      {/* Payments / Operations: only while a period on screen is from before the one final score. */}
+      {!(weighted && view === 'all' && canManageTeam) && !periods.every((p) => p.weighting) && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Score{anyWeighted ? ` (before ${formatDate(WEIGHTING_FROM)})` : ''}</p>
+          <ScoreGroupTabs value={group} onChange={chooseGroup} />
+        </div>
+      )}
       <div className="space-y-1">
         <p className="text-xs text-muted-foreground">Period</p>
         <div className="flex rounded-full bg-muted p-0.5" role="radiogroup" aria-label="Week, month or year">
@@ -364,7 +386,7 @@ export function ScoreHistoryPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{scoreGroupLabel(group)} modules, one period</SelectItem>
+              <SelectItem value="all">{weighted ? 'All modules' : `${scoreGroupLabel(group)} modules`}, one period</SelectItem>
               {shownModules.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
                   {m.label} over time
@@ -383,8 +405,8 @@ export function ScoreHistoryPage() {
 
   const finalNote = (
     <p className="text-xs text-muted-foreground">
-      <span className="font-semibold text-foreground">{scoreName}:</span> {finalHint} It counts only the {scoreGroupLabel(group)} modules.{' '}
-      {!ratio && (
+      <span className="font-semibold text-foreground">{scoreName}:</span> {finalHint}{weighted ? ' ' : ` It counts only the ${scoreGroupLabel(group)} modules. `}
+      {!ratio && !weighted && (
         <>
           <span className="text-foreground">*</span> only one module had a score that period.{' '}
         </>
@@ -503,6 +525,7 @@ export function ScoreHistoryPage() {
               {shownModules.map((m) => (
                 <col key={m.id} />
               ))}
+              {weighted && OUTSIDE_ITEMS.map((x) => <col key={x.id} />)}
               <col className="w-[10%]" />
             </colgroup>
             <thead className="bg-muted/50 text-muted-foreground">
@@ -513,6 +536,12 @@ export function ScoreHistoryPage() {
                     {m.short}
                   </th>
                 ))}
+                {weighted &&
+                  OUTSIDE_ITEMS.map((x) => (
+                    <th key={x.id} className={TH} title={`${x.label} comes from another app, not connected yet: it counts as zero for its share.`}>
+                      {x.label}
+                    </th>
+                  ))}
                 <th className={cn(TH, FINAL_COL, 'text-foreground')} title={finalHint}>
                   {scoreName}
                 </th>
@@ -532,6 +561,12 @@ export function ScoreHistoryPage() {
                       </td>
                     )
                   })}
+                  {weighted &&
+                    OUTSIDE_ITEMS.map((x) => (
+                      <td key={x.id} className={cn(TD, 'text-muted-foreground')} title={`${x.label}: not connected yet`}>
+                        —
+                      </td>
+                    ))}
                   <td className={cn(TD, FINAL_COL, finalTone(finals[i].score))} title={finalDetail(finals[i])}>
                     {formatFinal(finals[i].score)}
                     <OneModule final={finals[i]} />
@@ -548,6 +583,7 @@ export function ScoreHistoryPage() {
                     </td>
                   )
                 })}
+                {weighted && OUTSIDE_ITEMS.map((x) => <td key={x.id} className={cn(TD, 'text-muted-foreground')}>—</td>)}
                 {(() => {
                   const avg = averageOf(finals.map((f) => f.score))
                   return <td className={cn(TD, FINAL_COL, finalTone(avg))}>{formatFinal(avg === null ? null : Math.round(avg * 10) / 10)}</td>
@@ -638,7 +674,8 @@ export function ScoreHistoryPage() {
     <div className="space-y-6 pb-24">
       {header}
       {controls}
-      <FinalRatioCard key={group} group={group} groups={currentGroups} ratios={data?.finalRatios ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
+      {/* The Payments / Operations ratios: only for periods before the one final score (its weightage is in the Admin Panel). */}
+      {!(weighted && view === 'all') && <FinalRatioCard key={group} group={group} groups={currentGroups} ratios={data?.finalRatios ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />}
       <LeadTargetCard targets={data?.leadTargets ?? []} today={data?.today ?? ''} isAdmin={isAdmin} loaded={Boolean(data)} onSaved={() => load(kind)} />
       {body}
     </div>

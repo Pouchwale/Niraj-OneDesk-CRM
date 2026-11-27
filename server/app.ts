@@ -167,7 +167,9 @@ export function createApiRouter(config: ServerConfig, logger: Logger, deps: ApiD
         snapshots.listResults().map((r) => r.id).join(','),
         accounts.roster().map((u) => u.id + u.role + u.full_name).join(','),
         excel.status('otif').modifiedAt ?? '',
-      ].join('|')
+      ].join('|'),
+    // Whose weightage plan each coordinator is on: their own, else their team's (27 Nov 2026).
+    () => accounts.roster().filter((u) => u.role === 'coordinator').map((u) => ({ id: u.id, team: u.module ?? null }))
   )
   if (deps.weeklyAutoSave ?? config.isProduction) {
     startScoreLocks(

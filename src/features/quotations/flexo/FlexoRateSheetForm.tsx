@@ -62,7 +62,7 @@ export function FlexoRateSheetForm({
   onOpenReport,
   readOnly = false,
 }: {
-  /** A saved sheet opened by a coordinator: shown, not changed (only the administrator and the team leader change one, 27 Nov 2026). */
+  /** Someone else's saved sheet opened by a coordinator: shown, not changed (a coordinator changes only the sheets they made, 27 Nov 2026). */
   readOnly?: boolean
   /** The saved sheet being changed, or null for a new one. */
   sheet: FlexoRateSheet | null
@@ -134,7 +134,7 @@ export function FlexoRateSheetForm({
           <div>
             <h3 className="text-lg font-semibold" data-testid="flexo-form-title">{sheet ? `Quotation Sheet ${sheet.docEntry}` : 'New quotation sheet'}</h3>
             <p className="text-xs text-muted-foreground">
-              {sheet ? (readOnly ? 'Saved sheet. Only the administrator or the team leader can change it; its two reports are on the right.' : 'Change it and press Update. Its two reports are on the right.') : 'Fill in the sheet and press Add. It then appears in Saved reports with its two reports.'}
+              {sheet ? (readOnly ? 'Someone else’s saved sheet: only they, the team leader or the administrator can change it; its two reports are on the right.' : 'Change it and press Update. Its two reports are on the right.') : 'Fill in the sheet and press Add. It then appears in Saved reports with its two reports.'}
             </p>
           </div>
           {sheet && (

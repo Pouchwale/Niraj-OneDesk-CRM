@@ -33,6 +33,7 @@ import { RobiOffDaysCard } from './RobiOffDaysCard'
 import { ModuleAccessCard } from './ModuleAccessCard'
 import { PersonRatioCard } from './PersonRatioCard'
 import { ScoreGroupsCard } from './ScoreGroupsCard'
+import { WeightageCard } from './WeightageCard'
 import { FestivalAdminCard } from '@/features/festivals/FestivalAdminCard'
 import { QuotationFormulasCard } from './QuotationFormulasCard'
 import {
@@ -223,6 +224,9 @@ export function AdminPanelPage() {
       </div>
 
       <ModuleAccessCard userId={signedIn?.id ?? 'admin-0'} />
+
+      {/* The one final score from 28 Nov 2026; the two cards after it set the Payments / Operations scores of earlier periods. */}
+      <WeightageCard />
 
       <ScoreGroupsCard onChanged={() => setScoreGroupsVersion((v) => v + 1)} />
 

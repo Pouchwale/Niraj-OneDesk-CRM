@@ -45,6 +45,7 @@ import {
   type ScoreInputs,
 } from '../../../src/lib/score-history'
 import { toLocalISODate } from '../../../src/lib/utils'
+import { checkWeighting, DEFAULT_WEIGHTING, planOfPeople, type PeriodWeighting, type WeightingSetting } from '../../../src/lib/weightage'
 
 export const SCORE_HISTORY_FILE = 'score-history.json'
 
@@ -72,12 +73,14 @@ interface HistoryFile {
   personRatios?: PersonRatio[]
   /** Which of the two scores each module counts in (21 Nov 2026); absent: the default. */
   scoreGroups?: ScoreGroupMap
+  /** The one final score's weightage (27 Nov 2026); absent: the user's plans as given (DEFAULT_WEIGHTING). */
+  weighting?: WeightingSetting
 }
 
 const groupsOf = (file: HistoryFile): ScoreGroupMap => file.scoreGroups ?? DEFAULT_SCORE_GROUPS
 
 /** What a period is scored with: the ratios in force on its first day, the groups and the people's own ratios. */
-function ratioPart(file: HistoryFile, start: string): Pick<PeriodScores, 'finalWeights' | 'personWeights' | 'scoreGroups' | 'groupWeights' | 'personGroupWeights'> {
+function ratioPart(file: HistoryFile, start: string, people: () => { id: string; team: string | null }[] = () => []): Pick<PeriodScores, 'finalWeights' | 'personWeights' | 'scoreGroups' | 'groupWeights' | 'personGroupWeights' | 'weighting'> {
   const ratios = ratiosOf(file)
   const groupWeights: Partial<Record<ScoreGroup, FinalWeights>> = {}
   for (const g of SCORE_GROUPS) {
@@ -92,7 +95,17 @@ function ratioPart(file: HistoryFile, start: string): Pick<PeriodScores, 'finalW
     ...(Object.keys(groupWeights).length ? { groupWeights } : {}),
     ...(Object.keys(personWeights).length ? { personWeights } : {}),
     ...(Object.keys(personGroupWeights).length ? { personGroupWeights } : {}),
+    ...weightingPart(file, start, people),
   }
+}
+
+const weightingOf = (file: HistoryFile): WeightingSetting => file.weighting ?? DEFAULT_WEIGHTING
+
+/** A period starting on or after the weightage's first day carries the plans and whose plan each person is on. */
+function weightingPart(file: HistoryFile, start: string, people: () => { id: string; team: string | null }[]): { weighting?: PeriodWeighting } {
+  const setting = weightingOf(file)
+  if (start < setting.from) return {}
+  return { weighting: { from: setting.from, plans: setting.plans, planOf: planOfPeople(setting.plans, people()) } }
 }
 
 const leadTargetsOf = (file: HistoryFile): LeadTarget[] => [...(file.leadTargets ?? [])].sort((a, b) => a.from.localeCompare(b.from))
@@ -126,6 +139,10 @@ export interface ScoreHistoryStore {
   scoreGroups(): ScoreGroupMap
   /** Moves modules between the two scores. Throws a message for the screen. */
   saveScoreGroups(input: unknown): ScoreGroupMap
+  /** The one final score's weightage as it stands. */
+  weighting(): WeightingSetting
+  /** Replaces the weightage. Throws a message for the screen. */
+  saveWeighting(input: unknown, by: string): WeightingSetting
 }
 
 /**
@@ -137,7 +154,9 @@ export function createScoreHistoryStore(
   snapshotDir: string,
   inputs: () => ScoreInputs,
   now: () => Date = () => new Date(),
-  signature?: () => string
+  signature?: () => string,
+  /** Today's coordinators and their team, for whose weightage plan each is on. */
+  people: () => { id: string; team: string | null }[] = () => []
 ): ScoreHistoryStore {
   const path = join(snapshotDir, SCORE_HISTORY_FILE)
 
@@ -197,7 +216,7 @@ export function createScoreHistoryStore(
     const at = now().toISOString()
     // Each period locks with the ratios in force on its first day, as they stand now.
     for (const [kind, key] of due) {
-      file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', ...ratioPart(file, periodRange(kind, key).start) }
+      file.periods[periodId(kind, key)] = { ...computePeriod(data, kind, key, today), lockedAt: at, lockedBy: 'auto', ...ratioPart(file, periodRange(kind, key).start, people) }
     }
     write(file)
     return due.map(([kind, key]) => periodId(kind, key))
@@ -214,7 +233,7 @@ export function createScoreHistoryStore(
       const locked = file.periods[periodId(kind, key)]
       if (locked) return locked
       // Still open, or ended within the grace days: worked out live.
-      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, ...ratioPart(file, periodRange(kind, key).start) }
+      return { ...computePeriod(cachedInputs(), kind, key, today), lockedAt: null, lockedBy: null, ...ratioPart(file, periodRange(kind, key).start, people) }
     })
   }
 
@@ -226,7 +245,7 @@ export function createScoreHistoryStore(
     const { start } = periodRange(held.kind, held.key)
     if (start > today) return null
     // Worked out again from today's records, with the ratio it was locked with.
-    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by, finalWeights: held.finalWeights ?? null, ...(held.personWeights ? { personWeights: held.personWeights } : {}), ...(held.scoreGroups ? { scoreGroups: held.scoreGroups } : {}), ...(held.groupWeights ? { groupWeights: held.groupWeights } : {}), ...(held.personGroupWeights ? { personGroupWeights: held.personGroupWeights } : {}) }
+    const again: PeriodScores = { ...computePeriod(freshInputs(), held.kind, held.key, today), lockedAt: now().toISOString(), lockedBy: by, finalWeights: held.finalWeights ?? null, ...(held.personWeights ? { personWeights: held.personWeights } : {}), ...(held.scoreGroups ? { scoreGroups: held.scoreGroups } : {}), ...(held.groupWeights ? { groupWeights: held.groupWeights } : {}), ...(held.personGroupWeights ? { personGroupWeights: held.personGroupWeights } : {}), ...(held.weighting ? { weighting: held.weighting } : {}) }
     file.periods[id] = again
     write(file)
     return again
@@ -319,7 +338,25 @@ export function createScoreHistoryStore(
     return checked
   }
 
-  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio, leadTargets, saveLeadTarget, deleteLeadTarget, personRatios, savePersonRatio, deletePersonRatio, scoreGroups, saveScoreGroups }
+  const weighting = (): WeightingSetting => weightingOf(read())
+
+  const saveWeighting = (input: unknown, by: string): WeightingSetting => {
+    const checked = checkWeighting(input)
+    const file = read()
+    const at = now().toISOString()
+    const before = new Map(weightingOf(file).plans.map((p) => [p.id, JSON.stringify({ ...p, updatedAt: undefined, updatedBy: undefined })]))
+    // A plan keeps who changed it last unless it changed now.
+    const plans = checked.plans.map((p) => {
+      const old = weightingOf(file).plans.find((x) => x.id === p.id)
+      const same = before.get(p.id) === JSON.stringify({ ...p, updatedAt: undefined, updatedBy: undefined })
+      return same && old ? old : { ...p, updatedAt: at, updatedBy: by }
+    })
+    file.weighting = { from: checked.from, plans, updatedAt: at, updatedBy: by }
+    write(file)
+    return file.weighting
+  }
+
+  return { lockDue, periods, relock, finalRatios, saveFinalRatio, deleteFinalRatio, leadTargets, saveLeadTarget, deleteLeadTarget, personRatios, savePersonRatio, deletePersonRatio, scoreGroups, saveScoreGroups, weighting, saveWeighting }
 }
 
 /** A minute and a half after start (the data is loaded by then), and every half hour after, lock what has ended. */

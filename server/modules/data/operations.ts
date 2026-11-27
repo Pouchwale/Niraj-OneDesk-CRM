@@ -289,7 +289,8 @@ export function flexoRateSheetRefusal(
   if (role === 'admin' || role === 'team_leader') return null
   const sheet = (args[0] ?? null) as { id?: unknown; coordinator_id?: unknown } | null
   const held = sheets.find((s) => s.id === sheet?.id)
-  if (held) return 'A saved quotation sheet can only be changed by the administrator or the team leader.'
+  // Since 27 Nov 2026 (the user): a coordinator may update the saved sheets they made; other people's stay the leader's and the administrator's.
+  if (held && held.coordinator_id !== userId) return 'You can only change the quotation sheets you made; this one is someone else’s.'
   return sheet?.coordinator_id === userId ? null : 'A rate sheet you save must be your own.'
 }
 

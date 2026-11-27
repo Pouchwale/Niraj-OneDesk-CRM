@@ -17,7 +17,9 @@ const KINDS: PeriodKind[] = ['week', 'month', 'year']
 
 /** A coordinator sees only their own lines, and only their own ratio. */
 function ownLines(p: PeriodScores, userId: string): PeriodScores {
-  const { personWeights, personGroupWeights, ...rest } = p
+  const { personWeights, personGroupWeights, weighting, ...rest } = p
+  // Only their own weightage plan.
+  const myPlan = weighting ? weighting.plans.find((x) => x.id === weighting.planOf[userId]) : undefined
   const mine = personWeights?.[userId]
   const mineByGroup: NonNullable<PeriodScores['personGroupWeights']> = {}
   for (const [group, people] of Object.entries(personGroupWeights ?? {}) as [ScoreGroup, Record<string, FinalWeights>][]) {
@@ -28,6 +30,7 @@ function ownLines(p: PeriodScores, userId: string): PeriodScores {
     entries: p.entries.filter((e) => e.coordinatorId === userId),
     ...(mine ? { personWeights: { [userId]: mine } } : {}),
     ...(Object.keys(mineByGroup).length ? { personGroupWeights: mineByGroup } : {}),
+    ...(weighting ? { weighting: { from: weighting.from, plans: myPlan ? [myPlan] : [], planOf: myPlan ? { [userId]: myPlan.id } : {} } } : {}),
   }
 }
 const DEFAULT_COUNT: Record<PeriodKind, number> = { week: 12, month: 12, year: 10 }
@@ -51,6 +54,7 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
         // Who has a ratio of their own is for the team leader and the administrator.
         ...(seesTeam ? { personRatios: store.personRatios() } : {}),
         leadTargets: store.leadTargets(),
+        ...(seesTeam ? { weighting: store.weighting() } : {}),
       }
       res.json(body)
     } catch (err) {
@@ -146,6 +150,19 @@ export function scoreHistoryRoutes(store: ScoreHistoryStore, logger: Logger): Ro
     }
     logger.info('score history: per-person ratio removed', { id: req.params.id, by: req.user!.id })
     res.json({ personRatios: store.personRatios() })
+  })
+
+  // The one final score's weightage (27 Nov 2026): the administrator's.
+  router.put('/weighting', requireRole(), (req, res, next) => {
+    let weighting
+    try {
+      weighting = store.saveWeighting(req.body, req.user!.id)
+    } catch (err) {
+      next(ApiError.badRequest(err instanceof Error ? err.message : 'That weightage cannot be used.'))
+      return
+    }
+    logger.info('score history: weightage saved', { plans: weighting.plans.map((p) => p.id), by: req.user!.id })
+    res.json({ weighting })
   })
 
   router.post('/ratios', requireRole(), saveRatio())

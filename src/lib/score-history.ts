@@ -31,6 +31,7 @@ import { conversionsOf, dayFor } from './quotation-stats'
 import { serviceScores } from './service-records'
 import type { AttendanceEntry, BillingIssue, Quotation, RobiOffDay, SelfLead, ServiceCustomerTarget, ServiceRecord } from './types'
 import type { OtifCustomerCounts } from '../../shared/service-otif'
+import type { PeriodWeighting, WeightingSetting } from './weightage'
 
 export type PeriodKind = 'week' | 'month' | 'year'
 export type ScoreModule = 'robi' | 'kpi' | 'kpi_dispute' | 'quotations' | 'billing' | 'service' | 'self_leads'
@@ -414,6 +415,12 @@ export interface PeriodScores {
   groupWeights?: Partial<Record<ScoreGroup, FinalWeights>>
   /** Coordinators' own ratios for each score. */
   personGroupWeights?: Partial<Record<ScoreGroup, Record<string, FinalWeights>>>
+  /**
+   * The one final score's weightage (27 Nov 2026, src/lib/weightage.ts): set on
+   * periods starting on or after its first day (28 Nov 2026), which then have
+   * one final score per person instead of Payments and Operations.
+   */
+  weighting?: PeriodWeighting | null
   entries: ScoreEntry[]
 }
 
@@ -430,6 +437,8 @@ export interface ScoreHistoryResponse {
   scoreGroups?: ScoreGroupMap
   /** The administrator's Self Leads targets by dates, oldest first; empty: the default (3 leads, 30%). */
   leadTargets?: LeadTarget[]
+  /** The one final score's weightage as it stands now (team leader and administrator). */
+  weighting?: WeightingSetting
 }
 
 /* ===================== Periods ===================== */

@@ -73,8 +73,8 @@ export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport
         sheet={editing}
         currentUserId={currentUserId}
         onOpenReport={onOpenReport}
-        // Once made, only the administrator and the team leader change a sheet; a coordinator sees it.
-        readOnly={!!editing && !canManageTeam}
+        // A coordinator updates the sheets they made (27 Nov 2026); other people's they only see. The leader and administrator change any.
+        readOnly={!!editing && !canManageTeam && editing.coordinator_id !== currentUserId}
         onCancel={startNew}
         onSaved={(saved, isNew) => {
           if (isNew) {
@@ -90,7 +90,7 @@ export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport
         }}
       />
 
-      <SavedSheetsDialog open={savedOpen} onOpenChange={setSavedOpen} sheets={sheets} editingId={editingId} canManageTeam={canManageTeam} onOpen={open} onOpenReport={onOpenReport} />
+      <SavedSheetsDialog open={savedOpen} onOpenChange={setSavedOpen} sheets={sheets} editingId={editingId} canEdit={(s) => canManageTeam || s.coordinator_id === currentUserId} onOpen={open} onOpenReport={onOpenReport} />
 
       {isAdmin && (
         <Dialog open={ratesOpen} onOpenChange={setRatesOpen}>
@@ -112,7 +112,7 @@ function SavedSheetsDialog({
   onOpenChange,
   sheets,
   editingId,
-  canManageTeam,
+  canEdit,
   onOpen,
   onOpenReport,
 }: {
@@ -120,7 +120,8 @@ function SavedSheetsDialog({
   onOpenChange: (open: boolean) => void
   sheets: FlexoRateSheet[]
   editingId: string | null
-  canManageTeam: boolean
+  /** Whether this person may change the sheet: the leader and administrator any, a coordinator their own. */
+  canEdit: (s: FlexoRateSheet) => boolean
   onOpen: (s: FlexoRateSheet) => void
   onOpenReport: (docEntry: number, report: QuotationReport) => void
 }) {
@@ -181,7 +182,7 @@ function SavedSheetsDialog({
                     <td className="px-3 py-1.5">
                       <div className="flex justify-end gap-1.5 whitespace-nowrap">
                         <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onOpen(s)} data-testid="flexo-open-sheet">
-                          {canManageTeam ? <Pencil className="mr-1.5 h-3.5 w-3.5" /> : <Eye className="mr-1.5 h-3.5 w-3.5" />} {canManageTeam ? 'Open' : 'View'}
+                          {canEdit(s) ? <Pencil className="mr-1.5 h-3.5 w-3.5" /> : <Eye className="mr-1.5 h-3.5 w-3.5" />} {canEdit(s) ? 'Open' : 'View'}
                         </Button>
                         <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!s.docEntry} onClick={() => onOpenReport(s.docEntry, 'do-not-send')} data-testid="flexo-open-report">
                           <FileSearch className="mr-1.5 h-3.5 w-3.5" /> Do not Send

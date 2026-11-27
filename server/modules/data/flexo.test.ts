@@ -30,9 +30,10 @@ describe('Flexo Rate Sheet operations', () => {
     const held = [{ id: 's1', coordinator_id: 'coord-2' }]
     expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s2', 'coord-1')], held)).toBeNull()
     expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s2', 'coord-2')], held)).toMatch(/must be your own/)
-    // Once made, not even their own: only the administrator or the team leader changes it (27 Nov 2026).
-    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-1')], [{ id: 's1', coordinator_id: 'coord-1' }])).toMatch(/administrator or the team leader/)
-    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-1')], held)).toMatch(/administrator or the team leader/)
+    // Since 27 Nov 2026 (later the same day): a coordinator updates the saved sheets they made, never someone else's.
+    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-1')], [{ id: 's1', coordinator_id: 'coord-1' }])).toBeNull()
+    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-1')], held)).toMatch(/someone else/)
+    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-2')], [{ id: 's1', coordinator_id: 'coord-1' }])).toMatch(/must be your own/)
     expect(flexoRateSheetRefusal('team_leader', 'admin-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-2')], held)).toBeNull()
   })
 

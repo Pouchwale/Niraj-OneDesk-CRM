@@ -15,6 +15,7 @@
 import { countsTowardsScore } from '@/features/snapshots/transform'
 import { quotationDay } from '@/lib/quotation-stats'
 import { groupFinalOf, type PeriodScores, type ScoreGroup, type ScoreGroupMap } from '@/lib/score-history'
+import { weightedFinalOf } from '@/lib/weightage'
 import type { OverduePayment, Quotation, RfdRow, TeamModule } from '@/lib/types'
 
 export const LEADER_TEAMS: readonly TeamModule[] = ['Pouchwale', 'GP3']
@@ -39,8 +40,10 @@ export interface TeamScore {
   /** Average of the team's coordinators who have that score (0-100; N/A left out). */
   payments: number | null
   operations: number | null
-  /** Average of the two. */
+  /** Average of the two; from 28 Nov 2026 the average of its people's one final score. */
   final: number | null
+  /** The week uses the one final score (src/lib/weightage.ts): no Payments / Operations. */
+  weighted?: boolean
 }
 
 export function leaderScores(
@@ -50,6 +53,10 @@ export function leaderScores(
 ): { teams: TeamScore[]; leader: number | null } {
   const teams = LEADER_TEAMS.map((team) => {
     const ids = people.filter((p) => p.module === team).map((p) => p.id)
+    // From 28 Nov 2026: one final score per person; the team's is their average (people with no weightage left out).
+    if (period?.weighting) {
+      return { team, payments: null, operations: null, final: averageOf(ids.map((id) => weightedFinalOf(period, id).score)), weighted: true }
+    }
     const of = (group: ScoreGroup) => averageOf(ids.map((id) => (period ? groupFinalOf(period, id, group, scoreGroups).score : null)))
     const payments = of('payments')
     const operations = of('operations')

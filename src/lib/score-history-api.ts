@@ -1,6 +1,7 @@
 /** The score history from the server (see server/modules/score-history). */
 
 import { SCORE_HISTORY_ROUTE, type FinalRatio, type FinalWeights, type LeadTarget, type PeriodKind, type PeriodScores, type PersonRatio, type ScoreGroup, type ScoreGroupMap, type ScoreHistoryResponse } from './score-history'
+import type { WeightingSetting } from './weightage'
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -49,3 +50,7 @@ export const saveLeadTarget = (target: { from: string; to: string | null; full: 
 /** The administrator removes a dated Self Leads target. */
 export const deleteLeadTarget = (id: string) =>
   call<{ leadTargets: LeadTarget[] }>(`${SCORE_HISTORY_ROUTE}/lead-targets/${encodeURIComponent(id)}`, { method: 'DELETE' })
+
+/** The administrator replaces the one final score's weightage (27 Nov 2026). */
+export const saveWeighting = (weighting: Pick<WeightingSetting, 'from' | 'plans'>) =>
+  call<{ weighting: WeightingSetting }>(`${SCORE_HISTORY_ROUTE}/weighting`, { method: 'PUT', body: JSON.stringify(weighting) })

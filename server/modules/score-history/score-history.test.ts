@@ -318,3 +318,25 @@ describe('the route', () => {
     expect((await recalc(await signIn('admin', 'Admin@123'), 'week:2026-10-26')).status).toBe(400)
   })
 })
+
+describe('the one final score weightage (27 Nov 2026)', () => {
+  it('periods starting on or after 28 Nov 2026 carry the weightage and whose plan each person is on; earlier ones do not', () => {
+    const dir = mkdtempSync(join(root, 'weighting-'))
+    const clock = new Date('2026-12-02T10:00:00')
+    const store = createScoreHistoryStore(dir, () => baseInputs([quote('a', 'c1', '2026-10-01', 'closed')]), () => clock, undefined, () => [{ id: 'c1', team: 'GP3' }])
+    const weeks = store.periods('week', 3)
+    const byKey = Object.fromEntries(weeks.map((p) => [p.key, p]))
+    expect(byKey['2026-11-21']?.weighting).toBeUndefined()
+    expect(byKey['2026-11-28']?.weighting?.planOf).toEqual({ c1: 'gp3' })
+    expect(store.periods('month', 2).find((p) => p.key === '2026-11')?.weighting).toBeUndefined()
+    expect(store.periods('month', 2).find((p) => p.key === '2026-12')?.weighting?.plans.length).toBeGreaterThan(0)
+  })
+  it('the administrator replaces it; a bad one is refused', () => {
+    const dir = mkdtempSync(join(root, 'weighting-save-'))
+    const store = createScoreHistoryStore(dir, () => baseInputs([]), () => new Date('2026-12-02T10:00:00'), undefined, () => [{ id: 'c1', team: 'GP3' }])
+    expect(() => store.saveWeighting({ plans: [{ id: 'x', name: 'X', team: 'GP3', groups: [{ label: 'A', items: { robi: 90 } }] }] }, 'admin-0')).toThrow(/add up to 90%/)
+    const saved = store.saveWeighting({ plans: [{ id: 'x', name: 'GP3', team: 'GP3', groups: [{ label: 'All', items: { robi: 100 } }] }] }, 'admin-0')
+    expect(saved.plans[0]).toMatchObject({ id: 'x', updatedBy: 'admin-0' })
+    expect(store.periods('week', 1)[0].weighting?.planOf).toEqual({ c1: 'x' })
+  })
+})

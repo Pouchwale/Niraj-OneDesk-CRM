@@ -32,11 +32,13 @@ export const OPEN_JOB_REPORTS = [
 export type OpenJobReport = (typeof OPEN_JOB_REPORTS)[number]['id']
 
 /**
- * Live for the administrator only while they verify it (27 Nov 2026, the user:
- * "just live it on admin side to verify"): no tab, list or pop-up for anyone
- * else, and the server answers nobody else. Set false to open it to everyone.
+ * Live for the administrator only while they verified it (27 Nov 2026, the
+ * user: "just live it on admin side to verify"). Opened the same day ("deploy
+ * the service customer updates to the assigned coordinators to show them their
+ * respective"): each coordinator gets their own POs, the team leader and the
+ * administrator everyone's. True again: the administrator only.
  */
-export const CUSTOMER_UPDATES_ADMIN_ONLY = true
+export const CUSTOMER_UPDATES_ADMIN_ONLY = false
 
 /** Whether this role sees Customer updates now. */
 export const seesCustomerUpdates = (role: string | null | undefined) => (CUSTOMER_UPDATES_ADMIN_ONLY ? role === 'admin' : Boolean(role))
