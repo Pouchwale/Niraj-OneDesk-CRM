@@ -29,11 +29,11 @@ const cellClass =
 const NUM_W = 34
 const ACTIONS_W = 56
 
-function ChoiceCell({ value, choices, onChange, label }: { value: string; choices: Choice[]; onChange: (v: string) => void; label: string }) {
+function ChoiceCell({ value, choices, onChange, label, readOnly }: { value: string; choices: Choice[]; onChange: (v: string) => void; label: string; readOnly?: boolean }) {
   // A value taken out of the list later still shows on the sheets that have it.
   const shown = value && !choices.some((c) => c.code === value) ? [...choices, { code: value, description: value }] : choices
   return (
-    <select aria-label={label} className={cn(cellClass, 'pr-0')} value={value} onChange={(e) => onChange(e.target.value)}>
+    <select aria-label={label} className={cn(cellClass, 'pr-0 disabled:cursor-default disabled:opacity-100')} value={value} disabled={readOnly} onChange={(e) => onChange(e.target.value)}>
       <option value="" />
       {shown.map((c) => (
         <option key={c.code} value={c.code}>
@@ -45,7 +45,7 @@ function ChoiceCell({ value, choices, onChange, label }: { value: string; choice
 }
 
 /** A number cell: empty is "no value". */
-function NumberCell({ value, onChange, label, step, empty }: { value: number | null; onChange: (v: number | null) => void; label: string; step: string; empty?: boolean }) {
+function NumberCell({ value, onChange, label, step, empty, readOnly }: { value: number | null; onChange: (v: number | null) => void; label: string; step: string; empty?: boolean; readOnly?: boolean }) {
   // Final Rate shows five decimals, as SAP's grid does ("0.00000"); an empty row shows nothing.
   const [text, setText] = useState(value === null || empty ? '' : step === '0.00001' ? value.toFixed(5) : String(value))
   return (
@@ -53,6 +53,7 @@ function NumberCell({ value, onChange, label, step, empty }: { value: number | n
       type="number"
       inputMode="decimal"
       step={step}
+      readOnly={readOnly}
       aria-label={label}
       className={cn(cellClass, 'text-right tabular-nums placeholder:text-foreground [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none')}
       value={text}
@@ -73,7 +74,10 @@ export function FlexoLinesGrid({
   setLines: setAllLines,
   lists,
   newId,
+  readOnly = false,
 }: {
+  /** A saved sheet a coordinator opens: rows can be selected and copied (Ctrl+C), nothing changed. */
+  readOnly?: boolean
   lines: FlexoRateLine[]
   setLines: (update: (lines: FlexoRateLine[]) => FlexoRateLine[]) => void
   lists: QuotationLists
@@ -131,6 +135,7 @@ export function FlexoLinesGrid({
 
   // Ctrl+V: grid rows (from here or Excel) become new lines below the row; one plain value is left to the cell.
   const onPaste = (e: React.ClipboardEvent) => {
+    if (readOnly) return
     const pasted = tsvToLines(e.clipboardData.getData('text/plain'), lists, newId)
     if (!pasted) return
     e.preventDefault()
@@ -148,18 +153,27 @@ export function FlexoLinesGrid({
     <div className="space-y-2" data-testid="flexo-grid">
       <div className="flex flex-wrap items-center gap-2">
         <h4 className="mr-2 text-sm font-semibold">Lines</h4>
-        <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setLines((ls) => [...ls, blankFlexoLine(newId())])} data-testid="flexo-add-line">
-          <Plus className="mr-1.5 h-4 w-4" /> Add line
-        </Button>
-        <Button type="button" variant="outline" size="sm" className="h-8" disabled={selected.length === 0} onClick={() => duplicate(inOrder(selected))} data-testid="flexo-duplicate-selected">
-          <Copy className="mr-1.5 h-4 w-4" /> Duplicate{selected.length > 1 ? ` ${selected.length} lines` : ''}
-        </Button>
-        <Button type="button" variant="outline" size="sm" className="h-8" disabled={selected.length === 0} onClick={() => remove(selected)} data-testid="flexo-remove-selected">
-          <Trash2 className="mr-1.5 h-4 w-4" /> Remove{selected.length > 1 ? ` ${selected.length} lines` : ''}
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          Click a row number to select it (Shift or Ctrl for more), Ctrl+C to copy, then Ctrl+V on a row number to paste the copies below it. Rows copied in Excel paste in too.
-        </span>
+        {readOnly ? (
+          <span className="text-xs text-muted-foreground" data-testid="flexo-grid-readonly">
+            Saved sheet: only the administrator or the team leader can change it. To start from it, click a row number (Shift or Ctrl for more), Ctrl+C, then
+            New sheet and Ctrl+V there.
+          </span>
+        ) : (
+          <>
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setLines((ls) => [...ls, blankFlexoLine(newId())])} data-testid="flexo-add-line">
+              <Plus className="mr-1.5 h-4 w-4" /> Add line
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-8" disabled={selected.length === 0} onClick={() => duplicate(inOrder(selected))} data-testid="flexo-duplicate-selected">
+              <Copy className="mr-1.5 h-4 w-4" /> Duplicate{selected.length > 1 ? ` ${selected.length} lines` : ''}
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-8" disabled={selected.length === 0} onClick={() => remove(selected)} data-testid="flexo-remove-selected">
+              <Trash2 className="mr-1.5 h-4 w-4" /> Remove{selected.length > 1 ? ` ${selected.length} lines` : ''}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Click a row number to select it (Shift or Ctrl for more), Ctrl+C to copy, then Ctrl+V on a row number to paste the copies below it. Rows copied in Excel paste in too.
+            </span>
+          </>
+        )}
       </div>
 
       {/* SAP's grid: it fills the page and scrolls inside itself, both ways; the headings stay on top. */}
@@ -218,15 +232,16 @@ export function FlexoLinesGrid({
                         style={i === 0 ? { left: NUM_W } : undefined}
                       >
                         {choices ? (
-                          <ChoiceCell label={label} value={(l[c.key] as string) ?? ''} choices={choices} onChange={(v) => setLine(l.id, { [c.key]: v })} />
+                          <ChoiceCell readOnly={readOnly} label={label} value={(l[c.key] as string) ?? ''} choices={choices} onChange={(v) => setLine(l.id, { [c.key]: v })} />
                         ) : c.kind === 'text' ? (
-                          <input aria-label={label} className={cellClass} value={(l[c.key] as string) ?? ''} onChange={(e) => setLine(l.id, { [c.key]: e.target.value })} />
+                          <input aria-label={label} readOnly={readOnly} className={cellClass} value={(l[c.key] as string) ?? ''} onChange={(e) => setLine(l.id, { [c.key]: e.target.value })} />
                         ) : (
                           <NumberCell
                             label={label}
                             step={c.kind === 'rate' ? '0.00001' : 'any'}
                             value={l[c.key] as number | null}
                             empty={empty}
+                            readOnly={readOnly}
                             onChange={(v) => setLine(l.id, { [c.key]: c.kind === 'rate' ? v ?? 0 : v })}
                           />
                         )}
@@ -235,7 +250,7 @@ export function FlexoLinesGrid({
                   })}
                   <td className="sticky right-0 z-10 border-b border-border bg-background p-0">
                     {/* An empty row has nothing to copy or remove. */}
-                    <div className={cn('flex h-7 items-center justify-center gap-0.5', empty && 'invisible')}>
+                    <div className={cn('flex h-7 items-center justify-center gap-0.5', (empty || readOnly) && 'invisible')}>
                       <button type="button" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="Duplicate this line" aria-label={`Duplicate line ${r + 1}`} onClick={() => duplicate([l])} data-testid="flexo-duplicate-line">
                         <Copy className="h-3.5 w-3.5" />
                       </button>

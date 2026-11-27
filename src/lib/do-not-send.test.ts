@@ -109,7 +109,9 @@ describe('Do not Send formulas', () => {
   })
 
   it('numbers sheets one after the highest', () => {
-    expect(nextDocEntry([])).toBe(1)
-    expect(nextDocEntry([{ docEntry: 4 }, { docEntry: 9 }])).toBe(10)
+    // New sheets carry on from SAP's numbers: 5387 first, whatever older CRM sheets hold.
+    expect(nextDocEntry([])).toBe(5387)
+    expect(nextDocEntry([{ docEntry: 1 }, { docEntry: 3 }])).toBe(5387)
+    expect(nextDocEntry([{ docEntry: 5387 }, { docEntry: 5390 }])).toBe(5391)
   })
 })

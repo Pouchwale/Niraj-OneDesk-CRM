@@ -60,7 +60,10 @@ export function FlexoRateSheetForm({
   onSaved,
   onCancel,
   onOpenReport,
+  readOnly = false,
 }: {
+  /** A saved sheet opened by a coordinator: shown, not changed (only the administrator and the team leader change one, 27 Nov 2026). */
+  readOnly?: boolean
   /** The saved sheet being changed, or null for a new one. */
   sheet: FlexoRateSheet | null
   currentUserId: string
@@ -131,7 +134,7 @@ export function FlexoRateSheetForm({
           <div>
             <h3 className="text-lg font-semibold" data-testid="flexo-form-title">{sheet ? `Quotation Sheet ${sheet.docEntry}` : 'New quotation sheet'}</h3>
             <p className="text-xs text-muted-foreground">
-              {sheet ? 'Change it and press Update. Its two reports are on the right.' : 'Fill in the sheet and press Add. It then appears in Saved reports with its two reports.'}
+              {sheet ? (readOnly ? 'Saved sheet. Only the administrator or the team leader can change it; its two reports are on the right.' : 'Change it and press Update. Its two reports are on the right.') : 'Fill in the sheet and press Add. It then appears in Saved reports with its two reports.'}
             </p>
           </div>
           {sheet && (
@@ -149,7 +152,8 @@ export function FlexoRateSheetForm({
           )}
         </div>
 
-        <div className="grid gap-x-16 gap-y-1 lg:grid-cols-2">
+        {/* A coordinator's saved sheet: every header field locked. */}
+        <fieldset disabled={readOnly} className="grid gap-x-16 gap-y-1 disabled:opacity-90 lg:grid-cols-2">
           <div className="space-y-1">
             <Field label="DocEntry">
               <Input className="h-7 rounded bg-muted px-1.5 text-xs text-muted-foreground" value={sheet?.docEntry ? String(sheet.docEntry) : ''} placeholder="Given when added" readOnly tabIndex={-1} data-testid="flexo-docentry" />
@@ -193,19 +197,28 @@ export function FlexoRateSheetForm({
               <Input aria-label="Delivery Location" className="h-7 rounded px-1.5 text-xs" value={form.deliveryLocation} onChange={(e) => set({ deliveryLocation: e.target.value })} />
             </Field>
           </div>
-        </div>
+        </fieldset>
 
-        <FlexoLinesGrid lines={lines} setLines={setLines} lists={cfg.lists} newId={() => newId('line')} />
+        <FlexoLinesGrid lines={lines} setLines={setLines} lists={cfg.lists} newId={() => newId('line')} readOnly={readOnly} />
       </div>
 
       {/* Add and Cancel stay in view while the sheet is long. */}
       <div className="sticky bottom-0 z-10 flex gap-2 rounded-b-xl border-t border-border bg-background px-4 py-3 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)] sm:px-6">
-        <Button onClick={() => void save()} disabled={saving} data-testid="flexo-save">
-          {sheet ? 'Update' : 'Add'}
-        </Button>
-        <Button variant="outline" onClick={onCancel} disabled={saving} data-testid="flexo-cancel">
-          Cancel
-        </Button>
+        {readOnly ? (
+          // Nothing to save: back to an empty sheet, where copied rows can be pasted.
+          <Button variant="outline" onClick={onCancel} data-testid="flexo-cancel">
+            <FilePlus2 className="mr-1.5 h-4 w-4" /> New sheet
+          </Button>
+        ) : (
+          <>
+            <Button onClick={() => void save()} disabled={saving} data-testid="flexo-save">
+              {sheet ? 'Update' : 'Add'}
+            </Button>
+            <Button variant="outline" onClick={onCancel} disabled={saving} data-testid="flexo-cancel">
+              Cancel
+            </Button>
+          </>
+        )}
       </div>
     </GlassCard>
   )

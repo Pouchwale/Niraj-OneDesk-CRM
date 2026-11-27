@@ -9,6 +9,7 @@ import { AlertTriangle, Loader2, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/features/auth/AuthContext'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import type { FlexoRateSheet } from '@/lib/flexo-rate-sheet'
 import { salesQuotation } from '@/lib/sales-quotation'
@@ -16,6 +17,7 @@ import { SalesQuotationPages, printSalesQuotation } from './SalesQuotationPages'
 import { useQuotationConfig } from './useQuotationConfig'
 
 export function SalesQuotationView({ sheet }: { sheet: FlexoRateSheet }) {
+  const { isAdmin } = useAuth()
   const rates = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.flexoRates)
   const cfg = useQuotationConfig()
   const doc = useMemo(() => salesQuotation(sheet, Object.fromEntries(rates.map((r) => [r.type, r.rate])), cfg), [sheet, rates, cfg])
@@ -49,7 +51,8 @@ export function SalesQuotationView({ sheet }: { sheet: FlexoRateSheet }) {
           <span>
             {errors.length > 0 && `${errors.length} line${errors.length === 1 ? '' : 's'} cannot be worked out (${errors.map((r) => `SR ${r.srNo}: ${r.error}`).join('; ')}). `}
             {blanks.length > 0 &&
-              `Unit Price is blank for SR ${blanks.map((r) => r.srNo).join(', ')}: a value it needs is empty, or a Type has no rate in the rate table (as in SAP, where it prints blank).`}
+              // The rate table is the administrator's only, so coordinators are not pointed at it.
+              `Unit Price is blank for SR ${blanks.map((r) => r.srNo).join(', ')}: a value it needs is empty, or a Type has no rate yet${isAdmin ? ' in the rate table' : ' (ask the administrator)'} (as in SAP, where it prints blank).`}
           </span>
         </p>
       )}

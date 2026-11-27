@@ -14,10 +14,11 @@ import type { Logger } from '../../logger'
 import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
+import { moduleOn } from '../../../shared/module-access'
 import { accountRefusal, billingIssueRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
-function scopedFor(store: DataStore, role: string, userId: string) {
+function scopedFor(store: DataStore, role: string, userId: string, team: string | null = null) {
   const snapshot = store.snapshot()
   /*
    * Which accounts are still owed, across the whole book and whoever owns
@@ -49,8 +50,9 @@ function scopedFor(store: DataStore, role: string, userId: string) {
     serviceRecords: (snapshot.serviceRecords ?? []).filter((r) => r.coordinator_id === userId),
     serviceTargets: [],
     selfLeads: (snapshot.selfLeads ?? []).filter((l) => l.coordinator_id === userId),
-    // Their own rate sheets; the rate table is everyone's, so their Do not Send works out the same.
-    flexoRateSheets: (snapshot.flexoRateSheets ?? []).filter((s) => s.coordinator_id === userId),
+    // Quotation Sheets (27 Nov 2026, the user's request): everyone the Quotation Sheet is switched on for sees all of them;
+    // nobody else gets any. The rate table stays in the data (their Do not Send works out the same) but is never shown to them.
+    flexoRateSheets: moduleOn(snapshot.moduleAccess, { id: userId, role, module: team }, 'quotation_sheet') ? snapshot.flexoRateSheets ?? [] : [],
     // Only their own module switches.
     moduleAccess: (snapshot.moduleAccess ?? []).filter((a) => a.coordinatorId === userId),
     // Numbers only, so a new quotation never reuses one another coordinator took.
@@ -73,7 +75,7 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
     // serialising below, the browser is told the older number and fetches
     // again, rather than being told it is current when it is not.
     const version = store.version()
-    const { snapshot, owedKeys } = scopedFor(store, user.role, user.id)
+    const { snapshot, owedKeys } = scopedFor(store, user.role, user.id, user.module ?? null)
     res.json({ version, snapshot, owedKeys })
   })
 

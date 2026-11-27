@@ -206,7 +206,9 @@ export function blankFlexoLine(id: string): FlexoRateLine {
 }
 
 /** The next DocEntry: one more than the highest in use. */
-export const nextDocEntry = (sheets: readonly { docEntry: number }[]) => sheets.reduce((m, s) => Math.max(m, s.docEntry || 0), 0) + 1
+/** SAP's last Flexo Rate Sheet before the CRM took over: new sheets carry on from 5387 (27 Nov 2026, the user's request). */
+export const SAP_LAST_DOCENTRY = 5386
+export const nextDocEntry = (sheets: readonly { docEntry: number }[]) => sheets.reduce((m, s) => Math.max(m, s.docEntry || 0), SAP_LAST_DOCENTRY) + 1
 
 /**
  * Every Type the rate table can hold, in the order the dropdowns list them.

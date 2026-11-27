@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { flexoRateSheetRefusal, isOperation, mayCall } from './operations'
+import { flexoRateSheetRefusal, isOperation, mayCall, quotationConfigRefusal } from './operations'
 import { demoCompanyStore } from '../../../src/lib/demo-companies'
 import { blankFlexoLine, type FlexoRateSheet } from '../../../src/lib/flexo-rate-sheet'
 
@@ -19,13 +19,20 @@ describe('Flexo Rate Sheet operations', () => {
     expect(mayCall('coordinator', 'deleteFlexoRateSheet')).toBe(false)
     expect(mayCall('coordinator', 'setFlexoRate')).toBe(false)
     expect(mayCall('team_leader', 'setFlexoRate')).toBe(true)
+    // …but the rate table is the administrator's only (27 Nov 2026).
+    expect(quotationConfigRefusal('admin', 'setFlexoRate')).toBeNull()
+    expect(quotationConfigRefusal('team_leader', 'setFlexoRate')).toMatch(/administrator/)
+    expect(quotationConfigRefusal('coordinator', 'setFlexoRate')).toMatch(/administrator/)
+    expect(quotationConfigRefusal('team_leader', 'saveFlexoRateSheet')).toBeNull()
   })
 
   it('keeps a coordinator to their own sheets', () => {
     const held = [{ id: 's1', coordinator_id: 'coord-2' }]
     expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s2', 'coord-1')], held)).toBeNull()
     expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s2', 'coord-2')], held)).toMatch(/must be your own/)
-    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-1')], held)).toMatch(/only change your own/)
+    // Once made, not even their own: only the administrator or the team leader changes it (27 Nov 2026).
+    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-1')], [{ id: 's1', coordinator_id: 'coord-1' }])).toMatch(/administrator or the team leader/)
+    expect(flexoRateSheetRefusal('coordinator', 'coord-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-1')], held)).toMatch(/administrator or the team leader/)
     expect(flexoRateSheetRefusal('team_leader', 'admin-1', 'saveFlexoRateSheet', [sheet('s1', 'coord-2')], held)).toBeNull()
   })
 
@@ -34,10 +41,11 @@ describe('Flexo Rate Sheet operations', () => {
     store.flexoRateSheets = []
     store.saveFlexoRateSheet(sheet('a', 'coord-1', { docEntry: 99 }))
     store.saveFlexoRateSheet(sheet('b', 'coord-2'))
-    expect(store.getFlexoRateSheets().map((s) => [s.id, s.docEntry])).toEqual([['a', 1], ['b', 2]])
+    // New sheets carry on from SAP's last DocEntry, 5386 (27 Nov 2026).
+    expect(store.getFlexoRateSheets().map((s) => [s.id, s.docEntry])).toEqual([['a', 5387], ['b', 5388]])
     store.saveFlexoRateSheet(sheet('a', 'coord-9', { docEntry: 5, customer: 'Changed', created_at: 'later' }))
     const a = store.getFlexoRateSheets().find((s) => s.id === 'a')!
-    expect([a.docEntry, a.coordinator_id, a.customer, a.created_at]).toEqual([1, 'coord-1', 'Changed', '2026-11-24T10:00:00Z'])
+    expect([a.docEntry, a.coordinator_id, a.customer, a.created_at]).toEqual([5387, 'coord-1', 'Changed', '2026-11-24T10:00:00Z'])
   })
 
   it('sets and clears a rate by Type', () => {

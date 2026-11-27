@@ -275,7 +275,8 @@ export function selfLeadRefusal(
 
 /**
  * Why a coordinator may not save this Flexo Rate Sheet, or null when they may:
- * only their own, and they cannot hand one to somebody else.
+ * a new one, in their own name. Once made, a sheet is changed only by the
+ * administrator or the team leader (27 Nov 2026, the user's request).
  */
 export function flexoRateSheetRefusal(
   role: AuthRole | undefined,
@@ -288,7 +289,7 @@ export function flexoRateSheetRefusal(
   if (role === 'admin' || role === 'team_leader') return null
   const sheet = (args[0] ?? null) as { id?: unknown; coordinator_id?: unknown } | null
   const held = sheets.find((s) => s.id === sheet?.id)
-  if (held && held.coordinator_id !== userId) return 'You can only change your own rate sheets.'
+  if (held) return 'A saved quotation sheet can only be changed by the administrator or the team leader.'
   return sheet?.coordinator_id === userId ? null : 'A rate sheet you save must be your own.'
 }
 
@@ -307,6 +308,8 @@ export function moduleAccessRefusal(role: AuthRole | undefined, method: string):
 /** Only the administrator changes how Robi celebrates festivals. */
 /** Only the administrator changes the Quotation Sheet settings (formula numbers, lists, texts). */
 export function quotationConfigRefusal(role: AuthRole | undefined, method: string): string | null {
+  // The rate table is the administrator's only, like the settings (27 Nov 2026, the user's request).
+  if (method === 'setFlexoRate') return role === 'admin' ? null : 'Only the administrator can change the rate table.'
   if (method !== 'saveQuotationConfig') return null
   return role === 'admin' ? null : 'Only the administrator can change the Quotation Sheet settings.'
 }

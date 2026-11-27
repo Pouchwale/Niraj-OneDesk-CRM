@@ -9,7 +9,7 @@
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { FileSearch, FileText, FolderOpen, Pencil, Search, Table2 } from 'lucide-react'
+import { Eye, FileSearch, FileText, FolderOpen, Pencil, Search, Table2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { getCoordinatorDisplayName } from '@/features/auth/AuthContext'
+import { getCoordinatorDisplayName, useAuth } from '@/features/auth/AuthContext'
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { describe, type FlexoRateSheet } from '@/lib/flexo-rate-sheet'
 import { cn, formatDate } from '@/lib/utils'
@@ -29,6 +29,7 @@ export type QuotationReport = 'do-not-send' | 'sales-quotation'
 
 export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport }: { canManageTeam: boolean; currentUserId: string; onOpenReport: (docEntry: number, report: QuotationReport) => void }) {
   const sheets = useSyncExternalStore(subscribeToDemoStore, () => demoCompanyStore.flexoRateSheets)
+  const { isAdmin } = useAuth()
   /** The saved sheet in the form, or null for a new one. */
   const [editingId, setEditingId] = useState<string | null>(null)
   /** Starts a fresh form after Add or Cancel. */
@@ -58,10 +59,13 @@ export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport
           Saved reports
           {sheets.length > 0 && <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{sheets.length}</span>}
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setRatesOpen(true)} data-testid="flexo-rates-open">
-          <Table2 className="mr-2 h-4 w-4 text-emerald-600" />
-          Rate table
-        </Button>
+        {/* The rate table is the administrator's only (27 Nov 2026, the user's request). */}
+        {isAdmin && (
+          <Button variant="outline" size="sm" onClick={() => setRatesOpen(true)} data-testid="flexo-rates-open">
+            <Table2 className="mr-2 h-4 w-4 text-emerald-600" />
+            Rate table
+          </Button>
+        )}
       </PageHeader>
 
       <FlexoRateSheetForm
@@ -69,6 +73,8 @@ export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport
         sheet={editing}
         currentUserId={currentUserId}
         onOpenReport={onOpenReport}
+        // Once made, only the administrator and the team leader change a sheet; a coordinator sees it.
+        readOnly={!!editing && !canManageTeam}
         onCancel={startNew}
         onSaved={(saved, isNew) => {
           if (isNew) {
@@ -86,15 +92,17 @@ export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport
 
       <SavedSheetsDialog open={savedOpen} onOpenChange={setSavedOpen} sheets={sheets} editingId={editingId} canManageTeam={canManageTeam} onOpen={open} onOpenReport={onOpenReport} />
 
-      <Dialog open={ratesOpen} onOpenChange={setRatesOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>Rate table</DialogTitle>
-            <DialogDescription>SAP's @RATED: the rates the Do not Send and the Sales Quotation use.</DialogDescription>
-          </DialogHeader>
-          <RatesCard canManageTeam={canManageTeam} currentUserId={currentUserId} defaultOpen />
-        </DialogContent>
-      </Dialog>
+      {isAdmin && (
+        <Dialog open={ratesOpen} onOpenChange={setRatesOpen}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+            <DialogHeader>
+              <DialogTitle>Rate table</DialogTitle>
+              <DialogDescription>SAP's @RATED: the rates the Do not Send and the Sales Quotation use.</DialogDescription>
+            </DialogHeader>
+            <RatesCard canManageTeam currentUserId={currentUserId} defaultOpen />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
@@ -122,7 +130,8 @@ function SavedSheetsDialog({
     const needle = search.trim().toLowerCase()
     return sheets
       .filter((s) => !needle || [String(s.docEntry), s.customer, s.marketingPerson, s.remark, ...s.lines.map((l) => l.jobName)].some((v) => (v ?? '').toLowerCase().includes(needle)))
-      .sort((a, b) => b.docEntry - a.docEntry)
+      // A DocEntry typed in full comes first, then the newest.
+      .sort((a, b) => Number(String(b.docEntry) === needle) - Number(String(a.docEntry) === needle) || b.docEntry - a.docEntry)
   }, [sheets, search])
 
   return (
@@ -134,7 +143,7 @@ function SavedSheetsDialog({
         </DialogHeader>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="DocEntry, customer, job name, marketing person" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="flexo-saved-search" />
+          <Input placeholder="DocEntry (e.g. 5387), customer, job name, marketing person" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="flexo-saved-search" />
         </div>
         {rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
@@ -151,7 +160,7 @@ function SavedSheetsDialog({
                   <th className="hidden px-3 py-2 font-medium lg:table-cell">Marketing Person</th>
                   <th className="hidden px-3 py-2 text-right font-medium lg:table-cell">Lines</th>
                   <th className="px-3 py-2 font-medium">Status</th>
-                  {canManageTeam && <th className="hidden px-3 py-2 font-medium lg:table-cell">Added by</th>}
+                  <th className="hidden px-3 py-2 font-medium lg:table-cell">Added by</th>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
@@ -168,11 +177,11 @@ function SavedSheetsDialog({
                         {s.status || 'Pending'}
                       </Badge>
                     </td>
-                    {canManageTeam && <td className="hidden whitespace-nowrap px-3 py-2 lg:table-cell">{s.coordinator_id ? getCoordinatorDisplayName(s.coordinator_id) : '—'}</td>}
+                    <td className="hidden whitespace-nowrap px-3 py-2 lg:table-cell">{s.coordinator_id ? getCoordinatorDisplayName(s.coordinator_id) : '—'}</td>
                     <td className="px-3 py-1.5">
                       <div className="flex justify-end gap-1.5 whitespace-nowrap">
                         <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onOpen(s)} data-testid="flexo-open-sheet">
-                          <Pencil className="mr-1.5 h-3.5 w-3.5" /> Open
+                          {canManageTeam ? <Pencil className="mr-1.5 h-3.5 w-3.5" /> : <Eye className="mr-1.5 h-3.5 w-3.5" />} {canManageTeam ? 'Open' : 'View'}
                         </Button>
                         <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!s.docEntry} onClick={() => onOpenReport(s.docEntry, 'do-not-send')} data-testid="flexo-open-report">
                           <FileSearch className="mr-1.5 h-3.5 w-3.5" /> Do not Send

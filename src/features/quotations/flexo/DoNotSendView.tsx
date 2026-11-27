@@ -5,8 +5,8 @@
  * row per line with the report's 28 columns and its cell colours; the remarks;
  * then Freight, Plate Charge, Die Charge, Proofing Charge and GST. The figures
  * the report works out but hides can be shown, to check against SAP.
- * The rate table (SAP's @RATED) sits underneath; the team leader and the
- * administrator set the rates.
+ * The rate table (SAP's @RATED, RatesCard) is the administrator's only; it
+ * opens from the Quotation Sheet page.
  */
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
