@@ -177,7 +177,8 @@ export function FlexoLinesGrid({
       </div>
 
       {/* SAP's grid: it fills the page and scrolls inside itself, both ways; the headings stay on top. */}
-      <div className="max-h-[68vh] overflow-auto rounded-md border border-border bg-background" onCopy={onCopy} onPaste={onPaste} data-testid="flexo-grid-scroll">
+      {/* `isolate`: the frozen headings and columns stack inside the grid only, so they never paint over the page's Add / Cancel bar. */}
+      <div className="isolate max-h-[68vh] overflow-auto rounded-md border border-border bg-background" onCopy={onCopy} onPaste={onPaste} data-testid="flexo-grid-scroll">
         <table className="table-fixed border-separate border-spacing-0 text-xs" style={{ width: gridWidth }} data-testid="flexo-grid-table">
           <colgroup>
             <col style={{ width: NUM_W }} />

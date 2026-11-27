@@ -131,16 +131,25 @@ export async function getNotifications(userId: string, isAdmin: boolean): Promis
   );
 }
 
+/** Fired when read marks change, so the bell and Robi's pop-up agree at once. */
+export const NOTIFICATIONS_READ_EVENT = 'crm:notifications-read';
+
+function announceRead(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(NOTIFICATIONS_READ_EVENT));
+}
+
 export async function markAsRead(notificationId: string, userId: string): Promise<void> {
   const ids = getReadIds(userId);
   ids.add(notificationId);
   persistReadIds(userId, ids);
+  announceRead();
 }
 
 export async function markAllAsRead(notificationIds: string[], userId: string): Promise<void> {
   const ids = getReadIds(userId);
   notificationIds.forEach((id) => ids.add(id));
   persistReadIds(userId, ids);
+  announceRead();
 }
 
 /**

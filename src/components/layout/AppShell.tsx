@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { AssistantWidget } from '@/features/assistant/AssistantWidget';
 import { ProofGate } from '@/features/assistant/ProofGate';
+import { RobiPopup } from '@/features/assistant/RobiPopup';
 import { FestivalOverlay } from '@/features/festivals/FestivalOverlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { ModuleGate } from '@/features/auth/module-access';
@@ -47,6 +48,8 @@ export const AppShell = () => {
       {/* Coordinator-only follow-up assistant; renders nothing for admins. */}
       <AssistantWidget />
       <ProofGate />
+      {/* Messages from the team and the morning's due payments, with Robi (everyone). */}
+      <RobiPopup />
       {/* Festival celebrations: one at a time, over everything. */}
       <FestivalOverlay />
     </div>

@@ -6,7 +6,7 @@ import { seesAllAccounts } from '@/lib/users/roles';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { getNotifications, markAsRead, markAllAsRead, AppNotification } from '@/lib/notifications';
+import { getNotifications, markAsRead, markAllAsRead, NOTIFICATIONS_READ_EVENT, AppNotification } from '@/lib/notifications';
 import { subscribeToDemoStore } from '@/lib/demo-companies';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -33,10 +33,14 @@ export const NotificationBell = () => {
     const unsubscribe = subscribeToDemoStore(() => {
       fetchNotifications();
     });
+    // Robi's pop-up marks what it showed as read: the red number drops at once.
+    const onRead = () => void fetchNotifications();
+    window.addEventListener(NOTIFICATIONS_READ_EVENT, onRead);
 
     return () => {
       clearInterval(intervalId);
       unsubscribe();
+      window.removeEventListener(NOTIFICATIONS_READ_EVENT, onRead);
     };
   }, [user]);
 
