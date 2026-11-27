@@ -6,7 +6,7 @@ import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { IndianRupee, User, Building2, Layers, CreditCard, ChevronDown, ChevronUp, Send, Sparkles } from 'lucide-react'
+import { BadgeIndianRupee, IndianRupee, User, Building2, Layers, CreditCard, ChevronDown, ChevronUp, Send, Sparkles } from 'lucide-react'
 import { askRobi } from '@/features/assistant/email-draft'
 import { FollowUpTimeline } from '@/features/companies/FollowUpTimeline'
 import { getAllCoordinators, getCoordinatorDisplayName, rowOwner } from '@/features/auth/AuthContext'
@@ -270,6 +270,13 @@ export function OverdueDetailPanel({
                   <Layers className="w-3.5 h-3.5" /> Department
                 </div>
                 <div>{payment.department || 'N/A'}</div>
+              </div>
+              {/* The CRM OverDue sheet's Sales Person (27 Nov 2026, the user's request). */}
+              <div className="space-y-1" data-testid="overdue-sales-person">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                  <BadgeIndianRupee className="w-3.5 h-3.5" /> Sales Person
+                </div>
+                <div>{payment.sales_person_name?.trim() || 'N/A'}</div>
               </div>
             </div>
 
