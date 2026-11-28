@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { billLines, billTotals, creditRowsOf, creditsFor } from './active-credits'
 import { autoMapCompanyColumns, mapCompanyRows } from './companies-upload'
 import { demoCompanyStore } from './demo-companies'
+import { invoiceValue } from './customer-accounts'
 import type { Company } from './types'
 
 // Sapiens Labs in the Active Payment query, 28 Nov 2026 (SAP Bill Wise Details: Gross 11,50,498, Pending 5,16,016).
@@ -35,6 +36,12 @@ describe('a customer’s bills the way SAP adds them up (28 Nov 2026)', () => {
     const lines = billLines(invoices, creditsFor({ code: 'C1801', name: 'Sapiens Labs' }, credits))
     expect(lines.map((l) => l.refNo)).toEqual(['683', '23', '1511', '1512', '1590', '31523', '2047'])
     expect(billTotals(lines)).toEqual({ gross: 1150498, pending: 516016, credits: -72804 })
+  })
+  it('an invoice’s full value is its Gross Amount, so Total Amount differs from Outstanding (Sapiens 12,23,302 vs 5,88,820)', () => {
+    expect(invoices.map(invoiceValue)).toEqual([73610, 72804, 967267, 100955, 8666])
+    expect(invoices.reduce((a, i) => a + invoiceValue(i), 0)).toBe(1223302)
+    expect(invoiceValue({ total_amount: 500, extra_fields: { 'Invoice Total': '800' } } as unknown as Company)).toBe(800)
+    expect(invoiceValue({ total_amount: 500, extra_fields: {} } as unknown as Company)).toBe(500)
   })
   it('another customer’s credits are not counted', () => {
     expect(creditsFor({ code: 'C0001', name: 'Other' }, credits)).toEqual([])

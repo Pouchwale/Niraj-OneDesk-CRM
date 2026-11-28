@@ -51,11 +51,17 @@ export const customerKeyOf = (invoice: Pick<Company, 'id' | 'sap_bp_code'>) => {
 
 export const isWorkingInvoice = (invoice: Company) => invoice.status !== 'paid' && !isSetAside(invoice)
 
-/** The invoice's full value from the file's Invoice Total, or its balance when the file gave none. */
+/**
+ * The invoice's full value: the file's Gross Amount (the Active Payment query since 28 Nov 2026)
+ * or Invoice Total (the query before), else its balance when the file gave neither.
+ */
 export function invoiceValue(invoice: Company): number {
-  const raw = (invoice.extra_fields as Record<string, unknown> | null | undefined)?.['Invoice Total']
-  const value = Number(String(raw ?? '').replace(/,/g, ''))
-  return Number.isFinite(value) && value > 0 ? value : invoice.total_amount || 0
+  const extra = (invoice.extra_fields as Record<string, unknown> | null | undefined) ?? {}
+  for (const raw of [extra['Gross Amount'], extra['Invoice Total']]) {
+    const value = Number(String(raw ?? '').replace(/,/g, ''))
+    if (raw !== undefined && raw !== null && raw !== '' && Number.isFinite(value) && value > 0) return value
+  }
+  return invoice.total_amount || 0
 }
 
 export function daysPastDue(dueDate: string | null | undefined, today: string = todayISO()): number {
