@@ -16,7 +16,7 @@ import { DueDaysFilter } from '@/components/shared/DueDaysFilter';
 import { AttentionChip, AttentionGroupRow, ViewSwitch, type PaymentsView } from '@/components/shared/attention-ui';
 import { ExcelSourceCard } from '@/components/shared/ExcelSourceCard';
 import { countByReason, groupStartingAt, overdueAttention, sortByAttention } from '@/lib/attention';
-import { isSetAside } from '@/lib/no-followup';
+import { isBankrupt, isSetAside } from '@/lib/no-followup';
 import { overdueRowStats } from '@/lib/row-stats';
 import { AGEING_BUCKETS, AGEING_FILTER_PRESETS, matchesAgeingRange, type AgeingBucketKey, type DueFilterPreset } from '@/lib/due-filter';
 import { ageingBookTotals } from '@/lib/ageing';
@@ -146,10 +146,10 @@ export function OverdueDashboardPage() {
    * always was), one of the three set-aside registers, or Trends. In the URL
    * so a link or a reload opens the same tab.
    */
-  type PageTab = BookSegment | 'trends' | 'summary';
+  type PageTab = BookSegment | 'bankrupt' | 'trends' | 'summary';
   const tabParam = searchParams.get('tab');
   const tab: PageTab =
-    tabParam === 'trends' || (tabParam === 'summary' && canManageTeam) || BOOK_SEGMENTS.some((s) => s.key === tabParam)
+    tabParam === 'trends' || tabParam === 'bankrupt' || (tabParam === 'summary' && canManageTeam) || BOOK_SEGMENTS.some((s) => s.key === tabParam)
       ? (tabParam as PageTab)
       : 'regular';
   const setTab = (next: PageTab) => {
@@ -343,6 +343,8 @@ export function OverdueDashboardPage() {
     }
     return groups;
   }, [payments]);
+  /** Customers declared bankrupt in the CRM: their own tile and list (28 Nov 2026), outside the four book segments. */
+  const bankruptRows = useMemo(() => payments.filter((p) => p.status !== 'settled' && isBankrupt(p)), [payments]);
   /** The pivot-sheet summary: a table per group, a line per coordinator (team leader and administrator). */
   const summaryNameOf = (id: string | null) => (id ? getCoordinatorDisplayName(id) : 'Not in CRM');
   const summary = useMemo(() => (canManageTeam ? overdueSummary(payments, summaryNameOf) : []), [payments, canManageTeam]);
@@ -424,6 +426,25 @@ export function OverdueDashboardPage() {
             </button>
           );
         })}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'bankrupt'}
+          onClick={() => setTab('bankrupt')}
+          className={cn(
+            'min-w-[140px] shrink-0 rounded-xl border px-4 py-2.5 text-left transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            tab === 'bankrupt'
+              ? 'border-primary/60 bg-primary/10 shadow-sm'
+              : 'border-border/60 bg-card/60 hover:border-border hover:bg-muted/40'
+          )}
+          data-testid="tab-bankrupt"
+        >
+          <span className={cn('block text-sm font-medium', tab === 'bankrupt' ? 'text-foreground' : 'text-muted-foreground')}>Bankrupt</span>
+          <span className="block text-xs tabular-nums text-muted-foreground">
+            {isLoading ? '…' : `${bankruptRows.length.toLocaleString('en-IN')} · ${formatCurrency(bankruptRows.reduce((sum, p) => sum + (p.balance_due || 0), 0), true)}`}
+          </span>
+        </button>
         {canManageTeam && (
           <button
             type="button"
@@ -474,7 +495,6 @@ export function OverdueDashboardPage() {
           nameOf={summaryNameOf}
           onDownload={downloadSummary}
           onPick={(group, ownerId) => {
-            if (group === 'bankrupt') return;
             const params = new URLSearchParams(searchParams);
             if (group === 'regular') params.delete('tab');
             else params.set('tab', group);
@@ -490,7 +510,7 @@ export function OverdueDashboardPage() {
             <RefreshCcw className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : (
-          <SetAsideTable segment={tab} rows={bySegment[tab]} canManageTeam={canManageTeam} onOpen={openPayment} />
+          <SetAsideTable segment={tab} rows={tab === 'bankrupt' ? bankruptRows : bySegment[tab]} canManageTeam={canManageTeam} onOpen={openPayment} />
         )
       )}
 

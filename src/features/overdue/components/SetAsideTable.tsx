@@ -24,15 +24,26 @@ import { BUCKET_SWATCH } from './AgeingBookPanel';
 
 const BUCKET_HEADERS = ['0–30', '31–60', '61–90', '91–120', '121+'];
 
+/** A register this table lists: the set-aside segments, and Bankrupt (its own tile since 28 Nov 2026). */
+export type SetAsideRegister = Exclude<BookSegment, 'regular'> | 'bankrupt';
+
 /** What each register means, said once above its table. */
-const MEANING: Record<Exclude<BookSegment, 'regular'>, string> = {
+const MEANING: Record<SetAsideRegister, string> = {
   dispute: 'Customers disputing the amount. Not chased and not in the Regular totals while the dispute stands.',
   no_followup: 'Balances the team decided not to chase (inter-company, agreed holds and the like). Not in the Regular totals.',
   export: 'Export clients whose payment is handled outside this follow-up. Not in the Regular totals.',
+  bankrupt: 'Customers declared bankrupt in the CRM. Not chased and not in the Regular totals; the balance shown is what the SAP sheet still lists.',
 };
+const LABEL: Record<SetAsideRegister, string> = { ...SEGMENT_LABEL, bankrupt: 'Bankrupt' } as Record<SetAsideRegister, string>;
+
+/** When, by whom and why a record was set aside — a bankruptcy keeps its own date, person and note. */
+const setAsideOf = (register: SetAsideRegister, p: OverduePayment) =>
+  register === 'bankrupt'
+    ? { at: p.bankrupt_declared_at ?? null, by: p.bankrupt_declared_by ?? null, note: p.bankrupt_note ?? null }
+    : { at: p.no_followup_at ?? null, by: p.no_followup_by ?? null, note: p.no_followup_note ?? null };
 
 interface SetAsideTableProps {
-  segment: Exclude<BookSegment, 'regular'>;
+  segment: SetAsideRegister;
   /** This segment's balances, already narrowed to what the person may see. */
   rows: OverduePayment[];
   canManageTeam: boolean;
@@ -59,7 +70,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'wa
 export function SetAsideTable({ segment, rows, canManageTeam, onOpen }: SetAsideTableProps) {
   const [query, setQuery] = useState('');
   const [owner, setOwner] = useState(OWNER_ALL);
-  const label = SEGMENT_LABEL[segment];
+  const label = LABEL[segment];
 
   const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -69,7 +80,7 @@ export function SetAsideTable({ segment, rows, canManageTeam, onOpen }: SetAside
         (p.customer_name || '').toLowerCase().includes(q) ||
         p.bp_code.toLowerCase().includes(q) ||
         (p.coordinator_name || '').toLowerCase().includes(q) ||
-        (p.no_followup_note || '').toLowerCase().includes(q)
+        (setAsideOf(segment, p).note || '').toLowerCase().includes(q)
     );
   }, [rows, query]);
 
@@ -99,14 +110,14 @@ export function SetAsideTable({ segment, rows, canManageTeam, onOpen }: SetAside
     try {
       const { downloadWorkbook, fileStamp } = await import('@/features/snapshots/download');
       const header = [
-        'Customer', 'BP Code', 'Coordinator', ...BUCKET_HEADERS, 'Total Due', '31-120', 'Set aside on', 'Set aside by', 'Reason',
+        'Customer', 'BP Code', 'Coordinator', ...BUCKET_HEADERS, 'Total Due', '31-120', segment === 'bankrupt' ? 'Declared on' : 'Set aside on', segment === 'bankrupt' ? 'Declared by' : 'Set aside by', 'Reason',
       ];
       const body = shown.map((p) => [
         p.customer_name || '', p.bp_code, rowOwner(p).name,
         ...AGEING_BUCKETS.map((b) => p[b.key] || 0), p.balance_due || 0, due31to120(p),
-        p.no_followup_at ? p.no_followup_at.slice(0, 10) : '',
-        p.no_followup_by ? findUserName(p.no_followup_by) ?? p.no_followup_by : '',
-        p.no_followup_note ?? '',
+        setAsideOf(segment, p).at?.slice(0, 10) ?? '',
+        (() => { const by = setAsideOf(segment, p).by; return by ? findUserName(by) ?? by : '' })(),
+        setAsideOf(segment, p).note ?? '',
       ]);
       const total = ['TOTAL', `${shown.length} accounts`, '', ...totals.buckets, totals.balance, totals.d31_120, '', '', ''];
       downloadWorkbook(`Overdue ${label} ${fileStamp(new Date().toISOString())}.xlsx`, [
@@ -167,13 +178,14 @@ export function SetAsideTable({ segment, rows, canManageTeam, onOpen }: SetAside
                     </th>
                   ))}
                   <th className="px-4 py-3 font-medium">Coordinator</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-medium">Set aside</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-medium">{segment === 'bankrupt' ? 'Declared' : 'Set aside'}</th>
                   <th className="min-w-[240px] px-4 py-3 font-medium">Reason</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
                 {shown.map((p) => {
                   const who = rowOwner(p);
+                  const aside = setAsideOf(segment, p);
                   return (
                     <tr key={p.id} onClick={() => onOpen(p.id)} className="cursor-pointer transition-colors hover:bg-muted/30">
                       <td className="px-4 py-3">
@@ -195,14 +207,14 @@ export function SetAsideTable({ segment, rows, canManageTeam, onOpen }: SetAside
                         <OwnerName name={who.name} inCrm={who.inCrm} />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-xs">
-                        <div>{p.no_followup_at ? formatDate(p.no_followup_at) : '-'}</div>
-                        {p.no_followup_by && (
-                          <div className="text-muted-foreground">by {findUserName(p.no_followup_by) ?? 'someone'}</div>
+                        <div>{aside.at ? formatDate(aside.at) : '-'}</div>
+                        {aside.by && (
+                          <div className="text-muted-foreground">by {findUserName(aside.by) ?? 'someone'}</div>
                         )}
                       </td>
                       <td className="min-w-[240px] max-w-[320px] px-4 py-3 text-xs text-muted-foreground">
-                        <span className="line-clamp-2" title={p.no_followup_note ?? undefined}>
-                          {p.no_followup_note || '—'}
+                        <span className="line-clamp-2" title={aside.note ?? undefined}>
+                          {aside.note || '—'}
                         </span>
                       </td>
                     </tr>
