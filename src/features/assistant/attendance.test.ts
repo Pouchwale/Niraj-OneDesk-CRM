@@ -95,6 +95,27 @@ describe('attendance: leave and half days', () => {
     expect(after.items.filter((i) => i.carriedFrom === DAY2)).toHaveLength(0)
   })
 
+  it('takes a leave day’s tasks out of the next list when the leave is marked after that list was made (28 Nov 2026, Foram)', () => {
+    planFor(DAY1)
+    const next = planFor(DAY2)
+    expect(next.items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
+    // DAY1 marked as leave only now, after DAY2's list exists.
+    mark(DAY1, 'leave')
+    const after = demoCompanyStore.getDailyPlan(ME, DAY2)!
+    expect(after.items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(0)
+    expect(after.items.length).toBeGreaterThan(0)
+    expect((after.proofTaskIds ?? []).every((id) => after.items.some((i) => i.taskId === id))).toBe(true)
+    // And none of them come back the day after.
+    expect(planFor(DAY3).items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(0)
+  })
+
+  it('a half day marked late takes nothing out of the next list', () => {
+    planFor(DAY1)
+    planFor(DAY2)
+    mark(DAY1, 'half_day')
+    expect(demoCompanyStore.getDailyPlan(ME, DAY2)!.items.filter((i) => i.carriedFrom === DAY1)).toHaveLength(8)
+  })
+
   it('gives four fresh tasks and one proof check on a half day marked ahead', () => {
     mark(DAY1, 'half_day')
     const plan = planFor(DAY1)

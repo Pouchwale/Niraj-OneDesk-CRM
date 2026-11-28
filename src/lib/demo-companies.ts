@@ -1785,6 +1785,7 @@ class DemoCompanyStore {
   setRobiOffDay(day: RobiOffDay): void {
     if (!day?.date || !/^\d{4}-\d{2}-\d{2}$/.test(day.date)) return
     this.robiOffDays = [...this.robiOffDays.filter((d) => d.date !== day.date), { date: day.date, by: day.by, at: day.at, note: day.note?.trim() || null }]
+    this.dropTasksGivenOn(day.date)
   }
 
   /** Robi plans that day again as usual. */
@@ -1839,6 +1840,27 @@ class DemoCompanyStore {
   setAttendance(entry: AttendanceEntry): void {
     if (!entry?.userId || !entry.date || (entry.status !== 'leave' && entry.status !== 'half_day')) return
     this.attendance = [...this.attendance.filter((a) => !(a.userId === entry.userId && a.date === entry.date)), entry]
+    if (entry.status === 'leave') this.dropTasksGivenOn(entry.date, entry.userId)
+  }
+
+  /**
+   * A leave day (or Robi day off) marked after the next lists were made (user,
+   * 28 Nov 2026, Foram): the tasks first given on that day were carried into
+   * those lists by mistake, so they come out of every later list. Work carried
+   * INTO the day from before stays (the 18 Nov rule). Locked scores keep theirs.
+   */
+  private dropTasksGivenOn(date: string, userId?: string): void {
+    this.dailyPlans = this.dailyPlans.map((plan) => {
+      if (plan.date <= date || (userId && plan.userId !== userId)) return plan
+      const gone = new Set(plan.items.filter((i) => i.carriedFrom === date).map((i) => i.taskId))
+      if (!gone.size) return plan
+      return {
+        ...plan,
+        items: plan.items.filter((i) => !gone.has(i.taskId)),
+        ...(plan.proofTaskIds ? { proofTaskIds: plan.proofTaskIds.filter((id) => !gone.has(id)) } : {}),
+        ...(plan.outcome ? { outcome: Object.fromEntries(Object.entries(plan.outcome).filter(([id]) => !gone.has(id))) } : {}),
+      }
+    })
   }
 
   /** Back to a normal day in the office. */
@@ -1918,8 +1940,11 @@ class DemoCompanyStore {
    */
   recordDailyPlan(plan: DailyPlan): DailyPlan {
     // A fresh start: work from before it is not carried in, even from a page still running older code.
-    const kept = withoutCarryBeforeFreshStart(plan.userId, plan.date, plan.items)
-    if (kept.length !== plan.items.length) plan = { ...plan, items: kept }
+    // Nor are tasks first given on a day they were on leave or a Robi day off (the 18 Nov rule, from any earlier day: 28 Nov 2026).
+    const kept = withoutCarryBeforeFreshStart(plan.userId, plan.date, plan.items).filter(
+      (i) => !(i.carriedFrom && i.carriedFrom < plan.date && this.getAttendance(plan.userId, i.carriedFrom)?.status === 'leave')
+    )
+    if (kept.length !== plan.items.length) plan = { ...plan, items: kept, ...(plan.proofTaskIds ? { proofTaskIds: plan.proofTaskIds.filter((id) => kept.some((i) => i.taskId === id)) } : {}) }
     const index = this.dailyPlans.findIndex((p) => p.userId === plan.userId && p.date === plan.date)
     if (index === -1) {
       this.dailyPlans.push(plan)
