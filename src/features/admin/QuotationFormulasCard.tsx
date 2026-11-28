@@ -154,7 +154,7 @@ export function QuotationFormulasCard({ userId }: { userId: string }) {
     try {
       demoCompanyStore.saveQuotationConfig(next, userId, new Date().toISOString())
       await whenSaved()
-      toast.success(next ? 'Quotation Sheet settings saved.' : 'Back to SAP values.')
+      toast.success(next ? 'Flexo Quotation Calculation settings saved.' : 'Back to SAP values.')
     } catch (err) {
       toast.error('Not saved.', { description: err instanceof Error ? err.message : 'Try again.' })
     } finally {
@@ -170,7 +170,7 @@ export function QuotationFormulasCard({ userId }: { userId: string }) {
       <button type="button" className="flex w-full items-start gap-2 text-left" onClick={() => setOpen((o) => !o)} data-testid="quotation-formulas-toggle">
         {open ? <ChevronDown className="mt-1 h-4 w-4 shrink-0" /> : <ChevronRight className="mt-1 h-4 w-4 shrink-0" />}
         <span>
-          <span className="block text-base font-semibold">Quotation Sheet formulas</span>
+          <span className="block text-base font-semibold">Flexo Quotation Calculation formulas</span>
           <span className="block text-sm text-muted-foreground">
             Every field and formula of the Do not Send and Sales Quotation reports, numbered as in SAP, and the numbers, dropdown lists and texts you can change.
             {saved.updatedAt ? ` Last changed ${new Date(saved.updatedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}${saved.updatedBy ? ` by ${getCoordinatorDisplayName(saved.updatedBy)}` : ''}.` : ' Using SAP’s values.'}
@@ -215,7 +215,7 @@ export function QuotationFormulasCard({ userId }: { userId: string }) {
           {tab === 'index' && (
             <div className="space-y-6" data-testid="qf-index">
               <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Quotation Sheet fields</h4>
+                <h4 className="text-sm font-semibold">Flexo Quotation Calculation fields</h4>
                 <div className="overflow-x-auto rounded-md border border-border/60">
                   <table className="w-full text-xs">
                     <thead className="bg-muted/50 text-left text-muted-foreground">

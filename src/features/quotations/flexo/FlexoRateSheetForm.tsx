@@ -106,7 +106,7 @@ export function FlexoRateSheetForm({
         return
       }
       if (demoCompanyStore.getFlexoRateSheets().some((s) => s.docEntry === typed)) {
-        toast.error(`DocEntry ${typed} is already used by another quotation sheet.`, { description: 'Type a different number.' })
+        toast.error(`DocEntry ${typed} is already used by another flexo quotation calculation.`, { description: 'Type a different number.' })
         return
       }
     }
@@ -145,7 +145,7 @@ export function FlexoRateSheetForm({
       <div className="space-y-4 p-3 sm:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold" data-testid="flexo-form-title">{sheet ? `Quotation Sheet ${sheet.docEntry}` : 'New quotation sheet'}</h3>
+            <h3 className="text-lg font-semibold" data-testid="flexo-form-title">{sheet ? `Flexo Quotation Calculation ${sheet.docEntry}` : 'New flexo quotation calculation'}</h3>
             <p className="text-xs text-muted-foreground">
               {sheet ? (readOnly ? 'Someone else’s saved sheet: only they, the team leader or the administrator can change it; its two reports are on the right.' : 'Change it and press Update. Its two reports are on the right.') : 'Fill in the sheet and press Add. It then appears in Saved reports with its two reports.'}
             </p>

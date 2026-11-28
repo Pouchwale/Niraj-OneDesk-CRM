@@ -51,7 +51,7 @@ export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Quotation Sheet"
+        title="Flexo Quotation Calculation"
         subtitle={editing ? `Saved sheet ${editing.docEntry} · ${editing.customer || 'no customer'}` : "Fill in the sheet (SAP's Flexo Rate Sheet) and press Add; its Do not Send and Sales Quotation come from it."}
       >
         <Button variant="outline" size="sm" onClick={() => setSavedOpen(true)} data-testid="flexo-saved-list">
@@ -79,13 +79,13 @@ export function FlexoRateSheetsView({ canManageTeam, currentUserId, onOpenReport
         onSaved={(saved, isNew) => {
           if (isNew) {
             // As SAP does: after Add the form is empty for the next one; the sheet is in Saved reports with its two reports.
-            toast.success(`Quotation sheet ${saved?.docEntry ?? ''} added.`, {
+            toast.success(`Flexo quotation calculation ${saved?.docEntry ?? ''} added.`, {
               description: 'It is in Saved reports.',
               action: saved?.docEntry ? { label: 'Sales Quotation', onClick: () => onOpenReport(saved.docEntry, 'sales-quotation') } : undefined,
             })
             startNew()
           } else {
-            toast.success(`Quotation sheet ${saved?.docEntry ?? ''} updated.`)
+            toast.success(`Flexo quotation calculation ${saved?.docEntry ?? ''} updated.`)
           }
         }}
       />
@@ -139,7 +139,7 @@ function SavedSheetsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-6xl" data-testid="flexo-sheets">
         <DialogHeader>
-          <DialogTitle>Saved quotation sheets</DialogTitle>
+          <DialogTitle>Saved flexo quotation calculations</DialogTitle>
           <DialogDescription>Open one to change it in the form, or go straight to its Do not Send or Sales Quotation.</DialogDescription>
         </DialogHeader>
         <div className="relative">
@@ -148,7 +148,7 @@ function SavedSheetsDialog({
         </div>
         {rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            {sheets.length === 0 ? 'No quotation sheets yet. Fill in the form and press Add.' : 'No quotation sheets match.'}
+            {sheets.length === 0 ? 'No flexo quotation calculations yet. Fill in the form and press Add.' : 'No flexo quotation calculations match.'}
           </p>
         ) : (
           <div className="max-h-[60vh] overflow-y-auto rounded-md border border-border/50">

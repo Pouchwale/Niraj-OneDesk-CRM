@@ -59,7 +59,7 @@ export function ModuleAccessCard({ userId }: { userId: string }) {
           <p className="text-xs text-muted-foreground">
             Switch a module off for a coordinator who doesn't use it: it leaves their menu and can't be opened, and its score shows N/A and is
             not counted in their final score (in every period). Robi tasks off means no daily list. Dashboard and Final score always stay on.
-            Quotation Sheet starts on for GP3 coordinators and off for the others; switch it either way for anyone.
+            Flexo Quotation Calculation starts on for GP3 coordinators and off for the others; switch it either way for anyone.
           </p>
         </div>
       </div>

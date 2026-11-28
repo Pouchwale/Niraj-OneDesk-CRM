@@ -37,8 +37,8 @@ export const Sidebar = ({ collapsed, onCollapse, mobileOpen, onMobileClose }: Si
       // (on for GP3 from 27 Nov 2026; Admin Panel → Modules per coordinator). Others keep the plain link.
       children: on('quotation_sheet')
         ? [
-            ...(on('quotations') ? [{ to: '/quotations', part: null, label: 'Quotations' }] : []),
-            { to: '/quotations?part=sheet', part: 'sheet', label: 'Quotation Sheet' },
+            ...(on('quotations') ? [{ to: '/quotations', part: null, label: 'Quotation Follow-up' }] : []),
+            { to: '/quotations?part=sheet', part: 'sheet', label: 'Flexo Quotation Calculation' },
           ]
         : undefined,
     },

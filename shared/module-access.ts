@@ -30,14 +30,14 @@ export const APP_MODULES: readonly { id: AppModuleId; label: string; route: stri
   { id: 'active_payments', label: 'Active Payments', route: '/companies', scores: [] },
   { id: 'overdue_payments', label: 'Overdue Payments', route: '/overdue', scores: ['kpi', 'kpi_dispute'] },
   { id: 'rfd', label: 'Ready for Dispatch', route: '/rfd', scores: [] },
-  { id: 'quotations', label: 'Quotations', route: '/quotations', scores: ['quotations'] },
+  { id: 'quotations', label: 'Quotation Follow-up', route: '/quotations', scores: ['quotations'] },
   { id: 'pre_sales', label: 'Pre Sales Analysis', route: '/pre-sales', scores: [] },
   { id: 'billing_issues', label: 'Billing Issues', route: '/billing-issues', scores: ['billing'] },
   { id: 'service', label: 'Service', route: '/service', scores: ['service'] },
   { id: 'self_leads', label: 'Self Leads', route: '/self-leads', scores: ['self_leads'] },
   { id: 'robi_tasks', label: 'Robi tasks', route: null, scores: ['robi'] },
   // A part of Quotations (?part=sheet), so no page of its own here: Quotations hides it when off.
-  { id: 'quotation_sheet', label: 'Quotation Sheet', route: null, scores: [], defaultTeam: 'GP3' },
+  { id: 'quotation_sheet', label: 'Flexo Quotation Calculation', route: null, scores: [], defaultTeam: 'GP3' },
 ]
 
 export const APP_MODULE_IDS: readonly AppModuleId[] = APP_MODULES.map((m) => m.id)

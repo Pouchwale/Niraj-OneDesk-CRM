@@ -251,7 +251,7 @@ export function DoNotSendView({ sheet }: { sheet: FlexoRateSheet }) {
                   r.error ? (
                     <p key={r.line.id} className="flex items-start gap-1.5">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                      Line {i + 1}{r.line.jobName ? ` (${r.line.jobName})` : ''}: {r.error}. SAP's report would stop here; fill it in on the Quotation Sheet.
+                      Line {i + 1}{r.line.jobName ? ` (${r.line.jobName})` : ''}: {r.error}. SAP's report would stop here; fill it in on the Flexo Quotation Calculation.
                     </p>
                   ) : null
                 )}

@@ -10,7 +10,7 @@
 
 import { useMemo, useState, useSyncExternalStore } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BarChart3, Clock, Download, FileText, IndianRupee, List, Plus, Search, Trophy, XCircle } from 'lucide-react'
+import { BarChart3, Clock, Download, FileText, IndianRupee, List, Loader2, Plus, Search, Trophy, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { GlassCard } from '@/components/shared/GlassCard'
@@ -23,7 +23,7 @@ import { getAssignableOwners, getCoordinatorDisplayName, useAuth } from '@/featu
 import { demoCompanyStore, subscribeToDemoStore } from '@/lib/demo-companies'
 import { PERFORMANCE, QUOTATION_STATUS_LABEL, followupCount } from '@/lib/quotations'
 import type { Quotation, QuotationStatus } from '@/lib/types'
-import { cardScope, matchesQuotationFilter, performanceOf, quotationDay, quotationScore } from '@/lib/quotation-stats'
+import { cardScope, conversionsByPerson, conversionsOf, matchesQuotationFilter, monthlyPerformance, performanceByPerson, performanceOf, quotationDay, quotationScore } from '@/lib/quotation-stats'
 import { cn, formatCurrency, formatDate, todayISO } from '@/lib/utils'
 import { QuotationDialog } from './QuotationDialog'
 import { DEFAULT_FILTERS, QuotationFilters, describeFilter, toQuotationFilter, type FilterState } from './QuotationFilters'
@@ -51,12 +51,12 @@ const dayOf = quotationDay
 
 /** The parts of Quotations (24 Nov 2026): today's quotations, and the Quotation Sheet built from SAP with its two reports. */
 const PARTS = [
-  { id: 'list', label: 'Quotations' },
-  { id: 'sheet', label: 'Quotation Sheet' },
+  { id: 'list', label: 'Quotation Follow-up' },
+  { id: 'sheet', label: 'Flexo Quotation Calculation' },
 ] as const
 type Part = (typeof PARTS)[number]['id']
 const REPORTS: Record<QuotationReport, { title: string; subtitle: string }> = {
-  'do-not-send': { title: 'Do not Send', subtitle: "The costing for this quotation sheet (SAP's DO_NOT_SEND). Not for the customer." },
+  'do-not-send': { title: 'Do not Send', subtitle: "The costing for this flexo quotation calculation (SAP's DO_NOT_SEND). Not for the customer." },
   'sales-quotation': { title: 'Sales Quotation', subtitle: "The customer's quotation for this sheet (SAP's Sales_Quotation)." },
 }
 
@@ -112,13 +112,13 @@ export function QuotationsPage() {
       )}
       {part === 'sheet' && report && (
         <>
-          <PageHeader title={`${REPORTS[report].title}${sheet ? ` · Quotation Sheet ${sheet.docEntry}` : ''}`} subtitle={REPORTS[report].subtitle}>
+          <PageHeader title={`${REPORTS[report].title}${sheet ? ` · Flexo Quotation Calculation ${sheet.docEntry}` : ''}`} subtitle={REPORTS[report].subtitle}>
             <Button variant="outline" onClick={() => go('sheet')} data-testid="report-back">
-              <ArrowLeft className="mr-2 h-4 w-4" /> Quotation Sheet
+              <ArrowLeft className="mr-2 h-4 w-4" /> Flexo Quotation Calculation
             </Button>
           </PageHeader>
           {!sheet ? (
-            <p className="text-sm text-muted-foreground">There is no quotation sheet {doc || ''}{canManageTeam ? '' : ' of yours'}.</p>
+            <p className="text-sm text-muted-foreground">There is no flexo quotation calculation {doc || ''}{canManageTeam ? '' : ' of yours'}.</p>
           ) : report === 'do-not-send' ? (
             <DoNotSendView sheet={sheet} />
           ) : (
@@ -182,6 +182,43 @@ function QuotationList() {
   const ownerName =
     owner === 'all' ? null : owner === 'none' ? 'Unassigned' : owners.find((o) => o.id === owner)?.full_name ?? getCoordinatorDisplayName(owner)
 
+  /** Performance → one PDF of everything on that view, for the filters on screen (28 Nov 2026). */
+  const [reportBusy, setReportBusy] = useState(false)
+  const downloadPerformanceReport = async () => {
+    setReportBusy(true)
+    try {
+      const showPeople = canManageTeam && owner === 'all'
+      const personLabel = (id: string) => (id ? getCoordinatorDisplayName(id) : 'Unassigned')
+      const decidedHere = new Set(cards.counted)
+      const team = performanceOf(inScope, cards)
+      const { downloadPerformancePdf } = await import('./quotation-performance-pdf')
+      await downloadPerformancePdf({
+        period,
+        who: canManageTeam ? ownerName ?? 'Whole team' : user?.full_name ?? 'My quotations',
+        filters: [...describeFilter({ ...filter, from: null, to: null }, null), ...(search.trim() ? [`Search: ${search.trim()}`] : [])],
+        generatedBy: user?.full_name ?? 'OneDesk',
+        today,
+        conversions: {
+          team: conversionsOf(inScope, cards),
+          people: showPeople ? conversionsByPerson(inScope, quotingPeople, cards).map((r) => ({ name: personLabel(r.personId), summary: r.summary })) : [],
+        },
+        performance: {
+          team,
+          people: showPeople ? performanceByPerson(inScope, cards).map((r) => ({ name: personLabel(r.personId), performance: r.performance })) : [],
+        },
+        months: monthlyPerformance(inScope, filters.basis, cards),
+        won: inScope.filter((q) => q.status === 'closed' && decidedHere.has(q)).sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || (b.closing_date ?? '').localeCompare(a.closing_date ?? '')),
+        lost: inScope.filter((q) => q.status === 'lost' && decidedHere.has(q)).sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || (b.closing_date ?? '').localeCompare(a.closing_date ?? '')),
+        open: inScope.filter((q) => q.status === 'open').sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || (a.quotation_date ?? '').localeCompare(b.quotation_date ?? '')),
+        nameOf,
+      })
+    } catch {
+      toast.error('Could not make the PDF. Please try again.')
+    } finally {
+      setReportBusy(false)
+    }
+  }
+
   const download = async () => {
     const { downloadWorkbook } = await import('@/features/snapshots/download')
     downloadWorkbook(`Quotations ${today}.xlsx`, [
@@ -202,7 +239,7 @@ function QuotationList() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Quotations" subtitle={canManageTeam ? 'Every quotation sent by the team' : 'The quotations you have sent'}>
+      <PageHeader title="Quotation Follow-up" subtitle={canManageTeam ? 'Every quotation sent by the team' : 'The quotations you have sent'}>
         <Button variant="outline" onClick={download} disabled={rows.length === 0}>
           <Download className="mr-2 h-4 w-4" /> Excel
         </Button>
@@ -279,6 +316,19 @@ function QuotationList() {
           </button>
         ))}
       </div>
+
+      {view === 'performance' && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+          <p className="text-sm">
+            <span className="font-medium">Performance report</span>
+            <span className="text-muted-foreground"> · everything on this view as one PDF: conversions and score, each coordinator, month by month, every won, lost and open quotation, and customer by customer (coordinator, open / won / lost, value, follow-ups, last talked).</span>
+          </p>
+          <Button size="sm" onClick={() => void downloadPerformanceReport()} disabled={reportBusy || inScope.length === 0} data-testid="quotation-performance-pdf">
+            {reportBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Performance report (PDF)
+          </Button>
+        </div>
+      )}
 
       {view === 'performance' && (
         <QuotationConversions

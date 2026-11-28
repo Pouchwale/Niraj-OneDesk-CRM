@@ -71,6 +71,87 @@ export async function downloadConversionsPdf(input: ConversionsPdfInput): Promis
   doc.save(`Quotation Conversions and Score ${input.today}.pdf`)
 }
 
+/* The house look, shared with the Performance report (28 Nov 2026). */
+export const PDF_COLOURS = { BRAND, BLUSH, BLUSH_LINE, INK, MUTED, RULE }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Doc = any
+
+/** The letterhead: logo, title, whose, the period, who made it. Returns where the page's content starts. */
+export function drawLetterhead(doc: Doc, o: { title: string; who: string; period: string; generatedBy: string; generatedAt: string; logo?: string | null }): number {
+  const W = doc.internal.pageSize.getWidth()
+  const M = 14
+  const [dates, basis] = pdfText(o.period).split(' · ')
+  const top = 12
+  if (o.logo) {
+    try {
+      doc.addImage(o.logo, 'PNG', M, top, 16, 16)
+    } catch {
+      /* drawn without the logo */
+    }
+  }
+  const tx = o.logo ? M + 20 : M
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(...BRAND)
+  doc.text('ONEDESK CRM  ·  QUOTATIONS', tx, top + 3.5, { charSpace: 0.4 })
+  doc.setFontSize(20)
+  doc.setTextColor(...INK)
+  doc.text(o.title, tx, top + 11.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(...MUTED)
+  doc.text(pdfText(o.who), tx, top + 16.5)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(...BRAND)
+  const periodLabel = 'REPORT PERIOD'
+  doc.text(periodLabel, W - M - doc.getTextWidth(periodLabel) - 0.4 * (periodLabel.length - 1), top + 3.5, { charSpace: 0.4 })
+  doc.setFontSize(12)
+  doc.setTextColor(...INK)
+  doc.text(dates, W - M, top + 9.5, { align: 'right' })
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(...MUTED)
+  if (basis) doc.text(basis.replace(/^by /, 'By '), W - M, top + 13.5, { align: 'right' })
+  doc.text(`Generated ${o.generatedAt} by ${pdfText(o.generatedBy)}`, W - M, top + 17.5, { align: 'right' })
+  doc.setDrawColor(...BRAND)
+  doc.setLineWidth(0.6)
+  doc.line(M, top + 22, W - M, top + 22)
+  return top + 28
+}
+
+/** The running header (pages 2+) and the footer (every page). */
+export function drawPageChrome(doc: Doc, title: string, period: string, generatedAt: string): void {
+  const W = doc.internal.pageSize.getWidth()
+  const H = doc.internal.pageSize.getHeight()
+  const M = 14
+  const [dates] = pdfText(period).split(' · ')
+  const pages = doc.getNumberOfPages()
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p)
+    if (p > 1) {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.setTextColor(...INK)
+      doc.text(title, M, 10.3)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...MUTED)
+      doc.text(dates, W - M, 10.3, { align: 'right' })
+      doc.setDrawColor(...BRAND)
+      doc.setLineWidth(0.3)
+      doc.line(M, 13.5, W - M, 13.5)
+    }
+    doc.setDrawColor(...RULE)
+    doc.setLineWidth(0.2)
+    doc.line(M, H - 10, W - M, H - 10)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...MUTED)
+    doc.text(`OneDesk CRM  ·  Quotations  ·  Generated ${generatedAt}  ·  Internal, for management use`, M, H - 6)
+    doc.text(`Page ${p} of ${pages}`, W - M, H - 6, { align: 'right' })
+  }
+}
+
 export async function renderConversionsPdf(input: ConversionsPdfInput, logo?: string | null) {
   const { default: jsPDF } = await import('jspdf')
   const autoTable = (await import('jspdf-autotable')).default
