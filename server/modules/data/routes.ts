@@ -15,7 +15,7 @@ import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
 import { moduleOn } from '../../../shared/module-access'
-import { accountRefusal, billingIssueRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, flexoDocEntryRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string, team: string | null = null) {
@@ -181,6 +181,11 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (flexo) {
         logger.warn('data: rate sheet change refused', { method, user: user.id, refusal: flexo })
         next(ApiError.forbidden(flexo))
+        return
+      }
+      const docEntry = flexoDocEntryRefusal(method, (args ?? []) as unknown[], store.snapshot().flexoRateSheets ?? [])
+      if (docEntry) {
+        next(ApiError.badRequest(docEntry))
         return
       }
       const lead = selfLeadRefusal(user.role, user.id, method, (args ?? []) as unknown[], store.snapshot().selfLeads ?? [])

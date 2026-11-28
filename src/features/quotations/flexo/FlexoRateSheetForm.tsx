@@ -87,6 +87,8 @@ export function FlexoRateSheetForm({
     deliveryLocation: sheet?.deliveryLocation ?? '',
   }))
   const [lines, setLines] = useState<FlexoRateLine[]>(() => padLines(sheet?.lines.map((l) => ({ ...l })) ?? [], () => newId('line')))
+  // A new sheet's DocEntry is typed in and required (user, 28 Nov 2026); a saved sheet keeps its own.
+  const [docEntry, setDocEntry] = useState('')
   const [saving, setSaving] = useState(false)
   const cfg = useQuotationConfig()
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }))
@@ -97,11 +99,22 @@ export function FlexoRateSheetForm({
       toast.error('Fill in the sheet before adding it.', { description: 'There is no customer and no line.' })
       return
     }
+    const typed = Number(docEntry.trim())
+    if (!sheet) {
+      if (!docEntry.trim() || !Number.isInteger(typed) || typed <= 0) {
+        toast.error('Fill in the DocEntry.', { description: 'It is required: a whole number, e.g. 5391.' })
+        return
+      }
+      if (demoCompanyStore.getFlexoRateSheets().some((s) => s.docEntry === typed)) {
+        toast.error(`DocEntry ${typed} is already used by another quotation sheet.`, { description: 'Type a different number.' })
+        return
+      }
+    }
     const now = new Date().toISOString()
     const record: FlexoRateSheet = {
       id: sheet?.id ?? newId('flexo'),
-      // The store gives a new sheet its number; a saved one keeps its own.
-      docEntry: sheet?.docEntry ?? 0,
+      // A new sheet: the DocEntry typed in (required); a saved one keeps its own.
+      docEntry: sheet?.docEntry ?? typed,
       ...form,
       date: form.date || null,
       customer: form.customer.trim(),
@@ -155,8 +168,21 @@ export function FlexoRateSheetForm({
         {/* A coordinator's saved sheet: every header field locked. */}
         <fieldset disabled={readOnly} className="grid gap-x-16 gap-y-1 disabled:opacity-90 lg:grid-cols-2">
           <div className="space-y-1">
-            <Field label="DocEntry">
-              <Input className="h-7 rounded bg-muted px-1.5 text-xs text-muted-foreground" value={sheet?.docEntry ? String(sheet.docEntry) : ''} placeholder="Given when added" readOnly tabIndex={-1} data-testid="flexo-docentry" />
+            <Field label="DocEntry *">
+              {sheet ? (
+                <Input className="h-7 rounded bg-muted px-1.5 text-xs text-muted-foreground" value={String(sheet.docEntry || '')} readOnly tabIndex={-1} title="Fixed once the sheet is added" data-testid="flexo-docentry" />
+              ) : (
+                <Input
+                  aria-label="DocEntry"
+                  required
+                  inputMode="numeric"
+                  className={cn('h-7 rounded px-1.5 text-xs', !docEntry.trim() && 'border-rose-400')}
+                  value={docEntry}
+                  onChange={(e) => setDocEntry(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Required, e.g. 5391"
+                  data-testid="flexo-docentry"
+                />
+              )}
             </Field>
             <Field label="Date">
               <Input type="date" aria-label="Date" className="h-7 rounded px-1.5 text-xs" value={form.date} onChange={(e) => set({ date: e.target.value })} />

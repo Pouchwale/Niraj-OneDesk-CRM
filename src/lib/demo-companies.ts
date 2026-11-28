@@ -1710,7 +1710,8 @@ class DemoCompanyStore {
       ...others,
       {
         ...sheet,
-        docEntry: held?.docEntry ?? nextDocEntry(others),
+        // Typed in when added (required since 28 Nov 2026); a page on older code sends 0 and gets the next number.
+        docEntry: held?.docEntry ?? (Number.isInteger(sheet.docEntry) && sheet.docEntry > 0 ? sheet.docEntry : nextDocEntry(others)),
         coordinator_id: held?.coordinator_id ?? sheet.coordinator_id,
         created_at: held?.created_at ?? sheet.created_at,
         created_by: held?.created_by ?? sheet.created_by,

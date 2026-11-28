@@ -294,6 +294,22 @@ export function flexoRateSheetRefusal(
   return sheet?.coordinator_id === userId ? null : 'A rate sheet you save must be your own.'
 }
 
+/**
+ * A new quotation sheet's DocEntry (28 Nov 2026, the user): typed in, a whole
+ * number, used by no other sheet (its reports are opened by it). A saved sheet
+ * keeps its own, so an update is not checked.
+ */
+export function flexoDocEntryRefusal(method: string, args: unknown[], sheets: { id: string; docEntry: number }[]): string | null {
+  if (method !== 'saveFlexoRateSheet') return null
+  const sheet = (args[0] ?? null) as { id?: unknown; docEntry?: unknown } | null
+  if (sheets.some((s) => s.id === sheet?.id)) return null
+  const n = sheet?.docEntry
+  // 0: a page still on older code, numbered by the store as before.
+  if (n === 0) return null
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) return 'Fill in the DocEntry: a whole number.'
+  return sheets.some((s) => s.docEntry === n) ? `DocEntry ${n} is already used by another quotation sheet.` : null
+}
+
 /** Only the administrator switches Robi's tasks off for a day, or back on. */
 export function robiOffDayRefusal(role: AuthRole | undefined, method: string): string | null {
   if (method !== 'setRobiOffDay' && method !== 'clearRobiOffDay') return null

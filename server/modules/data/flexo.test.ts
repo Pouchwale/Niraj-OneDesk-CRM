@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { flexoRateSheetRefusal, isOperation, mayCall, quotationConfigRefusal } from './operations'
+import { flexoDocEntryRefusal, flexoRateSheetRefusal, isOperation, mayCall, quotationConfigRefusal } from './operations'
 import { demoCompanyStore } from '../../../src/lib/demo-companies'
 import { blankFlexoLine, type FlexoRateSheet } from '../../../src/lib/flexo-rate-sheet'
 
@@ -40,13 +40,22 @@ describe('Flexo Rate Sheet operations', () => {
   it('numbers new sheets from every sheet and keeps a sheet’s number, owner and start when it is edited', () => {
     const store = demoCompanyStore
     store.flexoRateSheets = []
-    store.saveFlexoRateSheet(sheet('a', 'coord-1', { docEntry: 99 }))
+    // Since 28 Nov 2026 a new sheet takes the DocEntry typed in; a page on older code (0) still gets the next one after SAP's 5386.
+    store.saveFlexoRateSheet(sheet('a', 'coord-1', { docEntry: 5400 }))
     store.saveFlexoRateSheet(sheet('b', 'coord-2'))
-    // New sheets carry on from SAP's last DocEntry, 5386 (27 Nov 2026).
-    expect(store.getFlexoRateSheets().map((s) => [s.id, s.docEntry])).toEqual([['a', 5387], ['b', 5388]])
+    expect(store.getFlexoRateSheets().map((s) => [s.id, s.docEntry])).toEqual([['a', 5400], ['b', 5401]])
     store.saveFlexoRateSheet(sheet('a', 'coord-9', { docEntry: 5, customer: 'Changed', created_at: 'later' }))
     const a = store.getFlexoRateSheets().find((s) => s.id === 'a')!
-    expect([a.docEntry, a.coordinator_id, a.customer, a.created_at]).toEqual([5387, 'coord-1', 'Changed', '2026-11-24T10:00:00Z'])
+    expect([a.docEntry, a.coordinator_id, a.customer, a.created_at]).toEqual([5400, 'coord-1', 'Changed', '2026-11-24T10:00:00Z'])
+  })
+
+  it('a new sheet’s DocEntry must be a whole number no other sheet uses; a saved sheet is not checked (28 Nov 2026)', () => {
+    const held = [{ id: 's1', docEntry: 5391 }]
+    expect(flexoDocEntryRefusal('saveFlexoRateSheet', [sheet('s2', 'c', { docEntry: 5392 })], held)).toBeNull()
+    expect(flexoDocEntryRefusal('saveFlexoRateSheet', [sheet('s2', 'c', { docEntry: 5391 })], held)).toMatch(/already used/)
+    expect(flexoDocEntryRefusal('saveFlexoRateSheet', [sheet('s2', 'c', { docEntry: 1.5 })], held)).toMatch(/Fill in the DocEntry/)
+    expect(flexoDocEntryRefusal('saveFlexoRateSheet', [sheet('s1', 'c', { docEntry: 5391 })], held)).toBeNull()
+    expect(flexoDocEntryRefusal('deleteFlexoRateSheet', ['s1'], held)).toBeNull()
   })
 
   it('sets and clears a rate by Type', () => {
