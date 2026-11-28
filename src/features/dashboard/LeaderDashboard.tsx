@@ -19,7 +19,8 @@ import { openRfdRows } from '@/lib/rfd-marks'
 import { markSwitchedOff, periodLabel, weekOf, type PeriodScores, type ScoreGroupMap } from '@/lib/score-history'
 import { getScoreHistory } from '@/lib/score-history-api'
 import { getSavedDay, listSavedDays } from '@/lib/snapshots-api'
-import { addDaysISO, formatCurrency, todayISO } from '@/lib/utils'
+import { addDaysISO, cn, formatCurrency, todayISO } from '@/lib/utils'
+import { formatLost } from '@/lib/final-groups'
 import type { OverduePayment } from '@/lib/types'
 import { scoreModulesOff } from '../../../shared/module-access'
 import type { OverdueSnapshotMeta } from '../../../shared/snapshots'
@@ -32,6 +33,11 @@ const localDay = (iso: string) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 const scoreColor = (score: number | null) => (score === null ? 'blue' : score >= 80 ? 'emerald' : score >= 50 ? 'amber' : 'rose') as 'blue' | 'emerald' | 'amber' | 'rose'
+/** A group's colour by how much of its share it lost (as on the Final score page). */
+const groupTone = (lost: number, share: number | null) => {
+  const part = share ? lost / share : lost === 0 ? 0 : 1
+  return part <= 0.2 ? 'text-emerald-600 dark:text-emerald-400' : part <= 0.5 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'
+}
 const rupees = (v: number) => formatCurrency(v)
 const countSplit = (s: NewRepeat) => `New ${s.new} · Repeat ${s.repeat}${s.unmarked ? ` · Not marked ${s.unmarked}` : ''}`
 const valueSplit = (s: NewRepeat) => `New ${rupees(s.new)} · Repeat ${rupees(s.repeat)}${s.unmarked ? ` · Not marked ${rupees(s.unmarked)}` : ''}`
@@ -170,11 +176,26 @@ export function LeaderDashboard() {
               key={t.team}
               title={`${t.team} team`}
               value={formatFinal(t.final)}
-              hint={t.weighted ? 'Average of its people’s final scores' : `Payments ${formatFinal(t.payments)} · Operations ${formatFinal(t.operations)}`}
+              hint={t.weighted ? 'Average of its people’s final scores · points each group took off' : `Payments ${formatFinal(t.payments)} · Operations ${formatFinal(t.operations)}`}
               icon={Gauge}
               color={scoreColor(t.final)}
               href="/score-history"
-            />
+            >
+              {/* The groups of the new score (28 Nov 2026, the user's Dashboard): each one's average points off. */}
+              {t.groups && t.groups.length > 0 && (
+                <ul className="mt-3 space-y-1 border-t border-border/50 pt-3 text-sm" data-testid="leader-team-groups">
+                  {t.groups.map((g) => (
+                    <li key={g.label} className="flex items-baseline justify-between gap-3">
+                      <span className="min-w-0 truncate text-muted-foreground" title={g.people > 1 ? `Average of ${g.people} people` : undefined}>
+                        {g.label}
+                        {g.share !== null && <span className="ml-1 text-xs">{g.share}%</span>}
+                      </span>
+                      <span className={cn('font-semibold tabular-nums', groupTone(g.lost, g.share))}>{formatLost(g.lost)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </KpiCard>
           ))}
           <KpiCard
             title="Team leader score"
@@ -226,7 +247,7 @@ export function LeaderDashboard() {
       </Section>
 
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Team score: the average of its people&apos;s final scores (weeks from 28 Nov 2026; before, the average of its Payments and Operations scores). Team leader score: the average of the two teams. Payment received: regular customers
+        Team score: the average of its people&apos;s final scores, with each group (Performance, Follow-up, FMS, CAPA, or a person&apos;s own) showing the average points it took off (weeks from 28 Nov 2026; before, the average of its Payments and Operations scores). Team leader score: the average of the two teams. Payment received: regular customers
         whose balance fell since the week&apos;s saved Saturday, taken from their oldest dues first. Quotations: given in the week; converted and value are those
         closed in the week. Repeat means an existing customer.
       </p>

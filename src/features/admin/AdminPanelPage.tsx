@@ -32,7 +32,6 @@ import { Switch } from '@/components/ui/switch'
 import { RobiOffDaysCard } from './RobiOffDaysCard'
 import { ModuleAccessCard } from './ModuleAccessCard'
 import { PersonRatioCard } from './PersonRatioCard'
-import { ScoreGroupsCard } from './ScoreGroupsCard'
 import { WeightageCard } from './WeightageCard'
 import { FestivalAdminCard } from '@/features/festivals/FestivalAdminCard'
 import { QuotationFormulasCard } from './QuotationFormulasCard'
@@ -89,7 +88,6 @@ function useOwnedCounts(): Record<string, number> {
 
 export function AdminPanelPage() {
   // Moving a module between the two scores changes what the per-person ratios can give shares to.
-  const [scoreGroupsVersion, setScoreGroupsVersion] = React.useState(0)
   const { user: signedIn } = useAuth()
   const users = useUsers()
   const owned = useOwnedCounts()
@@ -225,12 +223,11 @@ export function AdminPanelPage() {
 
       <ModuleAccessCard userId={signedIn?.id ?? 'admin-0'} />
 
-      {/* The one final score from 28 Nov 2026; the two cards after it set the Payments / Operations scores of earlier periods. */}
+      {/* The one final score from 28 Nov 2026. The "Two scores: Payments and Operations" card was removed at the user's
+          request (28 Nov 2026): the weightage replaces it; weeks before 28 Nov keep the split they were locked with. */}
       <WeightageCard />
 
-      <ScoreGroupsCard onChanged={() => setScoreGroupsVersion((v) => v + 1)} />
-
-      <PersonRatioCard version={scoreGroupsVersion} />
+      <PersonRatioCard />
 
       <RobiOffDaysCard userId={signedIn?.id ?? 'admin-0'} />
 

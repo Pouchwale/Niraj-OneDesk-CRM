@@ -15,7 +15,8 @@
 import { countsTowardsScore } from '@/features/snapshots/transform'
 import { quotationDay } from '@/lib/quotation-stats'
 import { groupFinalOf, type PeriodScores, type ScoreGroup, type ScoreGroupMap } from '@/lib/score-history'
-import { weightedFinalOf } from '@/lib/weightage'
+import { groupScores } from '@/lib/final-groups'
+import { weightedFinalOf, type WeightedFinal } from '@/lib/weightage'
 import type { OverduePayment, Quotation, RfdRow, TeamModule } from '@/lib/types'
 
 export const LEADER_TEAMS: readonly TeamModule[] = ['Pouchwale', 'GP3']
@@ -35,6 +36,16 @@ function averageOf(values: readonly (number | null)[]): number | null {
   return known.length ? tenth(known.reduce((a, v) => a + v, 0) / known.length) : null
 }
 
+/** One group of a team's weightage on the Dashboard: the average points it took off its people's final score. */
+export interface TeamGroup {
+  label: string
+  /** The group's share when everyone with it has the same; else null. */
+  share: number | null
+  lost: number
+  /** How many of the team's people have this group. */
+  people: number
+}
+
 export interface TeamScore {
   team: TeamModule
   /** Average of the team's coordinators who have that score (0-100; N/A left out). */
@@ -44,6 +55,27 @@ export interface TeamScore {
   final: number | null
   /** The week uses the one final score (src/lib/weightage.ts): no Payments / Operations. */
   weighted?: boolean
+  /** From 28 Nov 2026 (the user's Dashboard): each group's average points off, in plan order. */
+  groups?: TeamGroup[]
+}
+
+/** The team's groups: for each group label in its people's plans, the average points it took off (one decimal). */
+export function teamGroups(finals: readonly WeightedFinal[]): TeamGroup[] {
+  const held = new Map<string, { shares: Set<number | null>; lost: number[] }>()
+  for (const f of finals) {
+    for (const g of groupScores(f)) {
+      const h = held.get(g.label) ?? { shares: new Set(), lost: [] }
+      h.shares.add(g.share)
+      h.lost.push(g.lost)
+      held.set(g.label, h)
+    }
+  }
+  return [...held.entries()].map(([label, h]) => ({
+    label,
+    share: h.shares.size === 1 ? [...h.shares][0] : null,
+    lost: tenth(h.lost.reduce((a, v) => a + v, 0) / h.lost.length),
+    people: h.lost.length,
+  }))
 }
 
 export function leaderScores(
@@ -55,7 +87,8 @@ export function leaderScores(
     const ids = people.filter((p) => p.module === team).map((p) => p.id)
     // From 28 Nov 2026: one final score per person; the team's is their average (people with no weightage left out).
     if (period?.weighting) {
-      return { team, payments: null, operations: null, final: averageOf(ids.map((id) => weightedFinalOf(period, id).score)), weighted: true }
+      const finals = ids.map((id) => weightedFinalOf(period, id)).filter((f) => f.plan)
+      return { team, payments: null, operations: null, final: averageOf(finals.map((f) => f.score)), weighted: true, groups: teamGroups(finals) }
     }
     const of = (group: ScoreGroup) => averageOf(ids.map((id) => (period ? groupFinalOf(period, id, group, scoreGroups).score : null)))
     const payments = of('payments')

@@ -128,3 +128,37 @@ describe('Ready for Dispatch 30+ days', () => {
     expect(rfd.all).toEqual({ lines: 4, value: 650 })
   })
 })
+
+describe('the Dashboard on the new grouped score (28 Nov 2026)', () => {
+  it('each team card lists its groups with the average points they took off', async () => {
+    const { DEFAULT_WEIGHTING, planOfPeople } = await import('@/lib/weightage')
+    const people = [
+      { id: 'g1', module: 'GP3' as const },
+      { id: 'g2', module: 'GP3' as const },
+      { id: 'coord-11', module: 'Pouchwale' as const },
+      { id: 'coord-7', module: 'Pouchwale' as const },
+    ]
+    const entry = (id: string, module: string, score: number) => ({ coordinatorId: id, name: id, module, score, detail: {} })
+    const period = {
+      key: '2026-11-28',
+      entries: [entry('g1', 'kpi', 100), entry('g1', 'kpi_dispute', 100), entry('g1', 'self_leads', 100), entry('g2', 'robi', -50), entry('coord-11', 'robi', -20), entry('coord-7', 'robi', 0)],
+      weighting: { from: DEFAULT_WEIGHTING.from, plans: DEFAULT_WEIGHTING.plans, planOf: planOfPeople(DEFAULT_WEIGHTING.plans, people.map((p) => ({ id: p.id, team: p.module }))) },
+    } as unknown as PeriodScores
+    const { teams } = leaderScores(period, people)
+    const gp3 = teams.find((t) => t.team === 'GP3')!
+    // g1 keeps all of Performance (0 off), g2 loses all 40: average 20.
+    expect(gp3.groups!.map((g) => [g.label, g.share, g.lost])).toEqual([
+      ['Performance', 40, 20],
+      ['Follow-up', 30, 27.5],
+      ['FMS', 20, 20],
+      ['CAPA', 10, 10],
+    ])
+    const pw = teams.find((t) => t.team === 'Pouchwale')!
+    expect(pw.groups!.map((g) => [g.label, g.people])).toEqual([
+      ['RFD follow-up (Robi)', 1],
+      ['CAPA', 2],
+      ['FMS', 2],
+      ['Robi follow-up', 1],
+    ])
+  })
+})

@@ -29,6 +29,8 @@ export interface KpiCardProps {
    * pointing down rather than a green arrow pointing the wrong way.
    */
   deltaGood?: boolean
+  /** Extra lines under the hint (e.g. a team's group scores on the Dashboard). */
+  children?: React.ReactNode
 }
 
 const colorMap = {
@@ -63,6 +65,7 @@ export function KpiCard({
   hint,
   href,
   deltaGood,
+  children,
 }: KpiCardProps) {
   const isNumber = typeof value === "number"
   const [displayValue, setDisplayValue] = React.useState(isNumber ? 0 : value)
@@ -153,6 +156,7 @@ export function KpiCard({
           {href && <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />}
         </p>
       )}
+      {children}
     </GlassCard>
   )
 
