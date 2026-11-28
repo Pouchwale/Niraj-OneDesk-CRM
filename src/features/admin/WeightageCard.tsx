@@ -296,7 +296,7 @@ export function WeightageCard() {
                     <div className="mt-2 space-y-1.5">
                       {g.items.map((it, ii) => (
                         <div key={ii} className="flex items-center gap-2">
-                          <select className={cn(selectClass, 'w-48')} value={it.item} onChange={(e) => setItem(gi, ii, { item: e.target.value as WeightItem })} aria-label="Item">
+                          <select className={cn(selectClass, 'w-60')} value={it.item} onChange={(e) => setItem(gi, ii, { item: e.target.value as WeightItem })} aria-label="Item">
                             {WEIGHT_ITEMS.map((w) => (
                               <option key={w.id} value={w.id}>
                                 {w.label}

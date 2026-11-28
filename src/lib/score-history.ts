@@ -38,8 +38,8 @@ export type ScoreModule = 'robi' | 'kpi' | 'kpi_dispute' | 'quotations' | 'billi
 
 export const SCORE_MODULES: { id: ScoreModule; label: string; short: string; hint: string }[] = [
   { id: 'robi', label: 'Robi tasks', short: 'Robi tasks', hint: 'Average of the daily scores: Robi’s tasks done, as the gap from 100% (0% is everything done).' },
-  { id: 'kpi', label: 'Regular Overdue', short: 'Regular Overdue', hint: 'The saved weekly Regular Overdue score (Overdue Scoring) as the gap from 100%; a month or year is the average of its weeks.' },
-  { id: 'kpi_dispute', label: 'Dispute Overdue', short: 'Dispute Overdue', hint: 'The weekly Dispute Overdue score (Overdue Scoring, customers in dispute) as the gap from 100%; a month or year is the average of its weeks.' },
+  { id: 'kpi', label: 'Overdue Scoring – Regular', short: 'Overdue Scoring – Regular', hint: 'The saved weekly Overdue Scoring score (Regular Overdue tab) as the gap from 100%; a month or year is the average of its weeks.' },
+  { id: 'kpi_dispute', label: 'Overdue Scoring – Dispute', short: 'Overdue Scoring – Dispute', hint: 'The weekly Overdue Scoring score (Dispute Overdue tab, customers in dispute) as the gap from 100%; a month or year is the average of its weeks.' },
   { id: 'quotations', label: 'Quotations', short: 'Quotations', hint: 'Average points per customer (Closed + New 100, Closed + Existing 50) as the gap from 100, counted by enquiry date: 85 points shows as -15.' },
   { id: 'billing', label: 'Billing Issues', short: 'Billing', hint: 'From the number of issues as Responsible Person 1, as the gap from 100: 0 issues → 0, 1 → -50, 2 → -100, 3-5 → -125, 6-10 → -150, more → -200. A year is the average of its months.' },
   { id: 'service', label: 'Service', short: 'Service', hint: 'The monthly Final score as the gap from 100 (0 at best). A week shows the mails only; a year is the average of its months.' },

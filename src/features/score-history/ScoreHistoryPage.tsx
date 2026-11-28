@@ -166,7 +166,7 @@ const averageOf = (scores: (number | null | undefined)[]) => {
   return list.length ? Math.round((list.reduce((a, s) => a + s, 0) / list.length) * 100) / 100 : null
 }
 
-/** "Average of 4 modules: Robi tasks -25, Regular Overdue -40, …", or with the ratio "Robi tasks -25 × 30%, …" */
+/** "Average of 4 modules: Robi tasks -25, Overdue Scoring – Regular -40, …", or with the ratio "Robi tasks -25 × 30%, …" */
 function finalDetail(final: FinalShown): string {
   if (final.weighted) return weightedDetail(final.weighted, formatPart)
   if (final.score === null) return 'No module has a score in this period'

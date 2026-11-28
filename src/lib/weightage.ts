@@ -79,7 +79,7 @@ export const DEFAULT_WEIGHTING: WeightingSetting = {
       name: 'GP3 team',
       team: 'GP3',
       groups: [
-        { label: 'Performance', items: { kpi: 20, self_leads: 20 } },
+        { label: 'Performance', items: { kpi: 15, kpi_dispute: 5, self_leads: 20 } },
         { label: 'Follow-up', items: { service: 10, quotations: 10, robi: 10 } },
         { label: 'FMS', items: { fms: 20 } },
         { label: 'CAPA', items: { capa: 10 } },
@@ -229,7 +229,7 @@ export function weightedFinalOf(period: Pick<PeriodScores, 'entries'> & { weight
   return { score: Math.round(sum * 10) / 10, plan, parts }
 }
 
-/** "Performance 40%: Regular Overdue -20 × 20%, …" for the tooltip and Excel. */
+/** "Performance 40%: Overdue Scoring – Regular -20 × 15%, …" for the tooltip and Excel. */
 export function weightedDetail(f: WeightedFinal, fmt: (value: number) => string): string {
   if (!f.plan) return 'No weightage is set for this person (Admin Panel → Final score weightage).'
   if (f.plan.capaDeduction) return `${f.plan.name}: 100 less ${f.plan.capaDeduction} for each CAPA assigned; ${f.capas ?? 0} CAPA (the CAPA app is not connected yet).`
