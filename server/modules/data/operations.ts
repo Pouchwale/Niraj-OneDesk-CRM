@@ -142,6 +142,8 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   addDirectedMessages: 'team',
 
   /* ── Robi's proof checks: the coordinator answers, the leader reviews ── */
+  // Active Payments credit lines, replaced by the leader's / administrator's sync (28 Nov 2026).
+  replaceActiveCredits: 'team',
   // Notifications read: only one's own (see notificationReadRefusal).
   markNotificationsRead: 'own',
   addProofRequest: 'own',
@@ -310,6 +312,20 @@ export function flexoDocEntryRefusal(method: string, args: unknown[], sheets: { 
   if (n === 0) return null
   if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) return 'Fill in the DocEntry: a whole number.'
   return sheets.some((s) => s.docEntry === n) ? `DocEntry ${n} is already used by another quotation sheet.` : null
+}
+
+/**
+ * An Active Payments row read by a screen on older code (28 Nov 2026): the
+ * file's "Ref No" (the invoice number) was left over unused, so the row came
+ * with a wrong invoice number and the amount before GST. Refused, so a screen
+ * that has not reloaded yet cannot write such rows again.
+ */
+export function staleImportRefusal(method: string, args: unknown[]): string | null {
+  if (method !== 'upsertCompany') return null
+  const extra = (args[0] as { extra_fields?: Record<string, unknown> } | undefined)?.extra_fields
+  return extra && Object.prototype.hasOwnProperty.call(extra, 'Ref No')
+    ? 'This screen is on an older version of the CRM that reads the Active Payment file wrongly; it reloads itself in a moment (or press F5).'
+    : null
 }
 
 /** Everyone marks only their own notifications read (28 Nov 2026). */

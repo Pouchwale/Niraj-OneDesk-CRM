@@ -36,6 +36,7 @@ import {
 import { affectsBook, keepByAge, keepByDate, loadImportFilter, type ImportFilter } from './excel-filter'
 import { readFileAccounts, type FileAccounts } from './excel-reconcile'
 import { accountKeyOf, invoiceKeyOf } from './account-key'
+import { creditRowsOf } from './active-credits'
 
 export { BOOK_LABEL, BOOK_PATH_ENV, EXCEL_BOOKS }
 export type { ExcelBook, ExcelBookStatus }
@@ -380,6 +381,8 @@ export async function syncBookFromExcel(
       })),
       reconcile,
     })
+    // The credit lines (minus Pending Amount) are never invoices; kept apart for the customer panel's totals (28 Nov 2026).
+    demoCompanyStore.replaceActiveCredits(creditRowsOf(all))
     return {
       success: true,
       ...counts(outcome),

@@ -3,6 +3,7 @@ import { cleanModulesOff, type AppModuleId, type ModuleAccess } from '../../shar
 import type { AttendanceEntry, BillingIssue, FestivalConfig, RobiOffDay, SelfLead, SelfLeadRemark, ServiceCustomerTarget, ServiceRecord, Company, Quotation, QuotationFollowup, RfdRow, RfdMark, DecisionRequest, DirectedReminder, ProofRequest, Followup, FollowupStatus, FollowupEntityType, Upload, UploadError, AuditLogEntry, CoordinatorAlias, OverduePayment, OverdueStatus } from './types'
 import { isSundayISO, todayISO, toLocalISODate } from './utils'
 import { sameBpCode } from './bp-code'
+import type { ActiveCredit } from './active-credits'
 import { customerStillOpen } from './customer-open'
 import { deriveCompanyStatus } from './status-rules'
 import { CLEAR_NO_FOLLOWUP, bankruptMarkOf, disputedAmountOf, isBankrupt, isNoFollowup, isSetAside, markNoFollowup } from './no-followup'
@@ -477,6 +478,8 @@ export interface PersistedStore {
   robiOffDays?: RobiOffDay[]
   /** Which notifications each person has read ("Got it", the bell), kept on the server since 28 Nov 2026. Optional for older files. */
   notificationReads?: NotificationReads[]
+  /** Active Payments credit lines (payments, journal entries… with a minus Pending Amount), replaced on each sync since 28 Nov 2026. Optional for older files. */
+  activeCredits?: ActiveCredit[]
   /** Modules switched off per coordinator (Admin Panel, since 16 Nov 2026). Optional for older files. */
   moduleAccess?: ModuleAccess[]
   /** How Robi celebrates festivals (set by the administrator); null = the defaults. */
@@ -587,6 +590,7 @@ class DemoCompanyStore {
   selfLeads: SelfLead[] = restored?.selfLeads ?? []
   robiOffDays: RobiOffDay[] = restored?.robiOffDays ?? []
   notificationReads: NotificationReads[] = restored?.notificationReads ?? []
+  activeCredits: ActiveCredit[] = restored?.activeCredits ?? []
   moduleAccess: ModuleAccess[] = restored?.moduleAccess ?? []
   festivalConfig: FestivalConfig | null = restored?.festivalConfig ? cleanFestivalConfig(restored.festivalConfig) : null
   flexoRateSheets: FlexoRateSheet[] = restored?.flexoRateSheets ?? []
@@ -1491,6 +1495,7 @@ class DemoCompanyStore {
       selfLeads: this.selfLeads,
       robiOffDays: this.robiOffDays,
       notificationReads: this.notificationReads,
+      activeCredits: this.activeCredits,
       moduleAccess: this.moduleAccess,
       festivalConfig: this.festivalConfig,
       flexoRateSheets: this.flexoRateSheets,
@@ -1801,6 +1806,18 @@ class DemoCompanyStore {
     this.dropTasksGivenOn(day.date)
   }
 
+  /* ===== Active Payments credit lines (28 Nov 2026) ===== */
+
+  getActiveCredits(): ActiveCredit[] {
+    return [...this.activeCredits]
+  }
+
+  /** The whole list again from the file, on each Active Payments sync. */
+  replaceActiveCredits(credits: ActiveCredit[]): void {
+    if (!Array.isArray(credits)) return
+    this.activeCredits = credits.filter((c) => c && typeof c.pending === 'number' && c.pending < 0)
+  }
+
   /* ===== Notifications read (28 Nov 2026: on the server, so a message once read never comes back on any browser) ===== */
 
   getNotificationReads(userId: string): string[] {
@@ -2043,6 +2060,7 @@ class DemoCompanyStore {
     this.selfLeads = snapshot.selfLeads ?? []
     this.robiOffDays = snapshot.robiOffDays ?? []
     this.notificationReads = snapshot.notificationReads ?? []
+    this.activeCredits = snapshot.activeCredits ?? []
     this.moduleAccess = snapshot.moduleAccess ?? []
     this.festivalConfig = snapshot.festivalConfig ? cleanFestivalConfig(snapshot.festivalConfig) : null
     this.flexoRateSheets = snapshot.flexoRateSheets ?? []

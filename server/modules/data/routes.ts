@@ -15,7 +15,7 @@ import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
 import { moduleOn } from '../../../shared/module-access'
-import { accountRefusal, billingIssueRefusal, notificationReadRefusal, flexoDocEntryRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, notificationReadRefusal, staleImportRefusal, flexoDocEntryRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string, team: string | null = null) {
@@ -42,6 +42,11 @@ function scopedFor(store: DataStore, role: string, userId: string, team: string 
     messages: (snapshot.messages ?? []).filter((m) => m.toCoordinatorId === userId),
     proofRequests: (snapshot.proofRequests ?? []).filter((r) => r.coordinatorId === userId),
     notificationReads: (snapshot.notificationReads ?? []).filter((r) => r.userId === userId),
+    // Credit lines of their own customers only (by BP code).
+    activeCredits: (() => {
+      const codes = new Set(snapshot.companies.filter((c) => c.assigned_coordinator_id === userId).map((c) => (c.sap_bp_code ?? '').toUpperCase()).filter(Boolean))
+      return (snapshot.activeCredits ?? []).filter((c) => codes.has((c.bp_code ?? '').toUpperCase()))
+    })(),
     decisionRequests: (snapshot.decisionRequests ?? []).filter((r) => r.requestedBy === userId),
     attendance: (snapshot.attendance ?? []).filter((a) => a.userId === userId),
     rfdRows: (snapshot.rfdRows ?? []).filter((r) => r.assigned_coordinator_id === userId),
@@ -182,6 +187,12 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (flexo) {
         logger.warn('data: rate sheet change refused', { method, user: user.id, refusal: flexo })
         next(ApiError.forbidden(flexo))
+        return
+      }
+      const stale = staleImportRefusal(method, (args ?? []) as unknown[])
+      if (stale) {
+        logger.warn('data: old-version Active Payments row refused', { user: user.id })
+        next(ApiError.badRequest(stale))
         return
       }
       const notReadable = notificationReadRefusal(user.id, method, (args ?? []) as unknown[])

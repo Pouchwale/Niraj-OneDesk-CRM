@@ -50,6 +50,8 @@ export const COMPANY_TARGET_SCHEMA: CompanyTargetField[] = [
       'invoice no', 'invoice number', 'invoice #', 'invoice num', 'invoiceno',
       'inv no', 'inv #', 'invno', 'bill no', 'bill number', 'document no',
       'document number', 'doc no', 'docno', 'voucher no', 'reference no',
+      // The Active Payment query since 28 Nov 2026: the invoice number is "Ref No".
+      'ref no', 'ref no.', 'refno', 'reference number',
       'invoice', 'bill',
     ],
   },
@@ -82,6 +84,9 @@ export const COMPANY_TARGET_SCHEMA: CompanyTargetField[] = [
     type: 'number',
     required: true,
     aliases: [
+      // The Active Payment query since 28 Nov 2026: what is still owed is "Pending Amount"
+      // (not Basic Amount, before GST, nor Gross Amount, the invoice's full value).
+      'pending amount', 'pending',
       'payment term total amount', 'total amount', 'total', 'amount',
       'invoice amount', 'invoice value', 'bill amount', 'net amount', 'grand total',
       'outstanding', 'outstanding amount', 'balance', 'balance due', 'due amount',
