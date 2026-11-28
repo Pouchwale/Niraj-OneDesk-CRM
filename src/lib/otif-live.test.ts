@@ -179,6 +179,13 @@ describe('reading the workbook', () => {
     expect(result.ok && result.rows.map((r) => r.poNo)).toEqual(['1'])
   })
 
+  it('keeps only Label, Laminates and Sleeves (28 Nov 2026, the user): the other departments are left out', () => {
+    const depts = ['FG - Label', 'FG- Laminates', 'FG - Sleeves', 'FG - Carton', 'FG - Corrugation', 'FG - General', 'Service', 'Building']
+    const result = readOtifSheets([{ name: 'S', rows: [LIVE_HEADERS, ...depts.map((dept, i) => liveRow({ po: i + 1, closed: '2026-11-04', dept }))] }])
+    expect(result.ok && result.rows.map((r) => r.department)).toEqual(['FG - Label', 'FG - Laminates', 'FG - Sleeves'])
+    expect(result.ok && result.leftOut).toBe(5)
+  })
+
   it('refuses a sheet missing a field, and a named sheet that is not there', () => {
     const missing = readOtifSheets([{ name: 'S', rows: [LIVE_HEADERS.filter((h) => h !== 'Day Commited')] }])
     expect(missing).toEqual({ ok: false, error: 'Sheet "S" is missing the column: Day Commited.' })

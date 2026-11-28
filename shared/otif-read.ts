@@ -38,7 +38,7 @@ export const OTIF_LIVE_COLUMNS: { field: OtifLiveField; label: string; headers: 
 ]
 
 export type OtifReadResult =
-  | { ok: true; sheetName: string; rows: OtifLiveRow[]; total: number; skipped: number }
+  | { ok: true; sheetName: string; rows: OtifLiveRow[]; total: number; skipped: number; /** Rows of departments the CRM does not count (OTIF_DEPARTMENTS). */ leftOut?: number }
   | { ok: false; error: string }
 
 /* ===================== Reading cells ===================== */
@@ -113,6 +113,15 @@ export function departmentCell(value: unknown): string | null {
   const text = textCell(value)
   return text ? text.replace(/^FG\s*-\s*/i, 'FG - ') : null
 }
+
+/**
+ * The departments the CRM counts (28 Nov 2026, the user): Label, Laminates and
+ * Sleeves only. Carton, Corrugation, General, Service, Building and anything
+ * else in the OTIF sheet are left out everywhere — the OTIF page, its PDF and
+ * the Service score.
+ */
+export const OTIF_DEPARTMENTS: readonly string[] = ['FG - Label', 'FG - Laminates', 'FG - Sleeves']
+export const countedDepartment = (department: string | null): boolean => department !== null && OTIF_DEPARTMENTS.includes(department)
 
 /* ===================== Reading the sheet ===================== */
 
@@ -207,13 +216,15 @@ export function readOtifSheets(sheets: { name: string; rows: unknown[][] }[], op
 
   const rows: OtifLiveRow[] = []
   let skipped = 0
+  let leftOut = 0
   let total = 0
   for (const raw of pick.sheet.rows.slice(pick.header.index + 1)) {
     if (!raw || !raw.some((c) => c !== null && c !== undefined && c !== '')) continue
     total++
     const row = otifRowOf(raw, pick.header.columns, options.date1904)
-    if (row) rows.push(row)
-    else skipped++
+    if (!row) skipped++
+    else if (countedDepartment(row.department)) rows.push(row)
+    else leftOut++
   }
-  return { ok: true, sheetName: pick.sheet.name, rows, total, skipped }
+  return { ok: true, sheetName: pick.sheet.name, rows, total, skipped, leftOut }
 }

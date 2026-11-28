@@ -122,7 +122,7 @@ describe('the route', () => {
   let port = 0
   const HEADER = ['Production Order No', 'PO Date', 'PO Closed Date', 'Customer Name', 'Sales Order No', 'Sales Order Date', 'Sales Order Due Date', 'Order Type', 'Relation Manager', 'Production Order Due Date', 'Planned Qty', 'Completed Qty', 'Open Order Qty', 'OTIF Score', 'Department', 'Day Commited', 'DelayDays']
   // Excel day numbers: 46329 = 3 Nov 2026, 46330 = 4 Nov 2026.
-  const order = (po: string, closed: number | null, customer: string, rm: string) => [po, 46300, closed, customer, 'SO1', 46300, 46330, 'N', rm, 46330, 10, 10, 0, 'YES', 'FG - Pouch', 30, 0]
+  const order = (po: string, closed: number | null, customer: string, rm: string) => [po, 46300, closed, customer, 'SO1', 46300, 46330, 'N', rm, 46330, 10, 10, 0, 'YES', 'FG - Label', 30, 0]
 
   beforeAll(async () => {
     const root = mkdtempSync(join(tmpdir(), 'service-otif-'))
