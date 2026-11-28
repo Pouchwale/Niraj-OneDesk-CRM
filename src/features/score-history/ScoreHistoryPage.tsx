@@ -67,9 +67,10 @@ import {
   type ScoreModule,
 } from '@/lib/score-history'
 import { deleteFinalRatio, getScoreHistory, recalculatePeriod, saveFinalRatio } from '@/lib/score-history-api'
-import { WEIGHT_ITEMS, weightedDetail, weightedFinalOf, WEIGHTING_FROM, type WeightedFinal } from '@/lib/weightage'
+import { weightedDetail, weightedFinalOf, WEIGHTING_FROM, type WeightedFinal } from '@/lib/weightage'
 import { markSwitchedOff } from '@/lib/score-history'
 import { useModuleAccess } from '@/features/auth/module-access'
+import { GroupScoreTable, groupSheets, type GroupPerson } from './GroupScoreTable'
 import { LeadTargetCard } from './LeadTargetCard'
 import { ScoreGroupTabs } from './ScoreGroupTabs'
 import { scoreModulesOff } from '../../../shared/module-access'
@@ -112,9 +113,7 @@ type FinalShown = ReturnType<typeof finalScoreOf> & { weighted?: WeightedFinal }
 
 /** The one final score (27 Nov 2026): what it says above the column, and its note. */
 const WEIGHTED_NAME = 'Final score'
-/** CAPA and FMS: columns of the one final score, from another app (not connected yet). */
-const OUTSIDE_ITEMS = WEIGHT_ITEMS.filter((i) => i.outside)
-const WEIGHTED_HINT = `Since ${formatDate(WEIGHTING_FROM)} each person has one final score: the weighted sum of the items in their weightage (Admin Panel → Final score weightage), shown as the gap from 100. No scaling: an item with no score — CAPA and FMS until that app is connected — counts as zero for its share.`
+const WEIGHTED_HINT = `Since ${formatDate(WEIGHTING_FROM)} each person has one final score: the weighted sum of the items in their weightage (Admin Panel → Final score weightage), shown as the gap from 100. Each group shows the points it took off the final score, so the groups add up to it; click a group’s heading to see the scores inside it. No scaling: an item with no score — CAPA and FMS until that app is connected — counts as zero for its share.`
 
 const OneModule = ({ final }: { final: FinalShown }) =>
   !final.weights && final.parts.length === 1 ? <span className="ml-0.5 text-muted-foreground" title="Only one module had a score this period">*</span> : null
@@ -258,13 +257,15 @@ export function ScoreHistoryPage() {
   const selectedIndex = selected ? periods.indexOf(selected) : -1
 
   // The people the tables list: today's coordinators, and anyone named in the history who has left since.
-  const people = useMemo(() => {
-    if (!canManageTeam) return user ? [{ id: user.id, name: user.full_name }] : []
-    const names = new Map(getAllCoordinators().map((c) => [c.id, c.full_name ?? c.id]))
+  const people = useMemo<GroupPerson[]>(() => {
+    if (!canManageTeam) return user ? [{ id: user.id, name: user.full_name, team: user.module ?? null }] : []
+    const coordinators = getAllCoordinators()
+    const names = new Map(coordinators.map((c) => [c.id, c.full_name ?? c.id]))
+    const teams = new Map(coordinators.map((c) => [c.id, c.module ?? null]))
     // A disabled account is left out while disabled; its history is kept and returns when enabled.
     const disabled = getDisabledIds()
     for (const p of periods) for (const e of p.entries) if (!names.has(e.coordinatorId) && !disabled.has(e.coordinatorId)) names.set(e.coordinatorId, e.name)
-    return [...names.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+    return [...names.entries()].map(([id, name]) => ({ id, name, team: teams.get(id) ?? null })).sort((a, b) => a.name.localeCompare(b.name))
   }, [canManageTeam, user, periods])
 
   // The score on screen: its name and its modules, as the period on screen has them.
@@ -314,6 +315,12 @@ export function ScoreHistoryPage() {
     type Cell = string | number | null
     const rows: Cell[][] = []
     const me = user?.id ?? ''
+    // A period with the weightage: its groups, one sheet per team (with a coordinator's own module scores after it).
+    const groups = selected?.weighting && (view === 'all' || !canManageTeam) ? groupSheets(selected, people) : []
+    if (groups.length && canManageTeam) {
+      downloadWorkbook(`Final score - ${periodLabel(selected!.kind, selected!.key)}.xlsx`, groups)
+      return
+    }
     if (!canManageTeam) {
       rows.push(['', ...periods.map((p) => periodLabel(p.kind, p.key))])
       for (const m of shownModules) rows.push([m.label, ...periods.map((p) => cellText(entryOf(p, me, m.id), kind))])
@@ -341,11 +348,11 @@ export function ScoreHistoryPage() {
       }
     }
     const what = view === 'all' ? (selected ? periodLabel(selected.kind, selected.key) : kind) : moduleLabel(view)
-    downloadWorkbook(`${scoreName} - ${what}.xlsx`, [{ name: 'Scores', rows }])
+    downloadWorkbook(`${scoreName} - ${what}.xlsx`, [...groups.map((g) => ({ ...g, name: `Groups ${periodLabel(selected!.kind, selected!.key, true)}`.slice(0, 31) })), { name: 'Scores', rows }])
   }
 
   const header = (
-    <PageHeader title="Final score" subtitle="Each coordinator’s final score (Payments and Operations before 28 Nov 2026) and every module’s score, by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
+    <PageHeader title="Final score" subtitle="Each coordinator’s final score by groups — Performance, Follow-up, FMS, CAPA — with the scores inside each (since 28 Nov 2026; Payments and Operations before), by week, month and year, kept for review" icon={<History className="h-5 w-5" />}>
       <Button variant="outline" onClick={() => void download()} disabled={!periods.length}>
         <Download className="mr-2 h-4 w-4" /> Excel
       </Button>
@@ -386,7 +393,7 @@ export function ScoreHistoryPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{weighted ? 'All modules' : `${scoreGroupLabel(group)} modules`}, one period</SelectItem>
+              <SelectItem value="all">{weighted ? 'Groups' : `${scoreGroupLabel(group)} modules`}, one period</SelectItem>
               {shownModules.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
                   {m.label} over time
@@ -415,6 +422,41 @@ export function ScoreHistoryPage() {
     </p>
   )
 
+  /** The period picker: ‹ period ›, its lock, and the administrator's Work out again. */
+  const periodBar = (period: PeriodScores) => (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <Button size="icon" variant="outline" className="h-8 w-8" disabled={selectedIndex <= 0} onClick={() => setSelectedId(periods[selectedIndex - 1]?.id ?? null)} aria-label="Earlier period">
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Select value={period.id} onValueChange={setSelectedId}>
+          <SelectTrigger className="h-8 w-60" aria-label="Period">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {[...periods].reverse().map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {periodLabel(p.kind, p.key)}
+                {p.lockedAt ? '' : ' (live)'}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button size="icon" variant="outline" className="h-8 w-8" disabled={selectedIndex >= periods.length - 1} onClick={() => setSelectedId(periods[selectedIndex + 1]?.id ?? null)} aria-label="Later period">
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <PeriodStatus period={period} />
+        {isAdmin && period.lockedAt && (
+          <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => void workOutAgain()} disabled={busy}>
+            <RefreshCw className={cn('h-3.5 w-3.5', busy && 'animate-spin')} /> Work out again
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+
   const body = (() => {
     if (loading && !data) {
       return (
@@ -429,12 +471,25 @@ export function ScoreHistoryPage() {
     /* A coordinator: each module, then their final score, period by period. */
     if (!canManageTeam) {
       const me = user?.id ?? ''
+      // Since 28 Nov 2026: their final score by groups for one period, above every module over time.
+      const groupsCard = anyWeighted && selected && (
+        <GlassCard className="space-y-3 p-4">
+          {periodBar(selected)}
+          {selected.weighting ? (
+            <GroupScoreTable period={selected} people={people} kind={kind} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Before {formatDate(WEIGHTING_FROM)} there were no groups: this period’s scores are in the table below.</p>
+          )}
+        </GlassCard>
+      )
       return (
+        <>
+        {groupsCard}
         <GlassCard className="space-y-3 p-4">
           <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] table-fixed lg:min-w-0">
             <colgroup>
-              <col className="w-32 xl:w-40" />
+              <col className="w-48 xl:w-56" />
             </colgroup>
             <thead className="bg-muted/50 text-muted-foreground">
               <tr>
@@ -479,45 +534,25 @@ export function ScoreHistoryPage() {
           </div>
           {finalNote}
         </GlassCard>
+        </>
       )
     }
 
-    /* The team leader and the administrator: all modules for one period, the final score last. */
+    /* The team leader and the administrator: one period. Since 28 Nov 2026 by groups (GroupScoreTable); before, every module. */
+    if (view === 'all' && selected && weighted) {
+      return (
+        <GlassCard className="space-y-3 p-4">
+          {periodBar(selected)}
+          <GroupScoreTable period={selected} people={people} kind={kind} />
+          {finalNote}
+        </GlassCard>
+      )
+    }
     if (view === 'all' && selected) {
       const finals = people.map((person) => finalOf(selected, person.id))
       return (
         <GlassCard className="space-y-3 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Button size="icon" variant="outline" className="h-8 w-8" disabled={selectedIndex <= 0} onClick={() => setSelectedId(periods[selectedIndex - 1]?.id ?? null)} aria-label="Earlier period">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Select value={selected.id} onValueChange={setSelectedId}>
-                <SelectTrigger className="h-8 w-60" aria-label="Period">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[...periods].reverse().map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {periodLabel(p.kind, p.key)}
-                      {p.lockedAt ? '' : ' (live)'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="icon" variant="outline" className="h-8 w-8" disabled={selectedIndex >= periods.length - 1} onClick={() => setSelectedId(periods[selectedIndex + 1]?.id ?? null)} aria-label="Later period">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <PeriodStatus period={selected} />
-              {isAdmin && selected.lockedAt && (
-                <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => void workOutAgain()} disabled={busy}>
-                  <RefreshCw className={cn('h-3.5 w-3.5', busy && 'animate-spin')} /> Work out again
-                </Button>
-              )}
-            </div>
-          </div>
+          {periodBar(selected)}
           <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] table-fixed lg:min-w-0" data-testid="score-table">
             <colgroup>
@@ -525,7 +560,6 @@ export function ScoreHistoryPage() {
               {shownModules.map((m) => (
                 <col key={m.id} />
               ))}
-              {weighted && OUTSIDE_ITEMS.map((x) => <col key={x.id} />)}
               <col className="w-[10%]" />
             </colgroup>
             <thead className="bg-muted/50 text-muted-foreground">
@@ -536,12 +570,6 @@ export function ScoreHistoryPage() {
                     {m.short}
                   </th>
                 ))}
-                {weighted &&
-                  OUTSIDE_ITEMS.map((x) => (
-                    <th key={x.id} className={TH} title={`${x.label} comes from another app, not connected yet: it counts as zero for its share.`}>
-                      {x.label}
-                    </th>
-                  ))}
                 <th className={cn(TH, FINAL_COL, 'text-foreground')} title={finalHint}>
                   {scoreName}
                 </th>
@@ -561,12 +589,6 @@ export function ScoreHistoryPage() {
                       </td>
                     )
                   })}
-                  {weighted &&
-                    OUTSIDE_ITEMS.map((x) => (
-                      <td key={x.id} className={cn(TD, 'text-muted-foreground')} title={`${x.label}: not connected yet`}>
-                        —
-                      </td>
-                    ))}
                   <td className={cn(TD, FINAL_COL, finalTone(finals[i].score))} title={finalDetail(finals[i])}>
                     {formatFinal(finals[i].score)}
                     <OneModule final={finals[i]} />
@@ -583,7 +605,6 @@ export function ScoreHistoryPage() {
                     </td>
                   )
                 })}
-                {weighted && OUTSIDE_ITEMS.map((x) => <td key={x.id} className={cn(TD, 'text-muted-foreground')}>—</td>)}
                 {(() => {
                   const avg = averageOf(finals.map((f) => f.score))
                   return <td className={cn(TD, FINAL_COL, finalTone(avg))}>{formatFinal(avg === null ? null : Math.round(avg * 10) / 10)}</td>
