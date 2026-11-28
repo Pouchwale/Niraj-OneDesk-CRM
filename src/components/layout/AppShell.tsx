@@ -10,11 +10,16 @@ import { FestivalOverlay } from '@/features/festivals/FestivalOverlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { ModuleGate } from '@/features/auth/module-access';
 import { useAutoRefresh } from '@/lib/auto-refresh';
+import { useBackgroundExcelSync } from '@/lib/background-sync';
+import { useAuth } from '@/features/auth/AuthContext';
 
 export const AppShell = () => {
   const { pathname } = useLocation();
   // After a deploy every open CRM reloads itself at a safe moment (28 Nov 2026).
   useAutoRefresh();
+  // Every leader's and administrator's screen keeps the Excel books imported, whatever page it shows (28 Nov 2026).
+  const { user, canManageTeam } = useAuth();
+  useBackgroundExcelSync(Boolean(canManageTeam), user?.id);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const isDesktop = useIsDesktop();
 

@@ -227,11 +227,23 @@ const FAILED = (error: string, modifiedAt: string | null = null): ExcelSyncResul
  * Missing required columns stop the import before anything is written: a
  * partial import of a mis-mapped sheet is worse than none.
  */
-export async function syncBookFromExcel(
+export function syncBookFromExcel(
   // Only the synced books: any other book would fall through to the Active Payments import below.
   book: SyncedBook,
   options: { adminId?: string; filter?: ImportFilter } = {}
 ): Promise<ExcelSyncResult> {
+  // One import of a book at a time in this browser: the page's card and the background sync
+  // (28 Nov 2026) share the one already running rather than importing the same file twice at once.
+  const running = syncsInFlight.get(book)
+  if (running) return running
+  const run = syncBookOnce(book, options).finally(() => syncsInFlight.delete(book))
+  syncsInFlight.set(book, run)
+  return run
+}
+
+const syncsInFlight = new Map<SyncedBook, Promise<ExcelSyncResult>>()
+
+async function syncBookOnce(book: SyncedBook, options: { adminId?: string; filter?: ImportFilter }): Promise<ExcelSyncResult> {
   const filter = options.filter ?? loadImportFilter(book)
 
   let workbook: FetchedWorkbook
