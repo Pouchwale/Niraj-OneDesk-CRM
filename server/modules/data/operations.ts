@@ -142,6 +142,8 @@ export const OPERATIONS: Record<string, OperationLevel> = {
   addDirectedMessages: 'team',
 
   /* ── Robi's proof checks: the coordinator answers, the leader reviews ── */
+  // Notifications read: only one's own (see notificationReadRefusal).
+  markNotificationsRead: 'own',
   addProofRequest: 'own',
   submitProof: 'own',
   markProofMissed: 'own',
@@ -308,6 +310,12 @@ export function flexoDocEntryRefusal(method: string, args: unknown[], sheets: { 
   if (n === 0) return null
   if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) return 'Fill in the DocEntry: a whole number.'
   return sheets.some((s) => s.docEntry === n) ? `DocEntry ${n} is already used by another quotation sheet.` : null
+}
+
+/** Everyone marks only their own notifications read (28 Nov 2026). */
+export function notificationReadRefusal(userId: string, method: string, args: unknown[]): string | null {
+  if (method !== 'markNotificationsRead') return null
+  return args[0] === userId ? null : 'You can only mark your own notifications read.'
 }
 
 /** Only the administrator switches Robi's tasks off for a day, or back on. */

@@ -9,9 +9,12 @@ import { RobiPopup } from '@/features/assistant/RobiPopup';
 import { FestivalOverlay } from '@/features/festivals/FestivalOverlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { ModuleGate } from '@/features/auth/module-access';
+import { useAutoRefresh } from '@/lib/auto-refresh';
 
 export const AppShell = () => {
   const { pathname } = useLocation();
+  // After a deploy every open CRM reloads itself at a safe moment (28 Nov 2026).
+  useAutoRefresh();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const isDesktop = useIsDesktop();
 

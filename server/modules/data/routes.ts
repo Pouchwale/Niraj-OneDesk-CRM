@@ -15,7 +15,7 @@ import { openAccountKeys } from '../../../src/features/assistant/daily-plan'
 import { inBulk } from '../../../src/lib/demo-companies'
 import type { DataStore } from './store'
 import { moduleOn } from '../../../shared/module-access'
-import { accountRefusal, billingIssueRefusal, flexoDocEntryRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
+import { accountRefusal, billingIssueRefusal, notificationReadRefusal, flexoDocEntryRefusal, flexoRateSheetRefusal, quotationConfigRefusal, festivalConfigRefusal, moduleAccessRefusal, robiOffDayRefusal, selfLeadRefusal, serviceRecordRefusal, decisionRequestRefusal, isOperation, mayCall, planRefusal, proofRefusal, quotationRefusal } from './operations'
 
 /** A coordinator sees their own accounts; everyone else sees the book. */
 function scopedFor(store: DataStore, role: string, userId: string, team: string | null = null) {
@@ -41,6 +41,7 @@ function scopedFor(store: DataStore, role: string, userId: string, team: string 
     // Messages addressed to them, and nobody else's.
     messages: (snapshot.messages ?? []).filter((m) => m.toCoordinatorId === userId),
     proofRequests: (snapshot.proofRequests ?? []).filter((r) => r.coordinatorId === userId),
+    notificationReads: (snapshot.notificationReads ?? []).filter((r) => r.userId === userId),
     decisionRequests: (snapshot.decisionRequests ?? []).filter((r) => r.requestedBy === userId),
     attendance: (snapshot.attendance ?? []).filter((a) => a.userId === userId),
     rfdRows: (snapshot.rfdRows ?? []).filter((r) => r.assigned_coordinator_id === userId),
@@ -181,6 +182,11 @@ export function dataRoutes(store: DataStore, logger: Logger): Router {
       if (flexo) {
         logger.warn('data: rate sheet change refused', { method, user: user.id, refusal: flexo })
         next(ApiError.forbidden(flexo))
+        return
+      }
+      const notReadable = notificationReadRefusal(user.id, method, (args ?? []) as unknown[])
+      if (notReadable) {
+        next(ApiError.forbidden(notReadable))
         return
       }
       const docEntry = flexoDocEntryRefusal(method, (args ?? []) as unknown[], store.snapshot().flexoRateSheets ?? [])

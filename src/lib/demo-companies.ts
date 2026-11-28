@@ -419,6 +419,14 @@ const STORE_STORAGE_VERSION = 1
  */
 export const MAX_UPLOAD_ERRORS = 500
 
+/** One person's read notifications (ids), kept on the server (28 Nov 2026). */
+export interface NotificationReads {
+  userId: string
+  ids: string[]
+}
+/** The newest read marks kept per person: plenty for the bell's window, never a growing file. */
+export const NOTIFICATION_READS_KEPT = 1500
+
 /** Told when the browser refuses to save, so the app can say so out loud. */
 const storageFailureListeners = new Set<() => void>()
 
@@ -467,6 +475,8 @@ export interface PersistedStore {
   selfLeads?: SelfLead[]
   /** Days Robi gives nobody tasks (set by the administrator). Optional for older files. */
   robiOffDays?: RobiOffDay[]
+  /** Which notifications each person has read ("Got it", the bell), kept on the server since 28 Nov 2026. Optional for older files. */
+  notificationReads?: NotificationReads[]
   /** Modules switched off per coordinator (Admin Panel, since 16 Nov 2026). Optional for older files. */
   moduleAccess?: ModuleAccess[]
   /** How Robi celebrates festivals (set by the administrator); null = the defaults. */
@@ -576,6 +586,7 @@ class DemoCompanyStore {
   serviceTargets: ServiceCustomerTarget[] = restored?.serviceTargets ?? []
   selfLeads: SelfLead[] = restored?.selfLeads ?? []
   robiOffDays: RobiOffDay[] = restored?.robiOffDays ?? []
+  notificationReads: NotificationReads[] = restored?.notificationReads ?? []
   moduleAccess: ModuleAccess[] = restored?.moduleAccess ?? []
   festivalConfig: FestivalConfig | null = restored?.festivalConfig ? cleanFestivalConfig(restored.festivalConfig) : null
   flexoRateSheets: FlexoRateSheet[] = restored?.flexoRateSheets ?? []
@@ -1479,6 +1490,7 @@ class DemoCompanyStore {
       serviceTargets: this.serviceTargets,
       selfLeads: this.selfLeads,
       robiOffDays: this.robiOffDays,
+      notificationReads: this.notificationReads,
       moduleAccess: this.moduleAccess,
       festivalConfig: this.festivalConfig,
       flexoRateSheets: this.flexoRateSheets,
@@ -1789,6 +1801,22 @@ class DemoCompanyStore {
     this.dropTasksGivenOn(day.date)
   }
 
+  /* ===== Notifications read (28 Nov 2026: on the server, so a message once read never comes back on any browser) ===== */
+
+  getNotificationReads(userId: string): string[] {
+    return this.notificationReads.find((r) => r.userId === userId)?.ids ?? []
+  }
+
+  /** Adds these to what this person has read; the newest NOTIFICATION_READS_KEPT are kept. */
+  markNotificationsRead(userId: string, ids: string[]): void {
+    if (!userId || !Array.isArray(ids)) return
+    const held = this.getNotificationReads(userId)
+    const fresh = ids.filter((id) => typeof id === 'string' && id && !held.includes(id))
+    if (!fresh.length) return
+    const all = [...held, ...fresh].slice(-NOTIFICATION_READS_KEPT)
+    this.notificationReads = [...this.notificationReads.filter((r) => r.userId !== userId), { userId, ids: all }]
+  }
+
   /** Robi plans that day again as usual. */
   clearRobiOffDay(date: string): void {
     this.robiOffDays = this.robiOffDays.filter((d) => d.date !== date)
@@ -2014,6 +2042,7 @@ class DemoCompanyStore {
     this.serviceTargets = snapshot.serviceTargets ?? []
     this.selfLeads = snapshot.selfLeads ?? []
     this.robiOffDays = snapshot.robiOffDays ?? []
+    this.notificationReads = snapshot.notificationReads ?? []
     this.moduleAccess = snapshot.moduleAccess ?? []
     this.festivalConfig = snapshot.festivalConfig ? cleanFestivalConfig(snapshot.festivalConfig) : null
     this.flexoRateSheets = snapshot.flexoRateSheets ?? []

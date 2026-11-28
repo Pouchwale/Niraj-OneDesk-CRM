@@ -118,10 +118,16 @@ export async function getNotifications(userId: string, isAdmin: boolean): Promis
     ...buildReminderNotifications(readRemindersFor(userId)),
   ];
 
-  const readIds = getReadIds(userId);
+  // Read on the server (28 Nov 2026), or in this browser from before: a browser that forgets
+  // (cleared, private window, another PC) no longer brings a read message back at every login.
+  const onServer = new Set(demoCompanyStore.getNotificationReads(userId));
+  const local = getReadIds(userId);
   notifications.forEach((n) => {
-    n.read = readIds.has(n.id);
+    n.read = onServer.has(n.id) || local.has(n.id);
   });
+  // Marks only this browser had go to the server once.
+  const unsynced = notifications.filter((n) => local.has(n.id) && !onServer.has(n.id)).map((n) => n.id);
+  if (unsynced.length) saveReads(userId, unsynced);
 
   // Most urgent first, then most recent within a priority band.
   return notifications.sort(
@@ -138,10 +144,20 @@ function announceRead(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(NOTIFICATIONS_READ_EVENT));
 }
 
+/** Saves read marks on the server (kept for every browser); a failure leaves this browser's own mark. */
+function saveReads(userId: string, ids: string[]): void {
+  try {
+    demoCompanyStore.markNotificationsRead(userId, ids);
+  } catch {
+    // Offline or refused: this browser's mark still holds.
+  }
+}
+
 export async function markAsRead(notificationId: string, userId: string): Promise<void> {
   const ids = getReadIds(userId);
   ids.add(notificationId);
   persistReadIds(userId, ids);
+  saveReads(userId, [notificationId]);
   announceRead();
 }
 
@@ -149,6 +165,7 @@ export async function markAllAsRead(notificationIds: string[], userId: string): 
   const ids = getReadIds(userId);
   notificationIds.forEach((id) => ids.add(id));
   persistReadIds(userId, ids);
+  saveReads(userId, notificationIds);
   announceRead();
 }
 
