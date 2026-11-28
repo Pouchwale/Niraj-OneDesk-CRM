@@ -316,8 +316,9 @@ async function settleAgainstFile(
     keyOf: (row) => accountKeyOf(row.bp_code, row.customer_name),
     nameOf: (row) => row.customer_name || row.bp_code,
     amountOf: (row) => row.balance_due || 0,
-    isProtected: (row) =>
-      row.status === 'settled' || row.status === 'bankrupt' || isNoFollowup(row),
+    // Since 28 Nov 2026 (the user: "which is not in excel then it should not be in crm") a set-aside customer
+    // (no follow-up, dispute, export) is settled too once the file drops it; only a bankruptcy declared here stays.
+    isProtected: (row) => row.status === 'settled' || row.status === 'bankrupt' || Boolean(row.bankrupt_declared_at),
   })
 
   const open = records.filter((row) => row.status !== 'settled' && (row.balance_due || 0) !== 0)

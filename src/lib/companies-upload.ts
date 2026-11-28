@@ -601,8 +601,9 @@ async function settleAgainstFile(
     keyOf: (company) => invoiceKeyOf(company.sap_bp_code, company.invoice_no, company.name),
     nameOf: (company) => company.name,
     amountOf: (company) => company.total_amount || 0,
-    // Already out of the chase by somebody's decision, or already at nil.
-    isProtected: (company) => company.status === 'paid' || isNoFollowup(company),
+    // Already at nil, or declared bankrupt in the CRM. Since 28 Nov 2026 (the user: "which is not in excel then it
+    // should not be in crm") a set-aside invoice (no follow-up, dispute, export) closes too once the file drops it.
+    isProtected: (company) => company.status === 'paid' || Boolean(company.bankrupt_declared_at),
   })
 
   // A plan that would write down most of the book is a truncated file or a
